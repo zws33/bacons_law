@@ -1,4 +1,4 @@
-package com.zwsmith.sixdegrees.presentation
+package com.zwsmith.baconslaw.presentation
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity

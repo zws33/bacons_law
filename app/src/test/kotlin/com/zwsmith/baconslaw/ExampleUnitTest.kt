@@ -1,4 +1,4 @@
-package com.zwsmith.sixdegrees
+package com.zwsmith.baconslaw
 
 import org.junit.Test
 
