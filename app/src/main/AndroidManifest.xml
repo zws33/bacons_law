@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    package="com.zwsmith.baconslaw">
+    package="com.zwsmith.bacons_law">
 
     <application
-        android:name="com.zwsmith.baconslaw.BaconsLawApplication"
+        android:name="com.zwsmith.bacons_law.BaconsLawApplication"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/Theme.Baconslaw"
+        android:theme="@style/Theme.BaconsLaw"
         tools:targetApi="31">
         <activity
-            android:name="com.zwsmith.baconslaw.presentation.MainActivity"
+            android:name="com.zwsmith.bacons_law.presentation.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

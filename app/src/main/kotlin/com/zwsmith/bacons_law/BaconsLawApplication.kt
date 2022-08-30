@@ -1,4 +1,4 @@
-package com.zwsmith.baconslaw
+package com.zwsmith.bacons_law
 
 import android.app.Application
 
