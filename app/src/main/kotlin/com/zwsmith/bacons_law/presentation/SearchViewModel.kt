@@ -4,35 +4,77 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.zwsmith.bacons_law.data.Api
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
 class SearchViewModel : ViewModel() {
-    var castOfCurrentMovie = MutableStateFlow<List<String>>(emptyList())
     private val service = Api.create()
 
-    fun playMove(query: String) {
+    private val _searchResults = MutableStateFlow<List<String>>(emptyList())
+    val searchResults: StateFlow<List<String>> = _searchResults
+
+    private val _currentMoveType: MutableStateFlow<GameMove> = MutableStateFlow(GameMove.Movie)
+    val currentMoveType: StateFlow<GameMove> = _currentMoveType
+    private val _query: MutableStateFlow<String> = MutableStateFlow("")
+    val query: StateFlow<String> = _query
+
+    private fun resetSearch() {
+        _searchResults.value = emptyList()
+        _query.value = ""
+    }
+
+    fun setMovieSearch() {
+        _currentMoveType.value = GameMove.Movie
+        onTextInput(query.value)
+    }
+
+    fun setActorSearch() {
+        _currentMoveType.value = GameMove.Actor
+        onTextInput(query.value)
+    }
+
+    fun onTextInput(query: String) {
+        _query.value = query
         viewModelScope.launch {
-            val id = searchMovies(query).firstOrNull()?.id
-            val cast = id?.let { getCast(it) }
-            if (cast != null) {
-                castOfCurrentMovie.value = cast
+            when (currentMoveType.value) {
+                GameMove.Movie -> {
+                    viewModelScope.launch {
+                        val results: List<Movie> = searchMovies(query)
+                        _searchResults.value = results.map { it.title }
+                    }
+                }
+                GameMove.Actor -> {
+                    viewModelScope.launch {
+                        val results: List<Actor> = searchActors(query)
+                        _searchResults.value = results.map { it.name }
+                    }
+                }
             }
         }
     }
 
-    private suspend fun searchMovies(query: String): List<GameMove.Movie> {
+    private suspend fun searchActors(query: String): List<Actor> {
         return try {
-            service.searchMovies(query).results.map { GameMove.Movie(it.id, it.title) }
+            service.searchActor(query).results.map { Actor(it.id, it.name) }
         } catch (e: Throwable) {
             Timber.e(e)
             emptyList()
         }
     }
 
-    private suspend fun getCast(movieId: Int): List<String> {
+    private suspend fun searchMovies(query: String): List<Movie> {
         return try {
-            service.getCredits(movieId).cast.map { it.name }
+            service.searchMovies(query).results.map { Movie(it.id, it.title) }
+        } catch (e: Throwable) {
+            Timber.e(e)
+            emptyList()
+        }
+    }
+
+    private suspend fun getCastByMovieId(movieId: Int): List<Actor> {
+        return try {
+            service.getCredits(movieId).cast.map { Actor(it.id, it.name) }
         } catch (e: Throwable) {
             Timber.e(e)
             emptyList()
@@ -40,7 +82,10 @@ class SearchViewModel : ViewModel() {
     }
 }
 
-sealed class GameMove {
-    data class Movie(val id: Int, val title: String) : GameMove()
-    data class Actor(val id: Int, val name: String) : GameMove()
+data class Movie(val id: Int, val title: String)
+data class Actor(val id: Int, val name: String)
+
+enum class GameMove {
+    Movie,
+    Actor
 }

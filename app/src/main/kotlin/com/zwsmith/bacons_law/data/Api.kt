@@ -18,7 +18,7 @@ interface Api {
     @GET("search/person?api_key=${BuildConfig.ApiKey}")
     suspend fun searchActor(
         @Query("query") query: String
-    ): MovieSearchResponse
+    ): ActorSearchResponse
 
     @GET("movie/{movieId}/credits?api_key=${BuildConfig.ApiKey}")
     suspend fun getCredits(
