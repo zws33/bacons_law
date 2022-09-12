@@ -15,10 +15,10 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun BaconsLawApp(viewModel: SearchViewModel) {
-    val results by viewModel.results.collectAsState()
+    val results by viewModel.castOfCurrentMovie.collectAsState()
     MaterialTheme {
         Column(modifier = Modifier.fillMaxSize()) {
-            SearchBox(viewModel::searchMovies)
+            SearchBox(viewModel::playMove)
             ResultsList(results)
         }
     }

@@ -6,6 +6,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface Api {
@@ -19,12 +20,18 @@ interface Api {
         @Query("query") query: String
     ): MovieSearchResponse
 
+    @GET("movie/{movieId}/credits?api_key=${BuildConfig.ApiKey}")
+    suspend fun getCredits(
+        @Path("movieId") movieId: Int
+    ): CreditsResponse
+
     companion object {
         private const val BASE_URL = "https://api.themoviedb.org/3/"
 
         fun create(): Api {
-            val logger = HttpLoggingInterceptor().apply { level =
-                HttpLoggingInterceptor.Level.BASIC
+            val logger = HttpLoggingInterceptor().apply {
+                level =
+                    HttpLoggingInterceptor.Level.BASIC
             }
 
             val client = OkHttpClient.Builder()
