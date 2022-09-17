@@ -15,6 +15,7 @@ interface Repository {
 }
 
 class RepositoryImpl(val api: Api) : Repository {
+
     override suspend fun searchActors(query: String): List<Actor> {
         return try {
             api.searchActor(query).results.map { Actor(it.id, it.name) }
@@ -42,3 +43,6 @@ class RepositoryImpl(val api: Api) : Repository {
         }
     }
 }
+
+data class Movie(val id: Int, val title: String)
+data class Actor(val id: Int, val name: String)

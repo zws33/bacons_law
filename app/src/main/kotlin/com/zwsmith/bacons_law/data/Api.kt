@@ -23,7 +23,7 @@ interface Api {
     @GET("movie/{movieId}/credits?api_key=${BuildConfig.ApiKey}")
     suspend fun getCredits(
         @Path("movieId") movieId: Int
-    ): CreditsResponse
+    ): MovieCreditsResponse
 
     companion object {
         private const val BASE_URL = "https://api.themoviedb.org/3/"

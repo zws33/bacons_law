@@ -1,6 +1,6 @@
 package com.zwsmith.bacons_law.data
 
-data class CreditsResponse(
+data class MovieCreditsResponse(
     val cast: List<Cast>,
     val crew: List<Crew>,
     val id: Int

@@ -5,13 +5,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.zwsmith.bacons_law.data.Api
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import timber.log.Timber
 
-class SearchViewModel(val repository: Repository) : ViewModel() {
+class SearchViewModel(private val repository: Repository) : ViewModel() {
 
     private val _searchResults = MutableStateFlow<List<String>>(emptyList())
     val searchResults: StateFlow<List<String>> = _searchResults
@@ -52,9 +50,6 @@ class SearchViewModel(val repository: Repository) : ViewModel() {
         }
     }
 }
-
-data class Movie(val id: Int, val title: String)
-data class Actor(val id: Int, val name: String)
 
 enum class GameMove {
     Movie,
