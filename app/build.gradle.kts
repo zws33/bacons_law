@@ -1,5 +1,3 @@
-import com.android.build.gradle.internal.cxx.configure.gradleLocalProperties
-
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -55,6 +53,7 @@ android {
     buildFeatures {
         compose = true
     }
+    namespace = "com.zwsmith.bacons_law"
 }
 
 dependencies {

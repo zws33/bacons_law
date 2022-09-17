@@ -17,7 +17,6 @@ import androidx.compose.ui.unit.sp
 fun BaconsLawApp(viewModel: SearchViewModel) {
     val results by viewModel.searchResults.collectAsState()
     val move by viewModel.currentMoveType.collectAsState()
-    val query by viewModel.query.collectAsState()
     MaterialTheme {
         Column(modifier = Modifier.fillMaxSize()) {
             Row {
@@ -30,7 +29,7 @@ fun BaconsLawApp(viewModel: SearchViewModel) {
                     Text("Actor", Modifier.padding(16.dp))
                 }
             }
-            SearchBox(query, viewModel::onTextInput)
+            SearchBox(viewModel.query, viewModel::onTextInput)
             ResultsList(results = results)
         }
     }
