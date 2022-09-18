@@ -1,42 +1,40 @@
-package com.zwsmith.bacons_law.presentation
+package com.zwsmith.core
 
 class Game {
 
     var gameState: GameState = IntialState
         private set
 
-    fun playMove(move: GameMove) {
+    fun playMove(move: Move) {
         if (gameState.progress == Progress.NOT_STARTED) {
             gameState = gameState.copy(progress = Progress.IN_PROGRESS)
         }
         val lastMove = gameState.turns.lastOrNull()?.move
         when (move) {
-            is GameMove.Actor -> {
+            is Move.Actor -> {
                 playActor(lastMove, move)
             }
-            is GameMove.Movie -> {
+            is Move.Movie -> {
                 playMovie(lastMove, move)
             }
         }
     }
 
     private fun playActor(
-        lastMove: GameMove?,
-        move: GameMove.Actor
+        lastMove: Move?,
+        move: Move.Actor
     ) {
         gameState = when (lastMove) {
-            is GameMove.Actor -> throw IllegalStateException("Expected last move to be Movie")
-            is GameMove.Movie -> {
+            is Move.Actor -> throw IllegalStateException("Expected last move to be Movie")
+            is Move.Movie -> {
                 if (lastMove.actors.contains(move.id)) {
                     advanceGame(move)
                 } else {
-                    gameState.copy(progress = Progress.COMPLETE)
+                    finish()
                 }
             }
             null -> {
-                gameState.copy(
-                    turns = gameState.turns.plus(Turn(move, gameState.currentPlayer))
-                )
+                advanceGame(move)
             }
         }
     }
@@ -47,16 +45,16 @@ class Game {
     }
 
     private fun playMovie(
-        lastMove: GameMove?,
-        move: GameMove
+        lastMove: Move?,
+        move: Move
     ) {
         gameState = when (lastMove) {
-            is GameMove.Movie -> throw IllegalStateException("Expected last move to be Actor")
-            is GameMove.Actor -> {
+            is Move.Movie -> throw IllegalStateException("Expected last move to be Actor")
+            is Move.Actor -> {
                 if (lastMove.movies.contains(move.id)) {
                     advanceGame(move)
                 } else {
-                    gameState.copy(progress = Progress.COMPLETE)
+                    finish()
                 }
             }
             null -> {
@@ -65,7 +63,9 @@ class Game {
         }
     }
 
-    private fun advanceGame(move: GameMove): GameState {
+    private fun finish() = gameState.copy(progress = Progress.COMPLETE)
+
+    private fun advanceGame(move: Move): GameState {
         val newMoves = gameState.turns.plus(Turn(move, gameState.currentPlayer))
         return gameState.copy(turns = newMoves, currentPlayer = getNextPlayer())
     }
@@ -97,22 +97,22 @@ class Game {
     }
 
     data class Turn(
-        val move: GameMove,
+        val move: Move,
         val player: Player
     )
 
-    sealed class GameMove {
+    sealed class Move {
         abstract val id: Int
 
         data class Movie(
             override val id: Int,
             val actors: List<Int>
-        ) : GameMove()
+        ) : Move()
 
         data class Actor(
             override val id: Int,
             val movies: List<Int>
-        ) : GameMove()
+        ) : Move()
     }
 
     companion object {

@@ -5,6 +5,7 @@ plugins {
 }
 
 android {
+    namespace = "com.zwsmith.bacons_law"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
@@ -33,13 +34,9 @@ android {
     }
 
     kotlinOptions {
-        // work-runtime-ktx 2.1.0 and above now requires Java 8
         jvmTarget = "1.8"
+    }
 
-    }
-    kotlinOptions {
-        jvmTarget = "1.8"
-    }
     sourceSets {
         getByName("main").java.srcDirs("src/main/kotlin")
         getByName("androidTest").java.srcDirs("src/androidTest/kotlin")
@@ -53,7 +50,6 @@ android {
     buildFeatures {
         compose = true
     }
-    namespace = "com.zwsmith.bacons_law"
 }
 
 dependencies {
