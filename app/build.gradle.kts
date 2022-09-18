@@ -73,7 +73,17 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.compose.material)
 
-    testImplementation(libs.junit)
+    testImplementation(libs.kotest)
+    testImplementation(libs.kotest.runner)
+    testImplementation(libs.kotest.assertions)
+    testImplementation(libs.kotlin.reflect)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+}
+
+tasks.withType(Test::class.java) {
+    useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+    }
 }
