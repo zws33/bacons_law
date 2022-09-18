@@ -20,6 +20,10 @@ class SearchViewModel(private val repository: Repository) : ViewModel() {
     var query by mutableStateOf("")
         private set
 
+    fun reset() {
+        query = ""
+    }
+
     fun setMovieSearch() {
         _currentMoveType.value = GameMove.Movie
         onTextInput(query)
@@ -37,13 +41,13 @@ class SearchViewModel(private val repository: Repository) : ViewModel() {
                 GameMove.Movie -> {
                     viewModelScope.launch {
                         val results: List<Movie> = repository.searchMovies(query)
-                        _searchResults.value = results.map { it.title }
+                        _searchResults.value = results.take(5).map { it.title }
                     }
                 }
                 GameMove.Actor -> {
                     viewModelScope.launch {
                         val results: List<Actor> = repository.searchActors(query)
-                        _searchResults.value = results.map { it.name }
+                        _searchResults.value = results.take(5).map { it.name }
                     }
                 }
             }
