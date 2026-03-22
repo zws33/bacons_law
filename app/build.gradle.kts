@@ -1,7 +1,7 @@
 plugins {
-    id("com.android.application")
-    id("kotlin-android")
-    id("kotlin-kapt")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {
@@ -19,22 +19,22 @@ android {
     val apiKey: String = project.findProperty("TMDB_API_KEY") as? String ?: ""
     buildTypes {
         debug {
-            buildConfigField("String", "ApiKey", apiKey)
+            buildConfigField("String", "ApiKey", "\"$apiKey\"")
         }
         release {
-            buildConfigField("String", "ApiKey", apiKey)
+            buildConfigField("String", "ApiKey", "\"$apiKey\"")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
         }
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 
     sourceSets {
@@ -43,16 +43,14 @@ android {
         getByName("test").java.srcDirs("src/test/kotlin")
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = libs.versions.compose.compiler.get()
-    }
-
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
 dependencies {
+    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.core.ktx)
     implementation(libs.material)
     implementation(libs.androidx.appcompat)
@@ -66,7 +64,6 @@ dependencies {
     implementation(libs.retrofit2.converter.gson)
     implementation(libs.okhttp3.logging.interceptor)
     implementation(libs.timber)
-    implementation(libs.material)
     implementation(libs.androidx.compose.material)
 
     testImplementation(libs.kotest)

@@ -10,17 +10,17 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface Api {
-    @GET("search/movie?api_key=${BuildConfig.ApiKey}")
+    @GET("search/movie")
     suspend fun searchMovies(
         @Query("query") query: String
     ): MovieSearchResponse
 
-    @GET("search/person?api_key=${BuildConfig.ApiKey}")
+    @GET("search/person")
     suspend fun searchActor(
         @Query("query") query: String
     ): ActorSearchResponse
 
-    @GET("movie/{movieId}/credits?api_key=${BuildConfig.ApiKey}")
+    @GET("movie/{movieId}/credits")
     suspend fun getCredits(
         @Path("movieId") movieId: Int
     ): MovieCreditsResponse
@@ -30,11 +30,16 @@ interface Api {
 
         fun create(): Api {
             val logger = HttpLoggingInterceptor().apply {
-                level =
-                    HttpLoggingInterceptor.Level.BASIC
+                level = HttpLoggingInterceptor.Level.BASIC
             }
 
             val client = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val url = chain.request().url.newBuilder()
+                        .addQueryParameter("api_key", BuildConfig.ApiKey)
+                        .build()
+                    chain.proceed(chain.request().newBuilder().url(url).build())
+                }
                 .addInterceptor(logger)
                 .build()
 
