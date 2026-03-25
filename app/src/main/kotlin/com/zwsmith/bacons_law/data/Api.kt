@@ -10,45 +10,45 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface Api {
-    @GET("search/movie")
-    suspend fun searchMovies(
-        @Query("query") query: String
-    ): MovieSearchResponse
+  @GET("search/movie")
+  suspend fun searchMovies(
+    @Query("query") query: String
+  ): MovieSearchResponse
 
-    @GET("search/person")
-    suspend fun searchActor(
-        @Query("query") query: String
-    ): ActorSearchResponse
+  @GET("search/person")
+  suspend fun searchActor(
+    @Query("query") query: String
+  ): ActorSearchResponse
 
-    @GET("movie/{movieId}/credits")
-    suspend fun getCredits(
-        @Path("movieId") movieId: Int
-    ): MovieCreditsResponse
+  @GET("movie/{movieId}/credits")
+  suspend fun getCredits(
+    @Path("movieId") movieId: Int
+  ): MovieCreditsResponse
 
-    companion object {
-        private const val BASE_URL = "https://api.themoviedb.org/3/"
+  companion object {
+    private const val BASE_URL = "https://api.themoviedb.org/3/"
 
-        fun create(): Api {
-            val logger = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BASIC
-            }
+    fun create(): Api {
+      val logger = HttpLoggingInterceptor().apply {
+        level = HttpLoggingInterceptor.Level.BASIC
+      }
 
-            val client = OkHttpClient.Builder()
-                .addInterceptor { chain ->
-                    val url = chain.request().url.newBuilder()
-                        .addQueryParameter("api_key", BuildConfig.ApiKey)
-                        .build()
-                    chain.proceed(chain.request().newBuilder().url(url).build())
-                }
-                .addInterceptor(logger)
-                .build()
-
-            return Retrofit.Builder()
-                .baseUrl(BASE_URL)
-                .client(client)
-                .addConverterFactory(GsonConverterFactory.create())
-                .build()
-                .create(Api::class.java)
+      val client = OkHttpClient.Builder()
+        .addInterceptor { chain ->
+          val url = chain.request().url.newBuilder()
+            .addQueryParameter("api_key", BuildConfig.ApiKey)
+            .build()
+          chain.proceed(chain.request().newBuilder().url(url).build())
         }
+        .addInterceptor(logger)
+        .build()
+
+      return Retrofit.Builder()
+        .baseUrl(BASE_URL)
+        .client(client)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+        .create(Api::class.java)
     }
+  }
 }

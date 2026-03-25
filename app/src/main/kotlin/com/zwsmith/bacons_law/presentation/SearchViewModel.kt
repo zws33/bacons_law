@@ -11,51 +11,52 @@ import kotlinx.coroutines.launch
 
 class SearchViewModel(private val repository: Repository) : ViewModel() {
 
-    private val _searchResults = MutableStateFlow<List<String>>(emptyList())
-    val searchResults: StateFlow<List<String>> = _searchResults
+  private val _searchResults = MutableStateFlow<List<String>>(emptyList())
+  val searchResults: StateFlow<List<String>> = _searchResults
 
-    private val _currentMoveType: MutableStateFlow<GameMove> = MutableStateFlow(GameMove.Movie)
-    val currentMoveType: StateFlow<GameMove> = _currentMoveType
+  private val _currentMoveType: MutableStateFlow<GameMove> = MutableStateFlow(GameMove.Movie)
+  val currentMoveType: StateFlow<GameMove> = _currentMoveType
 
-    var query by mutableStateOf("")
-        private set
+  var query by mutableStateOf("")
+    private set
 
-    fun reset() {
-        query = ""
-    }
+  fun reset() {
+    query = ""
+  }
 
-    fun setMovieSearch() {
-        _currentMoveType.value = GameMove.Movie
-        onTextInput(query)
-    }
+  fun setMovieSearch() {
+    _currentMoveType.value = GameMove.Movie
+    onTextInput(query)
+  }
 
-    fun setActorSearch() {
-        _currentMoveType.value = GameMove.Actor
-        onTextInput(query)
-    }
+  fun setActorSearch() {
+    _currentMoveType.value = GameMove.Actor
+    onTextInput(query)
+  }
 
-    fun onTextInput(query: String) {
-        this.query = query
-        viewModelScope.launch {
-            when (currentMoveType.value) {
-                GameMove.Movie -> {
-                    viewModelScope.launch {
-                        val results: List<Movie> = repository.searchMovies(query)
-                        _searchResults.value = results.take(5).map { it.title }
-                    }
-                }
-                GameMove.Actor -> {
-                    viewModelScope.launch {
-                        val results: List<Actor> = repository.searchActors(query)
-                        _searchResults.value = results.take(5).map { it.name }
-                    }
-                }
-            }
+  fun onTextInput(query: String) {
+    this.query = query
+    viewModelScope.launch {
+      when (currentMoveType.value) {
+        GameMove.Movie -> {
+          viewModelScope.launch {
+            val results: List<Movie> = repository.searchMovies(query)
+            _searchResults.value = results.take(5).map { it.title }
+          }
         }
+
+        GameMove.Actor -> {
+          viewModelScope.launch {
+            val results: List<Actor> = repository.searchActors(query)
+            _searchResults.value = results.take(5).map { it.name }
+          }
+        }
+      }
     }
+  }
 }
 
 enum class GameMove {
-    Movie,
-    Actor
+  Movie,
+  Actor
 }
