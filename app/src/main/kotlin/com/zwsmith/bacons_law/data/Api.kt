@@ -1,6 +1,5 @@
 package com.zwsmith.bacons_law.data
 
-import com.zwsmith.bacons_law.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -33,13 +32,8 @@ interface Api {
         level = HttpLoggingInterceptor.Level.BASIC
       }
 
+      // TODO(Step 2b): replace with :backend client; TMDB credentials live in :backend only
       val client = OkHttpClient.Builder()
-        .addInterceptor { chain ->
-          val url = chain.request().url.newBuilder()
-            .addQueryParameter("api_key", BuildConfig.ApiKey)
-            .build()
-          chain.proceed(chain.request().newBuilder().url(url).build())
-        }
         .addInterceptor(logger)
         .build()
 

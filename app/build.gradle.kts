@@ -15,13 +15,8 @@ android {
     versionName = "1.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
-  val apiKey: String = project.findProperty("TMDB_API_KEY") as? String ?: ""
   buildTypes {
-    debug {
-      buildConfigField("String", "ApiKey", "\"$apiKey\"")
-    }
     release {
-      buildConfigField("String", "ApiKey", "\"$apiKey\"")
       isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
