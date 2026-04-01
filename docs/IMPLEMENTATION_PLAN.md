@@ -8,7 +8,8 @@ Build order and design decisions for the playable MVP. Reference [GAME_SPEC.md](
 |------|--------|
 | Build toolchain | **Done** |
 | 1. Game engine rewrite | **Done** |
-| 2. TMDB data layer | **Next** |
+| 2a. Backend proxy service | **Next** |
+| 2b. TMDB data layer | Pending |
 | 3. Game flow UI | Pending |
 | 4. Integration | Pending |
 
@@ -80,34 +81,57 @@ fun GameEngine(): GameEngine = DefaultGameEngine
 
 ---
 
-## 2. TMDB Data Layer ← next
+## 2a. Backend Proxy Service ← next
 
-**Goal:** Repository can answer: "Was this actor in this movie?" Both directions.
+**Goal:** A deployable Ktor service that proxies TMDB. The Android app calls this service for all TMDB data. TMDB credentials never leave the backend.
 
-### Current state
+### Module structure
 
-- `Api.searchMovies(query)` — works
-- `Api.searchActor(query)` — works
-- `Api.getCredits(movieId)` — returns cast for a movie (actor-in-movie direction)
-- **Missing:** Mapping raw API responses to the `Move` models used by the engine.
+New Gradle module `:backend` in the monorepo. Depends on `:core` for domain types. No Android dependencies.
 
-### Changes needed
+### Endpoints
 
-1. Add `Repository.fetchMovieMove(movieId: Int): Move.Movie`
-   - Calls `Api.getCredits(movieId)` to get the cast IDs.
-   - Fetches movie details if needed for `displayText`.
-2. Add `Repository.fetchActorMove(actorId: Int): Move.Actor`
-3. Update search results to return domain models with IDs (currently maps to `List<String>`, losing the ID).
+| Endpoint | TMDB operation | Returns |
+|----------|---------------|---------|
+| `GET /movies/search?query=` | Movie search | List of `{id, title}` |
+| `GET /people/search?query=` | Person search | List of `{id, name}` |
+| `GET /movies/{id}/credits` | Movie credits | `{id, title, castIds: [Int]}` |
 
-### Design decision: validation direction
+The credits endpoint returns a response that maps directly to a `Move.Movie`. Normalization (TMDB response → domain model) happens in `:backend`, not in `:app`.
 
-Both validation checks are handled by the `GameEngine` using the `castIds` provided in the `Move.Movie` object.
-- If it's an **Actor's turn**, they pick a **Movie**. The `Move.Movie` object must include the cast list.
-- If it's a **Movie's turn**, they pick an **Actor**. The engine uses the `castIds` from the *previous* `Move.Movie` in the chain.
+### Credential management
+
+- **Local dev:** Key read from environment variable or `local.properties` via the `:backend` build config — not `:app`.
+- **Production:** Cloud Run + Google Secret Manager. Key injected at runtime as an environment variable.
 
 ### Commit boundary
 
-One commit: updated domain models, repository methods to fetch fully-populated `Move` objects.
+One commit: working Ktor service with the three endpoints, deployable to Cloud Run.
+
+---
+
+## 2b. TMDB Data Layer
+
+**Goal:** `:app` Repository can fetch fully-populated `Move` objects by calling `:backend`.
+
+### Changes needed
+
+1. Replace direct TMDB Retrofit client in `:app` with a Retrofit client pointed at `:backend`.
+2. Add `Repository.fetchMovieMove(movieId: Int): Move.Movie`
+   - Calls `GET /movies/{id}/credits` on `:backend`.
+   - Response maps directly to `Move.Movie` (castIds already normalized by backend).
+3. Add `Repository.fetchActorMove(actorId: Int): Move.Actor`
+4. Update search to return domain models with IDs (currently maps to `List<String>`, losing the ID).
+
+### Design decision: validation direction
+
+Both validation checks are handled by `GameEngine` using the `castIds` in `Move.Movie`. The `:app` layer fetches these from `:backend` and populates the move before calling `playMove`.
+- If it's an **Actor's turn**, they pick a **Movie**. The `Move.Movie` must include the cast list (fetched from `:backend`).
+- If it's a **Movie's turn**, they pick an **Actor**. The engine uses `castIds` from the *previous* `Move.Movie` in the chain — no additional network call needed.
+
+### Commit boundary
+
+One commit: updated domain models, repository methods that call `:backend` and return fully-populated `Move` objects.
 
 ---
 
@@ -195,6 +219,7 @@ One commit: wiring the pieces together. After this commit, the game is playable 
 | Step | What | Depends on | Testable in isolation |
 |------|------|------------|----------------------|
 | 1 | Game engine | Nothing | **Done** |
-| 2 | TMDB data layer | Nothing | Partially |
+| 2a | Backend proxy service | Nothing | Yes (against real TMDB) |
+| 2b | TMDB data layer in `:app` | 2a | Yes (with fake backend) |
 | 3 | Game flow UI | Engine types (for state) | Yes (with fake data) |
-| 4 | Integration | 1 + 2 + 3 | Manual play-test |
+| 4 | Integration | 1 + 2a + 2b + 3 | Manual play-test |

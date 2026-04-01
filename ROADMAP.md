@@ -27,10 +27,13 @@ See [docs/DECISIONS.md](docs/DECISIONS.md) for key technical and product decisio
 
 ### Technical
 - [ ] Evaluate existing `:core` game engine against game spec — adapt or rewrite
-- [ ] Wire TMDB credits API to move validation (actor-in-movie check)
+- [ ] Stand up `:backend` Ktor module with three proxy endpoints: movie search, person search, movie credits
+- [ ] Deploy `:backend` to Cloud Run with TMDB API key stored in Google Secret Manager
+- [ ] Wire `:app` Repository to `:backend` endpoints (not TMDB directly)
+- [ ] Wire TMDB credits API (via `:backend`) to move validation
 - [ ] Compose navigation for game flow (start → play → game over)
 - [ ] Update Gradle/Kotlin/AGP to current stable versions
-- [ ] Verify TMDB API key is not committed to source control
+- [ ] TMDB API key must not be embedded in any client binary — all TMDB calls go through `:backend`
 
 ### Done When
 - Two players can complete a full game by passing the phone
@@ -68,21 +71,21 @@ Candidates (prioritize based on what feels missing after playing):
 
 ---
 
-## Phase 4: Online Multiplayer (Go Backend)
+## Phase 4: Online Multiplayer (Ktor Backend)
 
-**Goal:** Play remotely. This is where Go enters the picture.
+**Goal:** Play remotely against friends on separate devices. The `:backend` service evolves from a stateless TMDB proxy to an authoritative game server.
 
-- [ ] Go HTTP server — game session management, move validation, state queries
+- [ ] Game session management — create, join, and persist match state in `:backend`
+- [ ] Move validation moves server-side — clients submit intents, backend validates and advances state
 - [ ] WebSocket or SSE — real-time state push to connected clients
-- [ ] TMDB catalog adapter in Go — validate moves server-side
-- [ ] Android client updates — connect to remote game server
+- [ ] Android client updates — connect to remote game session
 - [ ] Persistence — game history, player accounts
 
-**T-shape value:** Server-side Go, concurrency patterns, real-time communication, API design, deployment.
+**T-shape value:** Server-side Kotlin, coroutine-based concurrency, real-time communication, API design, deployment on Cloud Run.
 
 ---
 
 ## Phase 5: Cross-Platform
 
-- [ ] Web client (React or Compose for Web) against the Go backend
-- [ ] iOS client via KMP or native SwiftUI
+- [ ] iOS client via Kotlin Multiplatform — share `:core` game engine and network layer with the Android app
+- [ ] Web client (Compose for Web) against the Ktor backend

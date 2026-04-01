@@ -22,11 +22,11 @@ Lightweight ADR-style record of key technical and product decisions.
 
 **Context:** Evaluated building the MVP as a Go backend + web frontend (for T-shape learning) vs. an Android app (fastest to ship). The existing repo has Kotlin/Compose code and TMDB integration.
 
-**Decision:** Ship the MVP as an Android app. Go enters the picture as the multiplayer backend in a later phase, where it actually earns its keep (concurrent sessions, WebSockets, lightweight deployment).
+**Decision:** Ship the MVP as an Android app. A Kotlin/Ktor backend enters the picture first as a thin TMDB proxy (Phase 1), then evolves into a multiplayer game server (Phase 4).
 
-**Rationale:** Pass-the-phone is inherently a mobile interaction. Android is the fastest path to a playable game. Go's learning value is in server-side concurrency, not in reimplementing a game engine that already works in Kotlin.
+**Rationale:** Pass-the-phone is inherently a mobile interaction. Android is the fastest path to a playable game. The backend is introduced early to avoid shipping TMDB credentials in the APK, not for multiplayer — but it's designed to grow into the multiplayer layer rather than being thrown away.
 
-**Consequences:** Go learning is deferred, not abandoned. It becomes the multiplayer backend tech in a future phase.
+**Consequences:** The project stays all-Kotlin across client and server. `:core` is the shared domain layer — both `:app` and `:backend` depend on it.
 
 ---
 
@@ -55,3 +55,27 @@ Lightweight ADR-style record of key technical and product decisions.
 **Rationale:** The existing code amounts to a few days of work. Preserving it for sunk-cost reasons would constrain design decisions. The TMDB API integration and Retrofit setup are genuinely reusable; the game state machine may need reworking to match the refined spec.
 
 **Consequences:** Need to evaluate the existing `:core` game engine against the game spec. It may map cleanly, or it may be simpler to rewrite with the spec as the guide.
+
+---
+
+## 005: Kotlin/Ktor backend proxy for TMDB — credentials never in client binaries
+
+**Date:** 2026-04-01
+
+**Context:** The Android app needs TMDB API access for movie search, person search, and credits. The straightforward approach is to inject the key as a `BuildConfig` field in the APK. However, Android APK binaries are extractable — "not committed to source control" is not the same as "not recoverable from the binary." Any key shipped in a client binary should be treated as public.
+
+The project also has a long-term goal of remote multiplayer. A backend is inevitable; the question is when to introduce it.
+
+**Options considered:**
+1. Ship Phase 1 with direct TMDB calls from the app. Add a backend later when multiplayer requires it.
+2. Introduce a minimal Ktor backend proxy now. App calls proxy; proxy calls TMDB with the secret.
+
+**Decision:** Option 2. A thin Kotlin/Ktor service deployed on Cloud Run, with the TMDB API key stored in Google Secret Manager. The Android app calls backend-owned endpoints for all TMDB data.
+
+**Rationale:** The proxy is trivial to stand up, and the cost of doing it now is low relative to the benefit. More importantly, the backend built for credential security is the same backend that will eventually own multiplayer game state — it's not throwaway work. The TMDB domain layer built inside it (normalization, validation) becomes reusable when Phase 4 moves validation server-side. `:core` being pure Kotlin/JVM means both `:app` and `:backend` share the same domain types without duplication.
+
+**Consequences:**
+- TMDB credentials are never embedded in any client binary. This invariant must hold for all future clients (iOS, web).
+- Phase 1 scope expands to include standing up the backend before wiring the TMDB data layer in `:app`.
+- The project is all-Kotlin across client, server, and shared domain. No Go.
+- Cloud Run scales to zero when idle — infrastructure cost is effectively zero at hobby scale.
