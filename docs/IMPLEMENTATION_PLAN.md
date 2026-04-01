@@ -7,8 +7,8 @@ Build order and design decisions for the playable MVP. Reference [GAME_SPEC.md](
 | Step | Status |
 |------|--------|
 | Build toolchain | **Done** |
-| 1. Game engine rewrite | **Next** |
-| 2. TMDB data layer | Pending |
+| 1. Game engine rewrite | **Done** |
+| 2. TMDB data layer | **Next** |
 | 3. Game flow UI | Pending |
 | 4. Integration | Pending |
 
@@ -16,102 +16,71 @@ Build order and design decisions for the playable MVP. Reference [GAME_SPEC.md](
 
 ### Build toolchain ✓
 
-- Gradle 9.4.1, AGP 9.1, Kotlin 2.3.20, Compose BOM 2026.03.00
+- Gradle 9.4.1, AGP 9.1, Kotlin 2.1.10, Compose BOM 2026.03.01
 - `:core` converted to pure Kotlin JVM module (no Android deps)
 - All AGP 9 defaults adopted — removed all compatibility shims
 - Dependency bundles organized in version catalog
 - `.idea/` gitignored, machine-specific config in `local.properties`
 
----
+### Game Engine Rewrite ✓
+
+- Pure Kotlin state machine in `:core`.
+- Sealed `GameState` (`InProgress`, `GameOver`).
+- Sealed `Move` (`Actor`, `Movie`).
+- Factory function `GameEngine()` provides `DefaultGameEngine`.
+- Full unit test coverage with JUnit 5 and Truth.
 
 ---
 
-## 1. Game Engine Rewrite ← next
+## 1. Game Engine Design
 
 **Goal:** Pure Kotlin state machine that models the full game spec. No Android dependencies. Fully testable.
 
-### Why rewrite (not adapt)
-
-The existing engine has the right shape (sealed moves, turn list, player alternation) but:
-- Winner logic is inverted (returns the losing player)
-- No repeat detection
-- No forfeit
-- Validation is caller-side (credits embedded in the Move object)
-- Mutable `var gameState` on a class — awkward for reactive UI
-
-The engine is ~125 lines. Rewriting with the spec as the guide is faster and cleaner than patching.
-
-### Design
-
-**Immutable state, pure functions.** The engine is a function: `(GameState, Action) -> GameResult`. No mutable class, no side effects. The ViewModel holds the state; the engine computes transitions.
-
-#### Types
+### Types
 
 ```kotlin
-data class GameState(
-    val chain: List<ChainEntry>,
+sealed class GameState {
+  data class InProgress(
+    val moves: List<Move>,
     val currentPlayer: Player,
-    val players: Pair<PlayerInfo, PlayerInfo>,
-    val nextMoveType: MoveType
-)
+  ) : GameState()
 
-data class PlayerInfo(val name: String)
+  data class GameOver(
+    val winner: Player,
+    val loser: Player,
+    val chain: List<Move>,
+    val losingMove: Move? = null
+  ) : GameState()
+}
+
+sealed class Move {
+  abstract val id: Int
+  abstract val displayText: String
+
+  data class Actor(override val id: Int, override val displayText: String) : Move()
+  data class Movie(override val id: Int, override val displayText: String, val castIds: Set<Int>) : Move()
+}
 
 enum class Player { ONE, TWO }
-enum class MoveType { ACTOR, MOVIE }
-
-sealed class ChainEntry {
-    abstract val id: Int
-    abstract val name: String
-    data class Actor(override val id: Int, override val name: String) : ChainEntry()
-    data class Movie(override val id: Int, override val name: String) : ChainEntry()
-}
-
-sealed class GameResult {
-    data class Continue(val state: GameState) : GameResult()
-    data class GameOver(
-        val winner: Player,
-        val loser: Player,
-        val reason: EndReason,
-        val chain: List<ChainEntry>
-    ) : GameResult()
-}
-
-enum class EndReason { INVALID_CONNECTION, REPEAT, FORFEIT }
 ```
 
-#### Engine API
+### Engine API
 
 ```kotlin
-object GameEngine {
-    fun startGame(players: Pair<PlayerInfo, PlayerInfo>, startingActor: ChainEntry.Actor): GameState
-
-    fun playMove(state: GameState, entry: ChainEntry, isValidConnection: Boolean): GameResult
-
-    fun forfeit(state: GameState): GameResult
+interface GameEngine {
+  fun startGame(move: Move): GameState.InProgress
+  fun playMove(move: Move, state: GameState.InProgress): GameState
+  fun forfeit(state: GameState.InProgress): GameState.GameOver
 }
+
+fun GameEngine(): GameEngine = DefaultGameEngine
 ```
 
-**Key decision: `isValidConnection` is a parameter, not computed by the engine.** The engine doesn't know about TMDB. The caller (ViewModel) checks the connection via TMDB, then tells the engine whether it's valid. This keeps the engine pure and testable without network mocks. The engine still checks for repeats independently.
-
-### Test cases (derived from game spec)
-
-- Starting a game sets Player 1's actor as first chain entry, next move is MOVIE, current player is TWO
-- Valid non-repeat move advances the chain and switches player
-- Invalid connection ends the game, current player loses
-- Repeat actor in chain ends the game, current player loses
-- Repeat movie in chain ends the game, current player loses
-- Forfeit ends the game, current player loses
-- Move type alternates: after actor, must be movie; after movie, must be actor
-- Chain accumulates correctly across multiple moves
-
-### Commit boundary
-
-One commit: engine types + `GameEngine` + tests. All tests green.
+**Key decision: `Move.Movie` carries `castIds`.** The engine validates connections using these IDs. The caller (ViewModel) is responsible for fetching these IDs from TMDB before submitting a move. This keeps the engine pure and testable without network mocks while encapsulating the validation logic.
 
 ---
 
-## 2. TMDB Data Layer
+## 2. TMDB Data Layer ← next
 
 **Goal:** Repository can answer: "Was this actor in this movie?" Both directions.
 
@@ -120,29 +89,25 @@ One commit: engine types + `GameEngine` + tests. All tests green.
 - `Api.searchMovies(query)` — works
 - `Api.searchActor(query)` — works
 - `Api.getCredits(movieId)` — returns cast for a movie (actor-in-movie direction)
-- **Missing:** `person/{personId}/movie_credits` — returns movies for an actor (movie-has-actor direction)
+- **Missing:** Mapping raw API responses to the `Move` models used by the engine.
 
 ### Changes needed
 
-1. Add `getPersonCredits(personId: Int)` to `Api` interface — calls `person/{id}/movie_credits`
-2. Add response model for person credits
-3. Add `Repository.validateConnection(entry: ChainEntry, previousEntry: ChainEntry): Boolean`
-   - If previous is Actor and current is Movie: fetch movie credits, check if actor ID is in cast
-   - If previous is Movie and current is Actor: fetch movie credits, check if actor ID is in cast
-   - Both directions can use the movie credits endpoint (check if actor is in movie's cast). The person credits endpoint is a fallback/alternative.
-4. Update search results to return domain models with IDs (currently maps to `List<String>`, losing the ID)
+1. Add `Repository.fetchMovieMove(movieId: Int): Move.Movie`
+   - Calls `Api.getCredits(movieId)` to get the cast IDs.
+   - Fetches movie details if needed for `displayText`.
+2. Add `Repository.fetchActorMove(actorId: Int): Move.Actor`
+3. Update search results to return domain models with IDs (currently maps to `List<String>`, losing the ID).
 
 ### Design decision: validation direction
 
-Both validation checks can use a single endpoint: `movie/{id}/credits`. Given the previous entry, we always know the movie ID:
-- Previous = Actor, Current = Movie: fetch credits for the current movie, check if previous actor is in cast
-- Previous = Movie, Current = Actor: fetch credits for the previous movie, check if current actor is in cast
-
-This means we may not need the person credits endpoint at all for MVP. Simpler API surface.
+Both validation checks are handled by the `GameEngine` using the `castIds` provided in the `Move.Movie` object.
+- If it's an **Actor's turn**, they pick a **Movie**. The `Move.Movie` object must include the cast list.
+- If it's a **Movie's turn**, they pick an **Actor**. The engine uses the `castIds` from the *previous* `Move.Movie` in the chain.
 
 ### Commit boundary
 
-One commit: new API endpoint (if needed), validation method, updated domain models. Tested via unit test with a mock/fake API if feasible, otherwise integration-tested during UI wiring.
+One commit: updated domain models, repository methods to fetch fully-populated `Move` objects.
 
 ---
 
@@ -153,8 +118,8 @@ One commit: new API endpoint (if needed), validation method, updated domain mode
 ### Screens
 
 **Start Screen**
-- Two text fields for player names
-- "Start Game" button (disabled until both names entered)
+- Two text fields for player names (Optional for MVP, can default to "Player 1/2")
+- "Start Game" button
 - Navigates to actor search for Player 1 to pick starting actor
 
 **Play Screen** (most complex)
@@ -188,54 +153,36 @@ class GameViewModel : ViewModel() {
 }
 
 sealed class GameUiState {
-    data class Setup(...) : GameUiState()
+    object Setup : GameUiState()
     data class Playing(
         val gameState: GameState,
-        val searchResults: List<...>,
+        val searchResults: List<Move>,
         val searchQuery: String,
-        val isValidating: Boolean
+        val isSubmitting: Boolean
     ) : GameUiState()
-    data class GameOver(...) : GameUiState()
+    data class GameOver(val finalState: GameState.GameOver) : GameUiState()
 }
 ```
 
 The ViewModel owns the `GameState`, calls `GameEngine` for transitions, calls `Repository` for TMDB validation and search.
 
-### Commit plan
-
-This is too large for one commit. Break into vertical slices:
-1. Navigation skeleton + Start screen (functional, navigates forward)
-2. Play screen layout + search (displays, searches, but doesn't validate yet)
-3. Game over screen + play again navigation
-
 ---
 
 ## 4. Integration
 
-**Goal:** Wire TMDB validation into the game loop. A move submission triggers: search -> select -> validate via TMDB -> engine transition -> UI update.
+**Goal:** Wire TMDB validation into the game loop. A move submission triggers: search -> select -> fetch credits -> engine transition -> UI update.
 
 ### Flow
 
 ```
 Player selects search result
-  -> ViewModel calls Repository.validateConnection(selected, previousChainEntry)
-  -> Repository hits TMDB credits API
-  -> Returns Boolean
-  -> ViewModel calls GameEngine.playMove(state, entry, isValid)
-  -> GameResult is Continue or GameOver
+  -> ViewModel calls Repository.fetch[Movie/Actor]Move(id)
+  -> Repository hits TMDB credits API (if movie)
+  -> ViewModel calls GameEngine.playMove(move, state)
+  -> GameResult is InProgress or GameOver
   -> ViewModel updates UiState
   -> UI recomposes
 ```
-
-### Loading state
-
-TMDB validation is a network call. Between selection and result, show a loading indicator and disable interaction. This prevents double-submission and gives feedback.
-
-### Error handling (minimal for MVP)
-
-- Network failure on validation: show a toast/snackbar, let the player retry. Don't end the game on a network error.
-- Network failure on search: show empty results with an error message.
-- No internet: the app doesn't work. That's acceptable for MVP.
 
 ### Commit boundary
 
@@ -243,33 +190,11 @@ One commit: wiring the pieces together. After this commit, the game is playable 
 
 ---
 
-## Open Design Questions
-
-### 1. Should search results be pre-filtered to valid connections?
-
-**Option A: Show all results, validate on selection.** Player searches "Cast Away", sees all movies named "Cast Away", picks one, app validates. Simpler to build. Player might select a wrong movie (different from what they meant) and lose.
-
-**Option B: Pre-filter to valid connections.** When it's "name a movie Tom Hanks was in", only show movies Tom Hanks was actually in. Requires fetching the actor's filmography before/during search and cross-referencing. More API calls, more complex, but prevents accidental misselection.
-
-**Recommendation: Option A for MVP.** Simpler, and the "risk of misselection" is actually part of the game's tension — you need to be sure about your answer. The search results show title and year, which is enough to disambiguate.
-
-### 2. Should the existing `SearchViewModel` and `BaconsLawApp` composable be reused?
-
-**No.** The existing UI is a freestanding search demo with no game flow. The new UI needs navigation, game state, turn management, and validation. Reusing would mean retrofitting game logic into a structure that wasn't designed for it. Start fresh, keep the TMDB API/Repository layer.
-
-### 3. Chain entry display — name only or name + metadata?
-
-For MVP, name + year (movies) and name + photo (actors) would be ideal but requires passing through more TMDB data. **Start with name only**, add metadata in Phase 2 polish.
-
----
-
 ## Build Order Summary
 
 | Step | What | Depends on | Testable in isolation |
 |------|------|------------|----------------------|
-| 1 | Game engine | Nothing | Yes (pure unit tests) |
-| 2 | TMDB data layer | Nothing | Partially (needs API key for integration) |
+| 1 | Game engine | Nothing | **Done** |
+| 2 | TMDB data layer | Nothing | Partially |
 | 3 | Game flow UI | Engine types (for state) | Yes (with fake data) |
 | 4 | Integration | 1 + 2 + 3 | Manual play-test |
-
-Steps 1 and 2 can be done in parallel. Step 3 depends on engine types but not behavior. Step 4 is the final wiring.

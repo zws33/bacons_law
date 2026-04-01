@@ -7,7 +7,7 @@ kotlin {
 }
 
 dependencies {
-    testImplementation(libs.bundles.kotest.bundle)
+    testImplementation(libs.bundles.test.bundle)
 }
 
 tasks.withType(Test::class.java) {

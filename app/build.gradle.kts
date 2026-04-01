@@ -50,8 +50,6 @@ dependencies {
   implementation(libs.gson)
   implementation(libs.timber)
 
-  testImplementation(libs.bundles.kotest.bundle)
-
   androidTestImplementation(libs.androidx.test.ext.junit)
   androidTestImplementation(libs.androidx.espresso.core)
 }
