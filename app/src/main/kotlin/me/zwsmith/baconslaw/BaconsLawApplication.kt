@@ -1,4 +1,4 @@
-package com.zwsmith.bacons_law
+package me.zwsmith.baconslaw
 
 import android.app.Application
 import timber.log.Timber

@@ -1,6 +1,6 @@
-package com.zwsmith.bacons_law.presentation
+package me.zwsmith.baconslaw.presentation
 
-import com.zwsmith.bacons_law.data.Api
+import me.zwsmith.baconslaw.data.Api
 import timber.log.Timber
 
 @Suppress("FunctionName")
@@ -27,7 +27,7 @@ class RepositoryImpl(val api: Api) : Repository {
 
   override suspend fun searchMovies(query: String): List<Movie> {
     return try {
-      api.searchMovies(query).results.map { Movie(it.id, it.title) }
+      api.searchMovies(query).results.map { Movie(it.id) }
     } catch (e: Throwable) {
       Timber.e(e)
       emptyList()

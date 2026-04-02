@@ -1,4 +1,4 @@
-package com.zwsmith.bacons_law.data
+package me.zwsmith.baconslaw.data
 
 data class MovieSearchResponse(
   val page: Int,
@@ -13,6 +13,5 @@ data class MovieSearchResponse(
     val popularity: Double,
     val poster_path: String,
     val release_date: String,
-    val title: String,
   )
 }

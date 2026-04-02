@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-  namespace = "com.zwsmith.bacons_law"
+  namespace = "me.zwsmith.baconslaw"
   compileSdk = libs.versions.compileSdk.get().toInt()
 
   defaultConfig {
-    applicationId = "com.zwsmith.baconslaw"
+    applicationId = "me.zwsmith.baconslaw"
     minSdk = libs.versions.minSdk.get().toInt()
     targetSdk = libs.versions.targetSdk.get().toInt()
     versionCode = 1

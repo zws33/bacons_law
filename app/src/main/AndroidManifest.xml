@@ -6,13 +6,13 @@
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
   <application
-    android:name="com.zwsmith.bacons_law.BaconsLawApplication"
+    android:name="me.zwsmith.baconslaw.BaconsLawApplication"
     android:icon="@mipmap/ic_launcher"
     android:label="@string/app_name"
     android:theme="@style/Theme.BaconsLaw"
     tools:targetApi="31">
     <activity
-      android:name="com.zwsmith.bacons_law.presentation.MainActivity"
+      android:name="me.zwsmith.baconslaw.presentation.MainActivity"
       android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />

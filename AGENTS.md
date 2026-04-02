@@ -9,7 +9,7 @@ A two-player Android trivia game based on "Six Degrees of Kevin Bacon." Players 
 ## Module Map
 
 ```
-bacons_law/
+bacons-law/
 ├── core/      # Pure Kotlin/JVM — game engine and shared domain types, zero platform dependencies
 ├── app/       # Android — Compose UI, ViewModels, HTTP client to :backend
 └── backend/   # Ktor service — TMDB proxy, move validation, future game session management

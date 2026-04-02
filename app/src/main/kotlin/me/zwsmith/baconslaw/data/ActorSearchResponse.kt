@@ -1,4 +1,4 @@
-package com.zwsmith.bacons_law.data
+package me.zwsmith.baconslaw.data
 
 data class ActorSearchResponse(
   val page: Int,

@@ -1,4 +1,4 @@
-package com.zwsmith.bacons_law.presentation
+package me.zwsmith.baconslaw.presentation
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity

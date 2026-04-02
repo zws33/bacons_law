@@ -1,4 +1,4 @@
-package com.zwsmith.core
+package me.zwsmith.core
 
 sealed class GameState {
   data class InProgress(

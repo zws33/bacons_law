@@ -1,4 +1,4 @@
-package com.zwsmith.core
+package me.zwsmith.core
 
 import com.google.common.truth.Truth.assertThat
 import org.junit.jupiter.api.Test

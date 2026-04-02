@@ -1,4 +1,4 @@
-package com.zwsmith.bacons_law.data
+package me.zwsmith.baconslaw.data
 
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor

@@ -17,6 +17,7 @@ dependencyResolutionManagement {
     mavenCentral()
   }
 }
-rootProject.name = "bacons_law"
+rootProject.name = "bacons-law"
 include(":app")
 include(":core")
+include(":backend")

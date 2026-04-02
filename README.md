@@ -22,7 +22,7 @@ The fun is in the pressure: you don't control what the other player picks, so yo
 ## Project Structure
 
 ```
-bacons_law/
+bacons-law/
 ├── app/          # Android app — Compose UI, TMDB integration, ViewModels
 ├── core/         # Game engine — state machine, move validation, turn management
 ├── docs/         # Game spec, architecture decisions
