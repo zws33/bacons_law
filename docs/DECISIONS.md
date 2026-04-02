@@ -79,3 +79,20 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 - Phase 1 scope expands to include standing up the backend before wiring the TMDB data layer in `:app`.
 - The project is all-Kotlin across client, server, and shared domain. No Go.
 - Cloud Run scales to zero when idle — infrastructure cost is effectively zero at hobby scale.
+
+---
+
+## 006: Ktor Client + kotlinx.serialization for all client network layers
+
+**Date:** 2026-04-02
+
+**Context:** The `:app` module currently uses Retrofit + Gson for HTTP. Phase 5 plans to share the network layer with an iOS client via Kotlin Multiplatform. Retrofit is JVM/Android-only; migrating it during Phase 5 would require a full rewrite of the data layer at a time when the codebase is larger and more coupled.
+
+**Decision:** When rewriting the `:app` data layer in Phase 1 (Task 3), use Ktor Client + kotlinx.serialization instead of Retrofit + Gson. Retrofit is removed entirely at that point.
+
+**Rationale:** Ktor Client is KMP-compatible today. The `:app` data layer rewrite is already planned work — the incremental cost of choosing Ktor Client over Retrofit at that moment is near zero, while the future cost of not doing so is a full rewrite. The `:backend` module also uses Ktor Server + kotlinx.serialization, so this keeps the serialization library consistent across the stack.
+
+**Consequences:**
+- Retrofit and Gson are removed from the project when Task 3 lands.
+- The `:app` network layer can move to a `:shared` KMP module in Phase 5 with minimal changes.
+- All future clients (iOS, web) should use Ktor Client + kotlinx.serialization for the same reason.

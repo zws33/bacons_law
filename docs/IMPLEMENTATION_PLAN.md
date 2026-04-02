@@ -116,7 +116,9 @@ One commit: working Ktor service with the three endpoints, deployable to Cloud R
 
 ### Changes needed
 
-1. Replace direct TMDB Retrofit client in `:app` with a Retrofit client pointed at `:backend`.
+1. Replace direct TMDB Retrofit client in `:app` with a Ktor Client pointed at `:backend`.
+   Remove Retrofit and Gson dependencies. Use kotlinx.serialization for response parsing.
+   (See Decision 006: prepares the data layer for Phase 5 KMP migration.)
 2. Add `Repository.fetchMovieMove(movieId: Int): Move.Movie`
    - Calls `GET /movies/{id}/credits` on `:backend`.
    - Response maps directly to `Move.Movie` (castIds already normalized by backend).
