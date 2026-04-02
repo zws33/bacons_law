@@ -8,4 +8,4 @@ captures
 
 # IDE
 .idea/
-*.iml
+*.iml.kotlin/
