@@ -96,3 +96,20 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 - Retrofit and Gson are removed from the project when Task 3 lands.
 - The `:app` network layer can move to a `:shared` KMP module in Phase 5 with minimal changes.
 - All future clients (iOS, web) should use Ktor Client + kotlinx.serialization for the same reason.
+
+---
+
+## 007: GameViewModel owns game state for Phase 1; client thins in Phase 4
+
+**Date:** 2026-04-03
+
+**Context:** A clean architecture for this app would have a `GameRepository` owning game state, a `MediaRepository` abstracting data sources, and a use case layer orchestrating between them. However, this structure has no second implementation or second caller in Phase 1 — it would be abstraction without a job.
+
+**Decision:** For Phase 1, `GameViewModel` directly owns `GameState`, calls `GameEngine` for transitions, and calls `Repository` for data. The `Repository` is a pass-through to the data layer (search and credits fetch). No interactor or use case layer.
+
+**Rationale:** Game state is ephemeral and local in Phase 1 — a ViewModel is the right scope. Introducing `GameRepository` and a use case layer before there is a second data source, a second caller, or persistence requirements is premature abstraction. The right time to add these layers is when they have a concrete job.
+
+**Consequences:**
+- In Phase 4 (remote multiplayer), this inverts: `:backend` becomes the authoritative game state owner, and `:app` becomes a thin state consumer. The ViewModel will shrink significantly — it will render state received from the server rather than state it owns.
+- `:core` remains the shared domain layer throughout. `GameState`, `Move`, and `Player` are valid on both client and server.
+- When Phase 4 arrives, introduce `GameRepository` (wrapping the WebSocket/SSE connection) and a use case layer at that point — not before.

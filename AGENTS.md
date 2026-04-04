@@ -2,7 +2,7 @@
 
 A two-player Android trivia game based on "Six Degrees of Kevin Bacon." Players pass a phone, taking turns naming movies and actors to build a chain of connections. Every move is validated in real-time via a Kotlin/Ktor backend that proxies the TMDB API. First player who can't name a valid connection loses.
 
-**Current status:** Game engine and TMDB data layer exist independently. The active work is wiring them into a connected game loop (Phase 1 of [ROADMAP.md](ROADMAP.md)).
+**Current status:** Game engine, backend proxy, and data layer are built. The active work is the game flow UI and wiring them into a connected game loop (Phase 1 of [ROADMAP.md](ROADMAP.md)).
 
 ---
 
@@ -22,7 +22,7 @@ Contains the game state machine: `GameState`, `Move`, `Player`, and `GameEngine`
 ### `:app`
 
 Contains everything Android-specific:
-- **`data/`** — Retrofit API client, `:backend` request/response models
+- **`data/`** — Ktor Client, `:backend` request/response models
 - **`presentation/`** — Compose UI, ViewModels, `Repository`
 
 The `:app` module depends on `:core` and calls `:backend` for all TMDB data. It never holds TMDB credentials.
@@ -88,6 +88,8 @@ All commands run from the project root.
 **TMDB credentials stay in `:backend`.**  All TMDB API calls are made by the `:backend` service. The `:app` module calls `:backend` endpoints — it never calls TMDB directly and must not hold a TMDB API key. Do not add a TMDB key as a `BuildConfig` field in `app/build.gradle.kts`.
 
 **`castIds` is the validation contract.** `Move.Movie` carries a `Set<Int>` of TMDB cast member IDs. The `:app` layer is responsible for fetching these IDs from `:backend` and populating them before passing a `Move.Movie` to `playMove`. The engine itself does not make network calls.
+
+**`GameViewModel` owns game state in Phase 1.** The ViewModel holds `GameState`, calls `GameEngine` for transitions, and calls `Repository` for data. Game state is ephemeral and local — appropriate for a pass-the-phone MVP. In Phase 4, this inverts: `:backend` becomes the authoritative game state owner, `:core` remains the shared domain layer, and `:app` renders state it receives rather than state it owns. The ViewModel thins to a state consumer.
 
 ---
 

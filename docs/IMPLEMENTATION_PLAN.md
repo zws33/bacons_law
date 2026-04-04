@@ -122,8 +122,9 @@ One commit: working Ktor service with the three endpoints, deployable to Cloud R
 2. Add `Repository.fetchMovieMove(movieId: Int): Move.Movie`
    - Calls `GET /movies/{id}/credits` on `:backend`.
    - Response maps directly to `Move.Movie` (castIds already normalized by backend).
-3. Add `Repository.fetchActorMove(actorId: Int): Move.Actor`
-4. Update search to return domain models with IDs (currently maps to `List<String>`, losing the ID).
+3. Update search to return typed result objects with IDs (currently maps to `List<String>`, losing the ID).
+   `searchMovies` returns `List<MovieSearchResult>`, `searchActors` returns `List<PersonSearchResult>`.
+   `Move.Actor` is constructed directly in the ViewModel from the search result — no repository call needed.
 
 ### Design decision: validation direction
 
