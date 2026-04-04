@@ -5,17 +5,25 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import me.zwsmith.core.GameEngine
+import me.zwsmith.core.GameState
+import me.zwsmith.core.Move
+import me.zwsmith.core.Player
 
-class SearchViewModel(private val repository: Repository) : ViewModel() {
+class SearchViewModel(private val repository: Repository, private val gameEngine: GameEngine) :
+  ViewModel() {
 
-  private val _searchResults = MutableStateFlow<List<String>>(emptyList())
-  val searchResults: StateFlow<List<String>> = _searchResults
+  private val _searchResults = MutableStateFlow<List<SearchResultItem>>(emptyList())
+  val searchResults: StateFlow<List<SearchResultItem>> = _searchResults
+  private val _gameState =
+    MutableStateFlow<GameState>(GameState.InProgress(emptyList(), Player.ONE))
 
-  private val _currentMoveType: MutableStateFlow<GameMove> = MutableStateFlow(GameMove.Movie)
-  val currentMoveType: StateFlow<GameMove> = _currentMoveType
+  val gameState: StateFlow<GameState> = _gameState
 
   var query by mutableStateOf("")
     private set
@@ -24,39 +32,57 @@ class SearchViewModel(private val repository: Repository) : ViewModel() {
     query = ""
   }
 
-  fun setMovieSearch() {
-    _currentMoveType.value = GameMove.Movie
-    onTextInput(query)
-  }
-
-  fun setActorSearch() {
-    _currentMoveType.value = GameMove.Actor
-    onTextInput(query)
-  }
-
   fun onTextInput(query: String) {
     this.query = query
+    val gameState = _gameState.value
+    if (gameState is GameState.InProgress) {
+      viewModelScope.launch {
+        _searchResults.value =
+          if (gameState.moves.isEmpty() || gameState.moves.last() is Move.Movie) {
+            repository.searchActors(query).map { SearchResultItem(it.id, it.name) }
+          } else {
+            repository.searchMovies(query).map { SearchResultItem(it.id, it.title) }
+          }
+      }
+    }
+  }
+
+  fun onResultSelected(item: SearchResultItem) {
+    val gameState = _gameState.value as? GameState.InProgress ?: return
     viewModelScope.launch {
-      when (currentMoveType.value) {
-        GameMove.Movie -> {
-          viewModelScope.launch {
-            val results: List<Movie> = repository.searchMovies(query)
-            _searchResults.value = results.take(5).map { it.title }
+      when (gameState.moves.lastOrNull()) {
+        is Move.Actor -> {
+          val creditsResult = repository.fetchMovieCredits(item.id)
+          if (creditsResult != null) {
+            _gameState.value = gameEngine.playMove(
+              Move.Movie(item.id, item.displayText, creditsResult.castIds.toSet()), gameState
+            )
           }
         }
 
-        GameMove.Actor -> {
-          viewModelScope.launch {
-            val results: List<Actor> = repository.searchActors(query)
-            _searchResults.value = results.take(5).map { it.name }
-          }
+        is Move.Movie -> {
+          _gameState.value = gameEngine.playMove(Move.Actor(item.id, item.displayText), gameState)
         }
+
+        null -> {
+          _gameState.value = gameEngine.startGame(Move.Actor(item.id, item.displayText))
+        }
+      }
+      reset()
+      _searchResults.value = emptyList()
+    }
+  }
+
+  companion object {
+    private const val TAG = "SearchViewModel"
+    val Factory = viewModelFactory {
+      initializer {
+        val repository = Repository()
+        val gameEngine = GameEngine()
+        SearchViewModel(repository, gameEngine)
       }
     }
   }
 }
 
-enum class GameMove {
-  Movie,
-  Actor
-}
+data class SearchResultItem(val id: Int, val displayText: String)

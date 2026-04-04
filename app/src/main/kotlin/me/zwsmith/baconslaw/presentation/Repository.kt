@@ -1,48 +1,45 @@
 package me.zwsmith.baconslaw.presentation
 
-import me.zwsmith.baconslaw.data.Api
+import me.zwsmith.baconslaw.data.ApiClient
+import me.zwsmith.baconslaw.data.MovieCreditsResult
+import me.zwsmith.baconslaw.data.MovieSearchResult
+import me.zwsmith.baconslaw.data.PersonSearchResult
 import timber.log.Timber
 
-@Suppress("FunctionName")
-fun Repository(): RepositoryImpl {
-  return RepositoryImpl(Api.create())
-}
+fun Repository(): Repository = RepositoryImpl(ApiClient.create())
 
 interface Repository {
 
-  suspend fun searchMovies(query: String): List<Movie>
-  suspend fun searchActors(query: String): List<Actor>
+  suspend fun searchMovies(query: String): List<MovieSearchResult>
+  suspend fun searchActors(query: String): List<PersonSearchResult>
+  suspend fun fetchMovieCredits(movieId: Int): MovieCreditsResult?
 }
 
-class RepositoryImpl(val api: Api) : Repository {
+class RepositoryImpl(private val apiClient: ApiClient) : Repository {
 
-  override suspend fun searchActors(query: String): List<Actor> {
+  override suspend fun searchMovies(query: String): List<MovieSearchResult> {
     return try {
-      api.searchActor(query).results.map { Actor(it.id, it.name) }
-    } catch (e: Throwable) {
+      apiClient.searchMovies(query)
+    } catch (e: Exception) {
       Timber.e(e)
       emptyList()
     }
   }
 
-  override suspend fun searchMovies(query: String): List<Movie> {
+  override suspend fun searchActors(query: String): List<PersonSearchResult> {
     return try {
-      api.searchMovies(query).results.map { Movie(it.id) }
-    } catch (e: Throwable) {
+      apiClient.searchActors(query)
+    } catch (e: Exception) {
       Timber.e(e)
       emptyList()
     }
   }
 
-  suspend fun getCastByMovieId(movieId: Int): List<Actor> {
-    return try {
-      api.getCredits(movieId).cast.map { Actor(it.id, it.name) }
-    } catch (e: Throwable) {
-      Timber.e(e)
-      emptyList()
-    }
+  override suspend fun fetchMovieCredits(movieId: Int): MovieCreditsResult? = try {
+    apiClient.fetchCredits(movieId)
+  } catch (e: Exception) {
+    Timber.e(e)
+    null
   }
 }
 
-data class Movie(val id: Int, val title: String)
-data class Actor(val id: Int, val name: String)
