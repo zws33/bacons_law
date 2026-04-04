@@ -14,6 +14,7 @@ import me.zwsmith.core.GameEngine
 import me.zwsmith.core.GameState
 import me.zwsmith.core.Move
 import me.zwsmith.core.Player
+import timber.log.Timber
 
 class SearchViewModel(private val repository: Repository, private val gameEngine: GameEngine) :
   ViewModel() {
@@ -30,6 +31,12 @@ class SearchViewModel(private val repository: Repository, private val gameEngine
 
   fun reset() {
     query = ""
+  }
+
+  fun resetGame() {
+    _gameState.value = GameState.InProgress(emptyList(), Player.ONE)
+    _searchResults.value = emptyList()
+    reset()
   }
 
   fun onTextInput(query: String) {
@@ -50,10 +57,12 @@ class SearchViewModel(private val repository: Repository, private val gameEngine
   fun onResultSelected(item: SearchResultItem) {
     val gameState = _gameState.value as? GameState.InProgress ?: return
     viewModelScope.launch {
-      when (gameState.moves.lastOrNull()) {
+      when (val previous = gameState.moves.lastOrNull()) {
         is Move.Actor -> {
           val creditsResult = repository.fetchMovieCredits(item.id)
           if (creditsResult != null) {
+            Timber.d("Selected movie: ${item.displayText}, id: ${item.id}, cast: ${creditsResult.castIds.joinToString()}")
+            Timber.d("Previous actor: ${previous.displayText}, id: ${previous.id}")
             _gameState.value = gameEngine.playMove(
               Move.Movie(item.id, item.displayText, creditsResult.castIds.toSet()), gameState
             )
@@ -61,6 +70,8 @@ class SearchViewModel(private val repository: Repository, private val gameEngine
         }
 
         is Move.Movie -> {
+          Timber.d("Selected actor: ${item.displayText}, id: ${item.id}")
+          Timber.d("Previous movie: ${previous.displayText}, id: ${previous.id}")
           _gameState.value = gameEngine.playMove(Move.Actor(item.id, item.displayText), gameState)
         }
 

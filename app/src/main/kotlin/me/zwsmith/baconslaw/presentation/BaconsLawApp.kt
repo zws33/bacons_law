@@ -51,7 +51,7 @@ fun BaconsLawApp(viewModel: SearchViewModel) {
     ) {
       when (val state = gameState) {
         is GameState.GameOver -> {
-          GameOverScreen(state)
+          GameOverScreen(state, onPlayAgain = viewModel::resetGame)
         }
 
         is GameState.InProgress -> {
@@ -147,7 +147,7 @@ fun PromptHeader(state: GameState.InProgress) {
 }
 
 @Composable
-fun GameOverScreen(state: GameState.GameOver) {
+fun GameOverScreen(state: GameState.GameOver, onPlayAgain: () -> Unit) {
   Column(
     modifier = Modifier
       .fillMaxSize()
@@ -168,10 +168,20 @@ fun GameOverScreen(state: GameState.GameOver) {
       style = MaterialTheme.typography.subtitle1
     )
     Spacer(modifier = Modifier.height(8.dp))
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    LazyColumn(
+      modifier = Modifier.weight(1f),
+      verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
       items(state.chain) {
         ChainItem(it)
       }
+    }
+    Spacer(modifier = Modifier.height(16.dp))
+    androidx.compose.material.Button(
+      onClick = onPlayAgain,
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      Text("Play Again")
     }
   }
 }
