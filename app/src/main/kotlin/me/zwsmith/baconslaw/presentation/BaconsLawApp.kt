@@ -11,26 +11,31 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.Button
 import androidx.compose.material.MaterialTheme
+import androidx.compose.material.OutlinedButton
 import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Text
 import androidx.compose.material.TextFieldDefaults
 import androidx.compose.material.darkColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import me.zwsmith.core.GameState
 import me.zwsmith.core.Move
@@ -47,32 +52,95 @@ private val AppColors = darkColors(
 
 @Composable
 fun BaconsLawApp(viewModel: SearchViewModel) {
+  val playerNames by viewModel.playerNames.collectAsStateWithLifecycle()
   val gameState by viewModel.gameState.collectAsStateWithLifecycle()
   val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
   MaterialTheme(colors = AppColors) {
-    Column(
-      modifier = Modifier
-        .fillMaxSize()
-        .background(MaterialTheme.colors.background)
-        .padding(16.dp)
-    ) {
-      when (val state = gameState) {
-        is GameState.GameOver -> {
-          GameOverScreen(state, onPlayAgain = viewModel::resetGame)
-        }
+    if (playerNames == null) {
+      StartScreen(onStart = { p1, p2 -> viewModel.startGame(p1, p2) })
+    } else {
+      val (p1Name, p2Name) = playerNames!!
+      Column(
+        modifier = Modifier
+          .fillMaxSize()
+          .background(MaterialTheme.colors.background)
+          .padding(16.dp)
+      ) {
+        when (val state = gameState) {
+          is GameState.GameOver -> {
+            val winnerName = if (state.winner == Player.ONE) p1Name else p2Name
+            GameOverScreen(state, winnerName, onPlayAgain = viewModel::resetGame)
+          }
 
-        is GameState.InProgress -> {
-          PromptHeader(state)
-          Spacer(Modifier.height(16.dp))
-          SearchBox(viewModel.query, viewModel::onTextInput)
-          Spacer(Modifier.height(8.dp))
-          if (searchResults.isNotEmpty()) {
-            ResultsList(searchResults, viewModel::onResultSelected)
-          } else {
-            ChainDisplay(state.moves)
+          is GameState.InProgress -> {
+            val currentPlayerName = if (state.currentPlayer == Player.ONE) p1Name else p2Name
+            PromptHeader(state, currentPlayerName)
+            Spacer(Modifier.height(16.dp))
+            SearchBox(viewModel.query, viewModel::onTextInput)
+            Spacer(Modifier.height(8.dp))
+            Box(modifier = Modifier.weight(1f)) {
+              if (searchResults.isNotEmpty()) {
+                ResultsList(searchResults, viewModel::onResultSelected)
+              } else {
+                ChainDisplay(state.moves)
+              }
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+              onClick = viewModel::forfeit,
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Text("I can't answer")
+            }
           }
         }
       }
+    }
+  }
+}
+
+@Composable
+fun StartScreen(onStart: (String, String) -> Unit) {
+  var playerOneName by remember { mutableStateOf("") }
+  var playerTwoName by remember { mutableStateOf("") }
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(MaterialTheme.colors.background)
+      .padding(16.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Center
+  ) {
+    Text(
+      text = "Bacon's Law",
+      color = MaterialTheme.colors.primary,
+      style = MaterialTheme.typography.h3
+    )
+    Spacer(Modifier.height(32.dp))
+    OutlinedTextField(
+      value = playerOneName,
+      onValueChange = { playerOneName = it },
+      label = { Text("Player 1 Name") },
+      colors = TextFieldDefaults.textFieldColors(textColor = MaterialTheme.colors.onSurface),
+      singleLine = true,
+      modifier = Modifier.fillMaxWidth()
+    )
+    Spacer(Modifier.height(16.dp))
+    OutlinedTextField(
+      value = playerTwoName,
+      onValueChange = { playerTwoName = it },
+      label = { Text("Player 2 Name") },
+      colors = TextFieldDefaults.textFieldColors(textColor = MaterialTheme.colors.onSurface),
+      singleLine = true,
+      modifier = Modifier.fillMaxWidth()
+    )
+    Spacer(Modifier.height(32.dp))
+    Button(
+      onClick = { onStart(playerOneName.trim(), playerTwoName.trim()) },
+      enabled = playerOneName.isNotBlank() && playerTwoName.isNotBlank(),
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      Text("Start Game")
     }
   }
 }
@@ -149,18 +217,16 @@ private fun SearchBox(text: String, onTextInput: (String) -> Unit) {
   )
 }
 
-
 @Composable
-fun PromptHeader(state: GameState.InProgress) {
+fun PromptHeader(state: GameState.InProgress, currentPlayerName: String) {
   val prompt = when (val previousMove = state.moves.lastOrNull()) {
     is Move.Actor -> "Name a movie with ${previousMove.displayText}"
     is Move.Movie -> "Name an actor from ${previousMove.displayText}"
     null -> "Choose a starting actor"
   }
-  val playerLabel = if (state.currentPlayer == Player.ONE) "Player 1" else "Player 2"
   Column {
     Text(
-      text = playerLabel,
+      text = currentPlayerName,
       color = MaterialTheme.colors.primary,
       style = MaterialTheme.typography.h4
     )
@@ -174,7 +240,7 @@ fun PromptHeader(state: GameState.InProgress) {
 }
 
 @Composable
-fun GameOverScreen(state: GameState.GameOver, onPlayAgain: () -> Unit) {
+fun GameOverScreen(state: GameState.GameOver, winnerName: String, onPlayAgain: () -> Unit) {
   Column(
     modifier = Modifier
       .fillMaxSize()
@@ -182,9 +248,8 @@ fun GameOverScreen(state: GameState.GameOver, onPlayAgain: () -> Unit) {
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.Center
   ) {
-    val winnerLabel = if (state.winner == Player.ONE) "Player 1" else "Player 2"
     Text(
-      text = "$winnerLabel wins!",
+      text = "$winnerName wins!",
       color = MaterialTheme.colors.primary,
       style = MaterialTheme.typography.h4
     )
@@ -204,7 +269,7 @@ fun GameOverScreen(state: GameState.GameOver, onPlayAgain: () -> Unit) {
       }
     }
     Spacer(modifier = Modifier.height(16.dp))
-    androidx.compose.material.Button(
+    Button(
       onClick = onPlayAgain,
       modifier = Modifier.fillMaxWidth()
     ) {
@@ -261,4 +326,3 @@ fun ChainItem(item: Move) {
     }
   }
 }
-

@@ -19,11 +19,14 @@ import timber.log.Timber
 class SearchViewModel(private val repository: Repository, private val gameEngine: GameEngine) :
   ViewModel() {
 
+  private val _playerNames = MutableStateFlow<Pair<String, String>?>(null)
+  val playerNames: StateFlow<Pair<String, String>?> = _playerNames
+
   private val _searchResults = MutableStateFlow<List<SearchResultItem>>(emptyList())
   val searchResults: StateFlow<List<SearchResultItem>> = _searchResults
+
   private val _gameState =
     MutableStateFlow<GameState>(GameState.InProgress(emptyList(), Player.ONE))
-
   val gameState: StateFlow<GameState> = _gameState
 
   var query by mutableStateOf("")
@@ -33,7 +36,22 @@ class SearchViewModel(private val repository: Repository, private val gameEngine
     query = ""
   }
 
+  fun startGame(playerOne: String, playerTwo: String) {
+    _playerNames.value = Pair(playerOne, playerTwo)
+    _gameState.value = GameState.InProgress(emptyList(), Player.ONE)
+    _searchResults.value = emptyList()
+    reset()
+  }
+
+  fun forfeit() {
+    val state = _gameState.value as? GameState.InProgress ?: return
+    _gameState.value = gameEngine.forfeit(state)
+    _searchResults.value = emptyList()
+    reset()
+  }
+
   fun resetGame() {
+    _playerNames.value = null
     _gameState.value = GameState.InProgress(emptyList(), Player.ONE)
     _searchResults.value = emptyList()
     reset()

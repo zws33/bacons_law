@@ -72,6 +72,28 @@ All commands run from the project root.
 
 ---
 
+## Deploying `:backend`
+
+The backend is deployed to Cloud Run via `scripts/deploy.sh`. Run it from the project root:
+
+```bash
+./scripts/deploy.sh
+```
+
+This uses `gcloud run deploy --source .`, which triggers Cloud Build to:
+1. Detect the `Dockerfile` at the repo root
+2. Build the image and push it to Artifact Registry (`us-central1`)
+3. Deploy the new revision to the `bacons-law-backend` Cloud Run service
+
+**Prerequisites:**
+- `gcloud` CLI installed and authenticated (`gcloud auth login`)
+- Active project set to `bacons-law` (`gcloud config set project bacons-law`)
+- TMDB API key stored in Secret Manager as `TMDB_API_KEY` and accessible to the Cloud Run service account
+
+The TMDB key is injected at runtime via Secret Manager — it is never embedded in the image or the source.
+
+---
+
 ## Code Conventions
 
 - **Indent:** 2 spaces (enforced by `.editorconfig`)
