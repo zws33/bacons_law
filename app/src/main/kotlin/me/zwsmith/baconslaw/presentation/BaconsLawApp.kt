@@ -27,9 +27,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import me.zwsmith.core.GameState
 import me.zwsmith.core.Move
 import me.zwsmith.core.Player
+
+private const val TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w185"
 
 private val AppColors = darkColors(
   background = Color(18, 18, 18),
@@ -98,13 +105,33 @@ fun ResultsList(results: List<SearchResultItem>, onResultClicked: (SearchResultI
           .fillMaxWidth()
           .background(MaterialTheme.colors.surface, RoundedCornerShape(8.dp))
           .clickable { onResultClicked(item) }
-          .padding(16.dp)
+          .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        Text(
-          text = item.displayText,
-          color = MaterialTheme.colors.onSurface,
-          fontSize = 16.sp
+        AsyncImage(
+          model = TMDB_IMAGE_BASE_URL + item.imagePath,
+          contentDescription = null,
+          modifier = Modifier
+            .size(60.dp, 90.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.Gray),
+          contentScale = ContentScale.Crop
         )
+        Spacer(Modifier.width(12.dp))
+        Column {
+          Text(
+            text = item.displayText,
+            color = MaterialTheme.colors.onSurface,
+            fontSize = 16.sp
+          )
+          item.releaseYear?.let {
+            Text(
+              text = it,
+              color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+              fontSize = 14.sp
+            )
+          }
+        }
       }
     }
   }
@@ -192,23 +219,46 @@ fun ChainItem(item: Move) {
     is Move.Actor -> "Actor"
     is Move.Movie -> "Movie"
   }
-  Column (
+  Row(
     modifier = Modifier
       .fillMaxWidth()
-      .background(MaterialTheme.colors.surface)
-      .padding(12.dp),
-    horizontalAlignment = Alignment.Start,
-    verticalArrangement = Arrangement.spacedBy(4.dp)
+      .background(MaterialTheme.colors.surface, RoundedCornerShape(8.dp))
+      .padding(8.dp),
+    verticalAlignment = Alignment.CenterVertically
   ) {
-    Text(
-      text = label,
-      color = MaterialTheme.colors.onSurface,
-      style = MaterialTheme.typography.overline
+    AsyncImage(
+      model = TMDB_IMAGE_BASE_URL + item.imagePath,
+      contentDescription = null,
+      modifier = Modifier
+        .size(60.dp, 90.dp)
+        .clip(RoundedCornerShape(4.dp))
+        .background(Color.Gray),
+      contentScale = ContentScale.Crop
     )
-    Text(
-      text = item.displayText, color = MaterialTheme.colors.onSurface,
-      style = MaterialTheme.typography.body1
-    )
+    Spacer(Modifier.width(12.dp))
+    Column(
+      horizontalAlignment = Alignment.Start,
+      verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+      Text(
+        text = label,
+        color = MaterialTheme.colors.onSurface,
+        style = MaterialTheme.typography.overline
+      )
+      Text(
+        text = item.displayText, color = MaterialTheme.colors.onSurface,
+        style = MaterialTheme.typography.body1
+      )
+      if (item is Move.Movie) {
+        item.releaseYear?.let {
+          Text(
+            text = it,
+            color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.body2
+          )
+        }
+      }
+    }
   }
 }
 

@@ -17,10 +17,21 @@ sealed class GameState {
 sealed class Move {
   abstract val id: Int
   abstract val displayText: String
+  abstract val imagePath: String?
 
-  data class Actor(override val id: Int, override val displayText: String) : Move()
-  data class Movie(override val id: Int, override val displayText: String, val castIds: Set<Int>) :
-    Move()
+  data class Actor(
+    override val id: Int,
+    override val displayText: String,
+    override val imagePath: String? = null
+  ) : Move()
+
+  data class Movie(
+    override val id: Int,
+    override val displayText: String,
+    val castIds: Set<Int>,
+    override val imagePath: String? = null,
+    val releaseYear: String? = null
+  ) : Move()
 }
 
 enum class Player {

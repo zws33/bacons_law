@@ -19,13 +19,22 @@ private const val TMDB_BASE = "https://api.themoviedb.org/3"
 private data class TmdbMovieSearchResponse(val results: List<TmdbMovie>)
 
 @Serializable
-private data class TmdbMovie(val id: Int, val title: String)
+private data class TmdbMovie(
+  val id: Int,
+  val title: String,
+  val release_date: String? = null,
+  val poster_path: String? = null
+)
 
 @Serializable
 private data class TmdbPersonSearchResponse(val results: List<TmdbPerson>)
 
 @Serializable
-private data class TmdbPerson(val id: Int, val name: String)
+private data class TmdbPerson(
+  val id: Int,
+  val name: String,
+  val profile_path: String? = null
+)
 
 @Serializable
 private data class TmdbCreditsResponse(
@@ -52,7 +61,14 @@ private fun Routing.moviesRoutes(client: HttpClient) {
       parameter("query", query)
       parameter("api_key", tmdbApiKey)
     }.body()
-    call.respond(response.results.map { MovieSearchResult(it.id, it.title) })
+    call.respond(response.results.map {
+      MovieSearchResult(
+        it.id,
+        it.title,
+        it.release_date?.take(4),
+        it.poster_path
+      )
+    })
   }
   get("/movies/{id}/credits") {
     val id = call.parameters["id"]?.toIntOrNull()
@@ -72,6 +88,12 @@ private fun Routing.peopleRoutes(client: HttpClient) {
       parameter("query", query)
       parameter("api_key", tmdbApiKey)
     }.body()
-    call.respond(response.results.map { PersonSearchResult(it.id, it.name) })
+    call.respond(response.results.map {
+      PersonSearchResult(
+        it.id,
+        it.name,
+        it.profile_path
+      )
+    })
   }
 }

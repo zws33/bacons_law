@@ -17,9 +17,13 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
   buildTypes {
+    debug {
+      buildConfigField("String", "BACKEND_URL", "\"http://10.0.2.2:8080\"")
+    }
     release {
       isMinifyEnabled = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      buildConfigField("String", "BACKEND_URL", "\"https://bacons-law-backend-ic7p3y7rrq-uc.a.run.app\"")
     }
   }
 
@@ -43,6 +47,7 @@ dependencies {
   implementation(libs.androidx.appcompat)
   implementation(libs.material)
   implementation(libs.timber)
+  implementation(libs.coil.compose)
   implementation(project(":core"))
 
   androidTestImplementation(libs.androidx.test.ext.junit)

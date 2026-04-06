@@ -5,11 +5,11 @@ import org.junit.jupiter.api.Test
 
 class GameEngineTest {
   private val engine = GameEngine()
-  private val tomHanks = Move.Actor(id = 1, displayText = "Tom Hanks")
-  private val castAway = Move.Movie(id = 10, displayText = "Cast Away", castIds = setOf(1, 2))
-  private val helenHunt = Move.Actor(id = 2, displayText = "Helen Hunt")
-  private val outsider = Move.Actor(id = 99, displayText = "Unknown Actor")
-  private val unrelatedMovie = Move.Movie(id = 20, displayText = "Unrelated Movie", castIds = setOf(99))
+  private val tomHanks = Move.Actor(id = 1, displayText = "Tom Hanks", imagePath = "/hanks.jpg")
+  private val castAway = Move.Movie(id = 10, displayText = "Cast Away", castIds = setOf(1, 2), imagePath = "/castaway.jpg", releaseYear = "2000")
+  private val helenHunt = Move.Actor(id = 2, displayText = "Helen Hunt", imagePath = "/hunt.jpg")
+  private val outsider = Move.Actor(id = 99, displayText = "Unknown Actor", imagePath = null)
+  private val unrelatedMovie = Move.Movie(id = 20, displayText = "Unrelated Movie", castIds = setOf(99), imagePath = null, releaseYear = "2020")
 
   @Test
   fun `startGame sets starting actor as first move`() {

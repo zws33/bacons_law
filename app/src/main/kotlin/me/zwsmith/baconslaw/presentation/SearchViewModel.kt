@@ -46,9 +46,11 @@ class SearchViewModel(private val repository: Repository, private val gameEngine
       viewModelScope.launch {
         _searchResults.value =
           if (gameState.moves.isEmpty() || gameState.moves.last() is Move.Movie) {
-            repository.searchActors(query).map { SearchResultItem(it.id, it.name) }
+            repository.searchActors(query).map { SearchResultItem(it.id, it.name, it.profilePath) }
           } else {
-            repository.searchMovies(query).map { SearchResultItem(it.id, it.title) }
+            repository.searchMovies(query).map {
+              SearchResultItem(it.id, it.title, it.posterPath, it.releaseYear)
+            }
           }
       }
     }
@@ -61,22 +63,25 @@ class SearchViewModel(private val repository: Repository, private val gameEngine
         is Move.Actor -> {
           val creditsResult = repository.fetchMovieCredits(item.id)
           if (creditsResult != null) {
-            Timber.d("Selected movie: ${item.displayText}, id: ${item.id}, cast: ${creditsResult.castIds.joinToString()}")
-            Timber.d("Previous actor: ${previous.displayText}, id: ${previous.id}")
             _gameState.value = gameEngine.playMove(
-              Move.Movie(item.id, item.displayText, creditsResult.castIds.toSet()), gameState
+              Move.Movie(
+                item.id,
+                item.displayText,
+                creditsResult.castIds.toSet(),
+                item.imagePath,
+                item.releaseYear
+              ), gameState
             )
           }
         }
 
         is Move.Movie -> {
-          Timber.d("Selected actor: ${item.displayText}, id: ${item.id}")
-          Timber.d("Previous movie: ${previous.displayText}, id: ${previous.id}")
-          _gameState.value = gameEngine.playMove(Move.Actor(item.id, item.displayText), gameState)
+          _gameState.value =
+            gameEngine.playMove(Move.Actor(item.id, item.displayText, item.imagePath), gameState)
         }
 
         null -> {
-          _gameState.value = gameEngine.startGame(Move.Actor(item.id, item.displayText))
+          _gameState.value = gameEngine.startGame(Move.Actor(item.id, item.displayText, item.imagePath))
         }
       }
       reset()
@@ -96,4 +101,9 @@ class SearchViewModel(private val repository: Repository, private val gameEngine
   }
 }
 
-data class SearchResultItem(val id: Int, val displayText: String)
+data class SearchResultItem(
+  val id: Int,
+  val displayText: String,
+  val imagePath: String? = null,
+  val releaseYear: String? = null
+)

@@ -11,9 +11,18 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 @Serializable
-data class MovieSearchResult(val id: Int, val title: String)
+data class MovieSearchResult(
+  val id: Int,
+  val title: String,
+  val releaseYear: String?,
+  val posterPath: String?
+)
 @Serializable
-data class PersonSearchResult(val id: Int, val name: String)
+data class PersonSearchResult(
+  val id: Int,
+  val name: String,
+  val profilePath: String?
+)
 @Serializable
 data class MovieCreditsResult(val id: Int, val castIds: Set<Int>)
 class DefaultApiClient : ApiClient {
@@ -35,7 +44,7 @@ class DefaultApiClient : ApiClient {
     return client.get("$BASE_URL/movies/$movieId/credits").body()
   }
   companion object {
-    const val BASE_URL = "https://bacons-law-backend-ic7p3y7rrq-uc.a.run.app"
+    val BASE_URL = me.zwsmith.baconslaw.BuildConfig.BACKEND_URL
   }
 }
 
