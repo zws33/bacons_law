@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Button
+import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.OutlinedButton
 import androidx.compose.material.OutlinedTextField
@@ -54,7 +55,9 @@ private val AppColors = darkColors(
 fun BaconsLawApp(viewModel: SearchViewModel) {
   val playerNames by viewModel.playerNames.collectAsStateWithLifecycle()
   val gameState by viewModel.gameState.collectAsStateWithLifecycle()
-  val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
+  val searchUiState by viewModel.searchUiState.collectAsStateWithLifecycle()
+  val isSubmitting by viewModel.isSubmitting.collectAsStateWithLifecycle()
+
   MaterialTheme(colors = AppColors) {
     if (playerNames == null) {
       StartScreen(onStart = { p1, p2 -> viewModel.startGame(p1, p2) })
@@ -76,18 +79,44 @@ fun BaconsLawApp(viewModel: SearchViewModel) {
             val currentPlayerName = if (state.currentPlayer == Player.ONE) p1Name else p2Name
             PromptHeader(state, currentPlayerName)
             Spacer(Modifier.height(16.dp))
-            SearchBox(viewModel.query, viewModel::onTextInput)
+            SearchBox(viewModel.query, viewModel::onTextInput, enabled = !isSubmitting)
             Spacer(Modifier.height(8.dp))
-            Box(modifier = Modifier.weight(1f)) {
-              if (searchResults.isNotEmpty()) {
-                ResultsList(searchResults, viewModel::onResultSelected)
-              } else {
-                ChainDisplay(state.moves)
+
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+              when (val uiState = searchUiState) {
+                is SearchUiState.Loading -> {
+                  CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                }
+
+                is SearchUiState.Success -> {
+                  if (uiState.results.isEmpty() && viewModel.query.isNotBlank()) {
+                    Text(
+                      text = "No results found for \"${viewModel.query}\"",
+                      color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+                      modifier = Modifier.align(Alignment.Center)
+                    )
+                  } else {
+                    ResultsList(uiState.results, viewModel::onResultSelected)
+                  }
+                }
+
+                is SearchUiState.Error -> {
+                  ErrorMessage(uiState.message, onDismiss = viewModel::reset)
+                }
+
+                is SearchUiState.Idle -> {
+                  if (isSubmitting) {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                  } else {
+                    ChainDisplay(state.moves)
+                  }
+                }
               }
             }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
               onClick = viewModel::forfeit,
+              enabled = !isSubmitting,
               modifier = Modifier.fillMaxWidth()
             ) {
               Text("I can't answer")
@@ -206,15 +235,41 @@ fun ResultsList(results: List<SearchResultItem>, onResultClicked: (SearchResultI
 }
 
 @Composable
-private fun SearchBox(text: String, onTextInput: (String) -> Unit) {
+private fun SearchBox(text: String, onTextInput: (String) -> Unit, enabled: Boolean = true) {
   OutlinedTextField(
     modifier = Modifier.fillMaxWidth(),
     value = text,
+    enabled = enabled,
     colors = TextFieldDefaults.textFieldColors(textColor = MaterialTheme.colors.onSurface),
     placeholder = { Text("Search...") },
     onValueChange = onTextInput,
     singleLine = true
   )
+}
+
+@Composable
+private fun ErrorMessage(message: String, onDismiss: () -> Unit) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .background(Color(120, 30, 30), RoundedCornerShape(8.dp))
+      .padding(horizontal = 12.dp, vertical = 8.dp),
+    verticalAlignment = Alignment.CenterVertically
+  ) {
+    Text(
+      text = message,
+      color = Color.White,
+      fontSize = 14.sp,
+      modifier = Modifier.weight(1f)
+    )
+    Spacer(Modifier.width(8.dp))
+    Text(
+      text = "Dismiss",
+      color = Color.White.copy(alpha = 0.8f),
+      fontSize = 12.sp,
+      modifier = Modifier.clickable { onDismiss() }
+    )
+  }
 }
 
 @Composable

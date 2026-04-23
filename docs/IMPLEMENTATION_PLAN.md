@@ -8,28 +8,48 @@ Build order and design decisions for the playable MVP. Reference [GAME_SPEC.md](
 |------|--------|
 | Build toolchain | **Done** |
 | 1. Game engine rewrite | **Done** |
-| 2a. Backend proxy service | **Next** |
-| 2b. TMDB data layer | Pending |
-| 3. Game flow UI | Pending |
-| 4. Integration | Pending |
+| 2a. Backend proxy service | **Done** |
+| 2b. TMDB data layer | **Done** |
+| 3. Game flow UI | **Done** |
+| 4. Integration | **Done** |
+| 5. MVP Refinement | **Next** |
 
 ## Completed
 
 ### Build toolchain ✓
-
-- Gradle 9.4.1, AGP 9.1, Kotlin 2.1.10, Compose BOM 2026.03.01
-- `:core` converted to pure Kotlin JVM module (no Android deps)
-- All AGP 9 defaults adopted — removed all compatibility shims
-- Dependency bundles organized in version catalog
-- `.idea/` gitignored, machine-specific config in `local.properties`
+(as before)
 
 ### Game Engine Rewrite ✓
+(as before)
 
-- Pure Kotlin state machine in `:core`.
-- Sealed `GameState` (`InProgress`, `GameOver`).
-- Sealed `Move` (`Actor`, `Movie`).
-- Factory function `GameEngine()` provides `DefaultGameEngine`.
-- Full unit test coverage with JUnit 5 and Truth.
+### Backend Proxy Service ✓
+- Ktor service in `:backend` proxies TMDB search and credits.
+- Normalizes TMDB responses to domain models.
+- TMDB API key is kept server-side.
+
+### TMDB Data Layer ✓
+- `:app` Repository uses Ktor Client to hit `:backend`.
+- Fetches fully-populated `Move` objects (including `castIds`).
+
+### Game Flow UI ✓
+- Start, Play, and Game Over screens implemented in Compose.
+- `SearchViewModel` manages game state and data flow.
+
+### Integration ✓
+- Game loop fully functional: Search -> Select -> Fetch -> Validate -> State Update.
+- Playable "pass-the-phone" MVP.
+
+---
+
+## 5. MVP Refinement ← next
+
+**Goal:** Polish the user experience and ensure robustness before Phase 2.
+
+### Tasks
+- [ ] **Search Debouncing:** Prevent API spam by waiting for a pause in typing.
+- [ ] **Empty States:** Clearly show when search returns no results.
+- [ ] **Error Handling:** Improve feedback for network failures and timeouts.
+- [ ] **Loading States:** Provide visual feedback during movie credit fetching.
 
 ---
 

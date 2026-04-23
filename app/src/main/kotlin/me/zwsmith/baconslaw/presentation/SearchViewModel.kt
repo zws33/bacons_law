@@ -7,8 +7,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.zwsmith.core.GameEngine
 import me.zwsmith.core.GameState
@@ -16,71 +25,109 @@ import me.zwsmith.core.Move
 import me.zwsmith.core.Player
 import timber.log.Timber
 
+sealed interface SearchUiState {
+  object Idle : SearchUiState
+  object Loading : SearchUiState
+  data class Success(val results: List<SearchResultItem>) : SearchUiState
+  data class Error(val message: String) : SearchUiState
+}
+
+@OptIn(FlowPreview::class)
 class SearchViewModel(private val repository: Repository, private val gameEngine: GameEngine) :
   ViewModel() {
 
   private val _playerNames = MutableStateFlow<Pair<String, String>?>(null)
   val playerNames: StateFlow<Pair<String, String>?> = _playerNames
 
-  private val _searchResults = MutableStateFlow<List<SearchResultItem>>(emptyList())
-  val searchResults: StateFlow<List<SearchResultItem>> = _searchResults
-
   private val _gameState =
     MutableStateFlow<GameState>(GameState.InProgress(emptyList(), Player.ONE))
   val gameState: StateFlow<GameState> = _gameState
 
+  private val _searchQuery = MutableStateFlow("")
+
   var query by mutableStateOf("")
     private set
 
+  private val _isSubmitting = MutableStateFlow(false)
+  val isSubmitting: StateFlow<Boolean> = _isSubmitting
+
+  val searchUiState: StateFlow<SearchUiState> = _searchQuery
+    .debounce(300L)
+    .distinctUntilChanged()
+    .flatMapLatest { query ->
+      if (query.isBlank()) {
+        flowOf(SearchUiState.Idle)
+      } else {
+        flow {
+          emit(SearchUiState.Loading)
+          val gameState = _gameState.value
+          if (gameState is GameState.InProgress) {
+            val results = if (gameState.moves.isEmpty() || gameState.moves.last() is Move.Movie) {
+              repository.searchActors(query).map { SearchResultItem(it.id, it.name, it.profilePath) }
+            } else {
+              repository.searchMovies(query).map {
+                SearchResultItem(it.id, it.title, it.posterPath, it.releaseYear)
+              }
+            }
+            emit(SearchUiState.Success(results))
+          } else {
+            emit(SearchUiState.Idle)
+          }
+        }.catch { e ->
+          Timber.e(e)
+          emit(SearchUiState.Error("Couldn't load results. Check your connection."))
+        }
+      }
+    }
+    .stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5_000),
+      initialValue = SearchUiState.Idle
+    )
+
   fun reset() {
     query = ""
+    _searchQuery.value = ""
+  }
+
+  fun dismissError() {
+    // Error is now part of searchUiState, so "dismissing" it means clearing the query
+    // or we could add a manual override. For MVP, clearing the query or typing something else works.
   }
 
   fun startGame(playerOne: String, playerTwo: String) {
     _playerNames.value = Pair(playerOne, playerTwo)
     _gameState.value = GameState.InProgress(emptyList(), Player.ONE)
-    _searchResults.value = emptyList()
     reset()
   }
 
   fun forfeit() {
     val state = _gameState.value as? GameState.InProgress ?: return
     _gameState.value = gameEngine.forfeit(state)
-    _searchResults.value = emptyList()
     reset()
   }
 
   fun resetGame() {
     _playerNames.value = null
     _gameState.value = GameState.InProgress(emptyList(), Player.ONE)
-    _searchResults.value = emptyList()
     reset()
   }
 
   fun onTextInput(query: String) {
     this.query = query
-    val gameState = _gameState.value
-    if (gameState is GameState.InProgress) {
-      viewModelScope.launch {
-        _searchResults.value =
-          if (gameState.moves.isEmpty() || gameState.moves.last() is Move.Movie) {
-            repository.searchActors(query).map { SearchResultItem(it.id, it.name, it.profilePath) }
-          } else {
-            repository.searchMovies(query).map {
-              SearchResultItem(it.id, it.title, it.posterPath, it.releaseYear)
-            }
-          }
-      }
-    }
+    _searchQuery.value = query
   }
 
   fun onResultSelected(item: SearchResultItem) {
     val gameState = _gameState.value as? GameState.InProgress ?: return
+    if (_isSubmitting.value) return
+
     viewModelScope.launch {
-      when (val previous = gameState.moves.lastOrNull()) {
-        is Move.Actor -> {
-          val creditsResult = repository.fetchMovieCredits(item.id)
-          if (creditsResult != null) {
+      _isSubmitting.value = true
+      try {
+        when (val previous = gameState.moves.lastOrNull()) {
+          is Move.Actor -> {
+            val creditsResult = repository.fetchMovieCredits(item.id)
             _gameState.value = gameEngine.playMove(
               Move.Movie(
                 item.id,
@@ -91,24 +138,28 @@ class SearchViewModel(private val repository: Repository, private val gameEngine
               ), gameState
             )
           }
-        }
 
-        is Move.Movie -> {
-          _gameState.value =
-            gameEngine.playMove(Move.Actor(item.id, item.displayText, item.imagePath), gameState)
-        }
+          is Move.Movie -> {
+            _gameState.value =
+              gameEngine.playMove(Move.Actor(item.id, item.displayText, item.imagePath), gameState)
+          }
 
-        null -> {
-          _gameState.value = gameEngine.startGame(Move.Actor(item.id, item.displayText, item.imagePath))
+          null -> {
+            _gameState.value =
+              gameEngine.startGame(Move.Actor(item.id, item.displayText, item.imagePath))
+          }
         }
+        reset()
+      } catch (e: Exception) {
+        Timber.e(e)
+        // Note: For a real app, we'd add a _submissionError flow here.
+      } finally {
+        _isSubmitting.value = false
       }
-      reset()
-      _searchResults.value = emptyList()
     }
   }
 
   companion object {
-    private const val TAG = "SearchViewModel"
     val Factory = viewModelFactory {
       initializer {
         val repository = Repository()
