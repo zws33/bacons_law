@@ -52,76 +52,86 @@ private val AppColors = darkColors(
 )
 
 @Composable
-fun BaconsLawApp(viewModel: SearchViewModel) {
+fun BaconsLawApp(viewModel: GameViewModel) {
   val playerNames by viewModel.playerNames.collectAsStateWithLifecycle()
-  val gameState by viewModel.gameState.collectAsStateWithLifecycle()
-  val searchUiState by viewModel.searchUiState.collectAsStateWithLifecycle()
-  val isSubmitting by viewModel.isSubmitting.collectAsStateWithLifecycle()
 
   MaterialTheme(colors = AppColors) {
     if (playerNames == null) {
       StartScreen(onStart = { p1, p2 -> viewModel.startGame(p1, p2) })
     } else {
       val (p1Name, p2Name) = playerNames!!
-      Column(
-        modifier = Modifier
-          .fillMaxSize()
-          .background(MaterialTheme.colors.background)
-          .padding(16.dp)
-      ) {
-        when (val state = gameState) {
-          is GameState.GameOver -> {
-            val winnerName = if (state.winner == Player.ONE) p1Name else p2Name
-            GameOverScreen(state, winnerName, onPlayAgain = viewModel::resetGame)
-          }
+      GameScreen(viewModel, p1Name, p2Name)
+    }
+  }
+}
 
-          is GameState.InProgress -> {
-            val currentPlayerName = if (state.currentPlayer == Player.ONE) p1Name else p2Name
-            PromptHeader(state, currentPlayerName)
-            Spacer(Modifier.height(16.dp))
-            SearchBox(viewModel.query, viewModel::onTextInput, enabled = !isSubmitting)
-            Spacer(Modifier.height(8.dp))
+@Composable
+fun GameScreen(
+  viewModel: GameViewModel,
+  p1Name: String,
+  p2Name: String
+) {
+  val gameState by viewModel.gameState.collectAsStateWithLifecycle()
+  val searchUiState by viewModel.searchUiState.collectAsStateWithLifecycle()
+  val isSubmitting by viewModel.isSubmitting.collectAsStateWithLifecycle()
 
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-              when (val uiState = searchUiState) {
-                is SearchUiState.Loading -> {
-                  CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                }
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(MaterialTheme.colors.background)
+      .padding(16.dp)
+  ) {
+    when (val state = gameState) {
+      is GameState.GameOver -> {
+        val winnerName = if (state.winner == Player.ONE) p1Name else p2Name
+        GameOverScreen(state, winnerName, onPlayAgain = viewModel::resetGame)
+      }
 
-                is SearchUiState.Success -> {
-                  if (uiState.results.isEmpty() && viewModel.query.isNotBlank()) {
-                    Text(
-                      text = "No results found for \"${viewModel.query}\"",
-                      color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
-                      modifier = Modifier.align(Alignment.Center)
-                    )
-                  } else {
-                    ResultsList(uiState.results, viewModel::onResultSelected)
-                  }
-                }
+      is GameState.InProgress -> {
+        val currentPlayerName = if (state.currentPlayer == Player.ONE) p1Name else p2Name
+        PromptHeader(state, currentPlayerName)
+        Spacer(Modifier.height(16.dp))
+        SearchBox(viewModel.query, viewModel::onTextInput, enabled = !isSubmitting)
+        Spacer(Modifier.height(8.dp))
 
-                is SearchUiState.Error -> {
-                  ErrorMessage(uiState.message, onDismiss = viewModel::reset)
-                }
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+          when (val uiState = searchUiState) {
+            is SearchUiState.Loading -> {
+              CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            }
 
-                is SearchUiState.Idle -> {
-                  if (isSubmitting) {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                  } else {
-                    ChainDisplay(state.moves)
-                  }
-                }
+            is SearchUiState.Success -> {
+              if (uiState.results.isEmpty() && viewModel.query.isNotBlank()) {
+                Text(
+                  text = "No results found for \"${viewModel.query}\"",
+                  color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+                  modifier = Modifier.align(Alignment.Center)
+                )
+              } else {
+                ResultsList(uiState.results, viewModel::onResultSelected)
               }
             }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-              onClick = viewModel::forfeit,
-              enabled = !isSubmitting,
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Text("I can't answer")
+
+            is SearchUiState.Error -> {
+              ErrorMessage(uiState.message, onDismiss = viewModel::reset)
+            }
+
+            is SearchUiState.Idle -> {
+              if (isSubmitting) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+              } else {
+                ChainDisplay(state.moves)
+              }
             }
           }
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+          onClick = viewModel::forfeit,
+          enabled = !isSubmitting,
+          modifier = Modifier.fillMaxWidth()
+        ) {
+          Text("I can't answer")
         }
       }
     }

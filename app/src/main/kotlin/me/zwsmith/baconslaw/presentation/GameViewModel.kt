@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalCoroutinesApi::class)
+
 package me.zwsmith.baconslaw.presentation
 
 import androidx.compose.runtime.getValue
@@ -7,6 +9,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,7 +36,7 @@ sealed interface SearchUiState {
 }
 
 @OptIn(FlowPreview::class)
-class SearchViewModel(private val repository: Repository, private val gameEngine: GameEngine) :
+class GameViewModel(private val repository: Repository, private val gameEngine: GameEngine) :
   ViewModel() {
 
   private val _playerNames = MutableStateFlow<Pair<String, String>?>(null)
@@ -164,7 +167,7 @@ class SearchViewModel(private val repository: Repository, private val gameEngine
       initializer {
         val repository = Repository()
         val gameEngine = GameEngine()
-        SearchViewModel(repository, gameEngine)
+        GameViewModel(repository, gameEngine)
       }
     }
   }

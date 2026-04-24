@@ -14,7 +14,7 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     setContent {
-      BaconsLawApp(viewModel(factory = SearchViewModel.Factory))
+      BaconsLawApp(viewModel(factory = GameViewModel.Factory))
     }
   }
 }
