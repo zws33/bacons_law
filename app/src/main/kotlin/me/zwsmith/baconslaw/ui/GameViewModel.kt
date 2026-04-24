@@ -124,7 +124,7 @@ class GameViewModel(private val repository: Repository, private val gameEngine: 
     viewModelScope.launch {
       _isSubmitting.value = true
       try {
-        when (val previous = gameState.moves.lastOrNull()) {
+        when (gameState.moves.lastOrNull()) {
           is Move.Actor -> {
             val creditsResult = repository.fetchMovieCredits(item.id)
             _gameState.value = gameEngine.playMove(

@@ -1,10 +1,5 @@
 package me.zwsmith.baconslaw.data
 
-import me.zwsmith.baconslaw.data.ApiClient
-import me.zwsmith.baconslaw.data.MovieCreditsResult
-import me.zwsmith.baconslaw.data.MovieSearchResult
-import me.zwsmith.baconslaw.data.PersonSearchResult
-
 fun Repository(): Repository = RepositoryImpl(ApiClient.create())
 
 interface Repository {
@@ -23,4 +18,3 @@ class RepositoryImpl(private val apiClient: ApiClient) : Repository {
   override suspend fun fetchMovieCredits(movieId: Int): MovieCreditsResult =
     apiClient.fetchCredits(movieId)
 }
-
