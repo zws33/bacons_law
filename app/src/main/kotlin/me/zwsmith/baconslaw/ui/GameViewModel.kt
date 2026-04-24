@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalCoroutinesApi::class)
 
-package me.zwsmith.baconslaw.presentation
+package me.zwsmith.baconslaw.ui
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,17 +22,18 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import me.zwsmith.baconslaw.data.Repository
 import me.zwsmith.core.GameEngine
 import me.zwsmith.core.GameState
 import me.zwsmith.core.Move
 import me.zwsmith.core.Player
 import timber.log.Timber
 
-sealed interface SearchUiState {
-  object Idle : SearchUiState
-  object Loading : SearchUiState
-  data class Success(val results: List<SearchResultItem>) : SearchUiState
-  data class Error(val message: String) : SearchUiState
+sealed interface GameUiState {
+  object Idle : GameUiState
+  object Loading : GameUiState
+  data class Success(val results: List<SearchResultItem>) : GameUiState
+  data class Error(val message: String) : GameUiState
 }
 
 @OptIn(FlowPreview::class)
@@ -54,15 +55,15 @@ class GameViewModel(private val repository: Repository, private val gameEngine: 
   private val _isSubmitting = MutableStateFlow(false)
   val isSubmitting: StateFlow<Boolean> = _isSubmitting
 
-  val searchUiState: StateFlow<SearchUiState> = _searchQuery
+  val uiState: StateFlow<GameUiState> = _searchQuery
     .debounce(300L)
     .distinctUntilChanged()
     .flatMapLatest { query ->
       if (query.isBlank()) {
-        flowOf(SearchUiState.Idle)
+        flowOf(GameUiState.Idle)
       } else {
         flow {
-          emit(SearchUiState.Loading)
+          emit(GameUiState.Loading)
           val gameState = _gameState.value
           if (gameState is GameState.InProgress) {
             val results = if (gameState.moves.isEmpty() || gameState.moves.last() is Move.Movie) {
@@ -72,30 +73,25 @@ class GameViewModel(private val repository: Repository, private val gameEngine: 
                 SearchResultItem(it.id, it.title, it.posterPath, it.releaseYear)
               }
             }
-            emit(SearchUiState.Success(results))
+            emit(GameUiState.Success(results))
           } else {
-            emit(SearchUiState.Idle)
+            emit(GameUiState.Idle)
           }
         }.catch { e ->
           Timber.e(e)
-          emit(SearchUiState.Error("Couldn't load results. Check your connection."))
+          emit(GameUiState.Error("Couldn't load results. Check your connection."))
         }
       }
     }
     .stateIn(
       scope = viewModelScope,
       started = SharingStarted.WhileSubscribed(5_000),
-      initialValue = SearchUiState.Idle
+      initialValue = GameUiState.Idle
     )
 
   fun reset() {
     query = ""
     _searchQuery.value = ""
-  }
-
-  fun dismissError() {
-    // Error is now part of searchUiState, so "dismissing" it means clearing the query
-    // or we could add a manual override. For MVP, clearing the query or typing something else works.
   }
 
   fun startGame(playerOne: String, playerTwo: String) {

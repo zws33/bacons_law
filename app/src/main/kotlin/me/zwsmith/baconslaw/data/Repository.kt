@@ -1,4 +1,4 @@
-package me.zwsmith.baconslaw.presentation
+package me.zwsmith.baconslaw.data
 
 import me.zwsmith.baconslaw.data.ApiClient
 import me.zwsmith.baconslaw.data.MovieCreditsResult

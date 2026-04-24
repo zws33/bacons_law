@@ -9,3 +9,4 @@ captures
 # IDE
 .idea/
 *.iml.kotlin/
+.kotlin/

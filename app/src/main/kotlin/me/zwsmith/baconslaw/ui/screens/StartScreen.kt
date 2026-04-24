@@ -1,0 +1,69 @@
+package me.zwsmith.baconslaw.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.Button
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.OutlinedTextField
+import androidx.compose.material.Text
+import androidx.compose.material.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+internal fun StartScreen(onStart: (String, String) -> Unit) {
+  var playerOneName by remember { mutableStateOf("") }
+  var playerTwoName by remember { mutableStateOf("") }
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .background(MaterialTheme.colors.background)
+      .padding(16.dp),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.Center
+  ) {
+    Text(
+      text = "Bacon's Law",
+      color = MaterialTheme.colors.primary,
+      style = MaterialTheme.typography.h3
+    )
+    Spacer(Modifier.height(32.dp))
+    OutlinedTextField(
+      value = playerOneName,
+      onValueChange = { playerOneName = it },
+      label = { Text("Player 1 Name") },
+      colors = TextFieldDefaults.textFieldColors(textColor = MaterialTheme.colors.onSurface),
+      singleLine = true,
+      modifier = Modifier.fillMaxWidth()
+    )
+    Spacer(Modifier.height(16.dp))
+    OutlinedTextField(
+      value = playerTwoName,
+      onValueChange = { playerTwoName = it },
+      label = { Text("Player 2 Name") },
+      colors = TextFieldDefaults.textFieldColors(textColor = MaterialTheme.colors.onSurface),
+      singleLine = true,
+      modifier = Modifier.fillMaxWidth()
+    )
+    Spacer(Modifier.height(32.dp))
+    Button(
+      onClick = { onStart(playerOneName.trim(), playerTwoName.trim()) },
+      enabled = playerOneName.isNotBlank() && playerTwoName.isNotBlank(),
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      Text("Start Game")
+    }
+  }
+}
