@@ -24,16 +24,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import me.zwsmith.baconslaw.ui.SearchResultItem
 import me.zwsmith.core.GameState
 import me.zwsmith.core.Move
-
-const val TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w185"
 
 @Composable
 internal fun ChainDisplay(moves: List<Move>) {
@@ -41,12 +40,12 @@ internal fun ChainDisplay(moves: List<Move>) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
       Text(
         text = "Name an Actor to start the chain!",
-        color = MaterialTheme.colors.onSurface,
-        fontSize = 14.sp
+        style = MaterialTheme.typography.body1,
+        color = MaterialTheme.colors.secondary.copy(alpha = 0.7f),
       )
     }
   } else {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
       items(moves) {
         ChainItem(it)
       }
@@ -56,18 +55,20 @@ internal fun ChainDisplay(moves: List<Move>) {
 
 @Composable
 internal fun ResultsList(results: List<SearchResultItem>, onResultClicked: (SearchResultItem) -> Unit) {
-  LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+  val shape = RoundedCornerShape(8.dp)
+  LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     items(results) { item ->
       Row(
         modifier = Modifier
           .fillMaxWidth()
-          .background(MaterialTheme.colors.surface, RoundedCornerShape(8.dp))
+          .clip(shape)
+          .background(MaterialTheme.colors.surface)
           .clickable { onResultClicked(item) }
           .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
       ) {
         AsyncImage(
-          model = TMDB_IMAGE_BASE_URL + item.imagePath,
+          model = item.imagePath,
           contentDescription = null,
           modifier = Modifier
             .size(60.dp, 90.dp)
@@ -79,14 +80,14 @@ internal fun ResultsList(results: List<SearchResultItem>, onResultClicked: (Sear
         Column {
           Text(
             text = item.displayText,
+            style = MaterialTheme.typography.body1,
             color = MaterialTheme.colors.onSurface,
-            fontSize = 16.sp
           )
           item.releaseYear?.let {
             Text(
               text = it,
+              style = MaterialTheme.typography.body2,
               color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
-              fontSize = 14.sp
             )
           }
         }
@@ -96,15 +97,25 @@ internal fun ResultsList(results: List<SearchResultItem>, onResultClicked: (Sear
 }
 
 @Composable
-internal fun SearchBox(text: String, onTextInput: (String) -> Unit, enabled: Boolean = true) {
+internal fun SearchBox(
+  text: String,
+  onTextInput: (String) -> Unit,
+  enabled: Boolean = true,
+  focusRequester: FocusRequester? = null,
+  placeholder: String = "Search…",
+) {
   OutlinedTextField(
-    modifier = Modifier.fillMaxWidth(),
+    modifier = Modifier
+      .fillMaxWidth()
+      .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier),
     value = text,
     enabled = enabled,
-    colors = TextFieldDefaults.textFieldColors(textColor = MaterialTheme.colors.onSurface),
-    placeholder = { Text("Search...") },
+    colors = TextFieldDefaults.outlinedTextFieldColors(
+      textColor = MaterialTheme.colors.onSurface,
+    ),
+    placeholder = { Text(placeholder) },
     onValueChange = onTextInput,
-    singleLine = true
+    singleLine = true,
   )
 }
 
@@ -113,22 +124,22 @@ internal fun ErrorMessage(message: String, onDismiss: () -> Unit) {
   Row(
     modifier = Modifier
       .fillMaxWidth()
-      .background(Color(120, 30, 30), RoundedCornerShape(8.dp))
+      .background(MaterialTheme.colors.error.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
       .padding(horizontal = 12.dp, vertical = 8.dp),
     verticalAlignment = Alignment.CenterVertically
   ) {
     Text(
       text = message,
+      style = MaterialTheme.typography.body2,
       color = Color.White,
-      fontSize = 14.sp,
-      modifier = Modifier.weight(1f)
+      modifier = Modifier.weight(1f),
     )
     Spacer(Modifier.width(8.dp))
     Text(
       text = "Dismiss",
+      style = MaterialTheme.typography.button,
       color = Color.White.copy(alpha = 0.8f),
-      fontSize = 12.sp,
-      modifier = Modifier.clickable { onDismiss() }
+      modifier = Modifier.clickable { onDismiss() },
     )
   }
 }
@@ -142,15 +153,15 @@ internal fun PromptHeader(state: GameState.InProgress, currentPlayerName: String
   }
   Column {
     Text(
-      text = currentPlayerName,
-      color = MaterialTheme.colors.primary,
-      style = MaterialTheme.typography.h4
+      text = currentPlayerName.uppercase(),
+      style = MaterialTheme.typography.overline,
+      color = MaterialTheme.colors.secondary,
     )
-    Spacer(modifier = Modifier.height(8.dp))
+    Spacer(modifier = Modifier.height(4.dp))
     Text(
       text = prompt,
-      color = MaterialTheme.colors.onSurface,
-      style = MaterialTheme.typography.h4
+      style = MaterialTheme.typography.h5,
+      color = MaterialTheme.colors.primary,
     )
   }
 }
@@ -161,15 +172,17 @@ internal fun ChainItem(item: Move) {
     is Move.Actor -> "Actor"
     is Move.Movie -> "Movie"
   }
+  val shape = RoundedCornerShape(8.dp)
   Row(
     modifier = Modifier
       .fillMaxWidth()
-      .background(MaterialTheme.colors.surface, RoundedCornerShape(8.dp))
+      .clip(shape)
+      .background(MaterialTheme.colors.surface)
       .padding(8.dp),
     verticalAlignment = Alignment.CenterVertically
   ) {
     AsyncImage(
-      model = TMDB_IMAGE_BASE_URL + item.imagePath,
+      model = item.imagePath,
       contentDescription = null,
       modifier = Modifier
         .size(60.dp, 90.dp)
@@ -184,19 +197,20 @@ internal fun ChainItem(item: Move) {
     ) {
       Text(
         text = label,
-        color = MaterialTheme.colors.onSurface,
-        style = MaterialTheme.typography.overline
+        style = MaterialTheme.typography.overline,
+        color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
       )
       Text(
-        text = item.displayText, color = MaterialTheme.colors.onSurface,
-        style = MaterialTheme.typography.body1
+        text = item.displayText,
+        style = MaterialTheme.typography.body1,
+        color = MaterialTheme.colors.onSurface,
       )
       if (item is Move.Movie) {
         item.releaseYear?.let {
           Text(
             text = it,
+            style = MaterialTheme.typography.body2,
             color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
-            style = MaterialTheme.typography.body2
           )
         }
       }
