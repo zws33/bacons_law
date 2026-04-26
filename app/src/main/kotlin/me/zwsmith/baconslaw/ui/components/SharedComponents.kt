@@ -217,3 +217,34 @@ internal fun ChainItem(item: Move) {
     }
   }
 }
+
+@Composable
+internal fun TmdbAttribution(modifier: Modifier = Modifier) {
+  Column(
+    modifier = modifier.fillMaxWidth(),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.spacedBy(4.dp)
+  ) {
+    // Placeholder for TMDB Logo
+    Box(
+      modifier = Modifier
+        .size(60.dp, 20.dp)
+        .background(Color(0xFF01B4E4), RoundedCornerShape(2.dp)),
+      contentAlignment = Alignment.Center
+    ) {
+      Text(
+        text = "TMDB",
+        style = MaterialTheme.typography.caption,
+        color = Color(0xFF0D253F),
+        modifier = Modifier.padding(horizontal = 4.dp)
+      )
+    }
+    Text(
+      text = "This product uses the TMDb API but is not endorsed or certified by TMDb.",
+      style = MaterialTheme.typography.caption,
+      color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+      modifier = Modifier.padding(horizontal = 16.dp),
+      textAlign = androidx.compose.ui.text.style.TextAlign.Center
+    )
+  }
+}

@@ -28,6 +28,7 @@ import me.zwsmith.baconslaw.ui.components.ErrorMessage
 import me.zwsmith.baconslaw.ui.components.PromptHeader
 import me.zwsmith.baconslaw.ui.components.ResultsList
 import me.zwsmith.baconslaw.ui.components.SearchBox
+import me.zwsmith.baconslaw.ui.components.TmdbAttribution
 import me.zwsmith.core.GameState
 import me.zwsmith.core.Move
 import me.zwsmith.core.Player
@@ -125,6 +126,8 @@ internal fun GameScreen(
         ) {
           Text("I can't answer")
         }
+        Spacer(Modifier.height(8.dp))
+        TmdbAttribution()
       }
     }
   }
