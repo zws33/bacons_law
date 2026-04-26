@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.Button
@@ -20,11 +19,15 @@ import me.zwsmith.baconslaw.ui.components.ChainItem
 import me.zwsmith.core.GameState
 
 @Composable
-internal fun GameOverScreen(state: GameState.GameOver, winnerName: String, onPlayAgain: () -> Unit) {
+internal fun GameOverScreen(
+  state: GameState.GameOver,
+  winnerName: String,
+  onPlayAgain: () -> Unit,
+  modifier: Modifier = Modifier
+) {
   Column(
-    modifier = Modifier
-      .fillMaxSize()
-      .padding(16.dp),
+    modifier = modifier
+      .fillMaxSize(),
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.Center
   ) {
@@ -42,7 +45,7 @@ internal fun GameOverScreen(state: GameState.GameOver, winnerName: String, onPla
     Spacer(modifier = Modifier.height(8.dp))
     LazyColumn(
       modifier = Modifier.weight(1f),
-      verticalArrangement = Arrangement.spacedBy(4.dp)
+      verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
       items(state.chain) {
         ChainItem(it)
