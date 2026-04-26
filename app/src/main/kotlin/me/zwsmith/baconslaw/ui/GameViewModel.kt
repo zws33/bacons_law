@@ -39,7 +39,6 @@ sealed interface GameUiState {
 @OptIn(FlowPreview::class)
 class GameViewModel(private val repository: Repository, private val gameEngine: GameEngine) :
   ViewModel() {
-
   private val _playerNames = MutableStateFlow<Pair<String, String>?>(null)
   val playerNames: StateFlow<Pair<String, String>?> = _playerNames
 
@@ -67,10 +66,22 @@ class GameViewModel(private val repository: Repository, private val gameEngine: 
           val gameState = _gameState.value
           if (gameState is GameState.InProgress) {
             val results = if (gameState.moves.isEmpty() || gameState.moves.last() is Move.Movie) {
-              repository.searchActors(query).map { SearchResultItem(it.id, it.name, it.profilePath) }
+              repository.searchActors(query).map {
+
+                SearchResultItem(
+                  id = it.id,
+                  displayText = it.name,
+                  imagePath = TMDB_IMAGE_BASE_URL + it.profilePath
+                )
+              }
             } else {
               repository.searchMovies(query).map {
-                SearchResultItem(it.id, it.title, it.posterPath, it.releaseYear)
+                SearchResultItem(
+                  id = it.id,
+                  displayText = it.title,
+                  imagePath = TMDB_IMAGE_BASE_URL + it.posterPath,
+                  releaseYear = it.releaseYear
+                )
               }
             }
             emit(GameUiState.Success(results))
@@ -159,6 +170,7 @@ class GameViewModel(private val repository: Repository, private val gameEngine: 
   }
 
   companion object {
+    const val TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w185"
     val Factory = viewModelFactory {
       initializer {
         val repository = Repository()

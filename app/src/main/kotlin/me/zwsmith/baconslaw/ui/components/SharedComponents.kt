@@ -33,8 +33,6 @@ import me.zwsmith.baconslaw.ui.SearchResultItem
 import me.zwsmith.core.GameState
 import me.zwsmith.core.Move
 
-const val TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w185"
-
 @Composable
 internal fun ChainDisplay(moves: List<Move>) {
   if (moves.isEmpty()) {
@@ -67,7 +65,7 @@ internal fun ResultsList(results: List<SearchResultItem>, onResultClicked: (Sear
         verticalAlignment = Alignment.CenterVertically
       ) {
         AsyncImage(
-          model = TMDB_IMAGE_BASE_URL + item.imagePath,
+          model = item.imagePath,
           contentDescription = null,
           modifier = Modifier
             .size(60.dp, 90.dp)
@@ -169,7 +167,7 @@ internal fun ChainItem(item: Move) {
     verticalAlignment = Alignment.CenterVertically
   ) {
     AsyncImage(
-      model = TMDB_IMAGE_BASE_URL + item.imagePath,
+      model = item.imagePath,
       contentDescription = null,
       modifier = Modifier
         .size(60.dp, 90.dp)
