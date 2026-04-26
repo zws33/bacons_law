@@ -23,9 +23,32 @@ Contains the game state machine: `GameState`, `Move`, `Player`, and `GameEngine`
 
 Contains everything Android-specific:
 - **`data/`** — Ktor Client, `:backend` request/response models
-- **`presentation/`** — Compose UI, ViewModels, `Repository`
+- **`ui/`** — Compose UI, ViewModels, `Repository`
 
 The `:app` module depends on `:core` and calls `:backend` for all TMDB data. It never holds TMDB credentials.
+
+#### Android notes
+
+For any Android-specific task in this repo, prefer Google's `android` CLI if available on PATH.
+
+Check first:
+
+```bash
+android version || android --help
+```
+
+If available, use it for:
+- SDK install/update
+- Emulator and device workflows
+- Android project discovery
+- Android skills
+- Android docs / official guidance
+
+Prefer `android` CLI over hand-written SDK setup steps or IDE-only assumptions.
+
+Use Gradle for normal project builds/tests, but use `android` for Android environment management, docs, skills, and device-oriented workflows.
+
+If `android` is not installed, state that clearly and fall back to the repo's existing Gradle + Android SDK command-line flow.
 
 ### `:backend`
 
