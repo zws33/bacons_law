@@ -1,6 +1,9 @@
 # Bacon's Law
 
-A two-player mobile trivia game based on "Six Degrees of Kevin Bacon." Players pass a phone back and forth, naming movies and actors to build a chain of connections. Every move is validated in real-time using [TMDB](https://www.themoviedb.org/) data. The first player who can't name a valid connection loses.
+A two-player mobile trivia game based on "Six Degrees of Kevin Bacon." Players pass a phone back and
+forth, naming movies and actors to build a chain of connections. Every move is validated in
+real-time using [TMDB](https://www.themoviedb.org/) data. The first player who can't name a valid
+connection loses.
 
 ## How It Works
 
@@ -10,7 +13,8 @@ A two-player mobile trivia game based on "Six Degrees of Kevin Bacon." Players p
 4. Keep going — the chain grows: Actor → Movie → Actor → Movie → ...
 5. The app validates every connection. First wrong answer loses.
 
-The fun is in the pressure: you don't control what the other player picks, so you never know what's coming next.
+The fun is in the pressure: you don't control what the other player picks, so you never know what's
+coming next.
 
 ## Tech Stack
 
@@ -31,7 +35,8 @@ bacons-law/
 
 ## Status
 
-**In development.** The game engine and TMDB integration exist independently — currently wiring them together into a playable game loop. See [ROADMAP.md](ROADMAP.md) for the full plan.
+**In development.** The game engine and TMDB integration exist independently — currently wiring them
+together into a playable game loop. See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 ## Setup
 
@@ -51,4 +56,5 @@ bacons-law/
 
 ## License
 
-This project uses data from [The Movie Database (TMDB)](https://www.themoviedb.org/). This product uses the TMDB API but is not endorsed or certified by TMDB.
+This project uses data from [The Movie Database (TMDB)](https://www.themoviedb.org/). This product
+uses the TMDB API but is not endorsed or certified by TMDB.
