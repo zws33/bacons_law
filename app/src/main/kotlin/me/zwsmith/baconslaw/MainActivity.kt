@@ -7,10 +7,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
 import me.zwsmith.baconslaw.ui.BaconsLawApp
-import me.zwsmith.baconslaw.ui.GameViewModel
+import me.zwsmith.baconslaw.ui.GameplayViewModel
 
 class MainActivity : ComponentActivity() {
-
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge(
@@ -18,7 +17,7 @@ class MainActivity : ComponentActivity() {
       navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
     )
     setContent {
-      BaconsLawApp(viewModel(factory = GameViewModel.Factory))
+      BaconsLawApp()
     }
   }
 }

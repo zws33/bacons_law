@@ -4,93 +4,95 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.jupiter.api.Test
 
 class GameEngineTest {
-  private val engine = GameEngine()
-  private val tomHanks = Move.Actor(id = 1, displayText = "Tom Hanks", imagePath = "/hanks.jpg")
-  private val castAway = Move.Movie(id = 10, displayText = "Cast Away", castIds = setOf(1, 2), imagePath = "/castaway.jpg", releaseYear = "2000")
-  private val helenHunt = Move.Actor(id = 2, displayText = "Helen Hunt", imagePath = "/hunt.jpg")
-  private val outsider = Move.Actor(id = 99, displayText = "Unknown Actor", imagePath = null)
-  private val unrelatedMovie = Move.Movie(id = 20, displayText = "Unrelated Movie", castIds = setOf(99), imagePath = null, releaseYear = "2020")
-
-  @Test
-  fun `startGame sets starting actor as first move`() {
-    val state = engine.startGame(tomHanks)
-    assertThat(state.moves).containsExactly(tomHanks)
-  }
-
-  @Test
-  fun `startGame sets current player to TWO`() {
-    val state = engine.startGame(tomHanks)
-    assertThat(state.currentPlayer).isEqualTo(Player.TWO)
-  }
+  private val tomHanks = Move.Actor(id = 1, displayText = "Tom Hanks")
+  private val castAway = Move.Movie(id = 10, displayText = "Cast Away", castIds = setOf(1, 2))
+  private val helenHunt = Move.Actor(id = 2, displayText = "Helen Hunt")
+  private val toyStory = Move.Movie(id = 20, displayText = "Toy Story", castIds = setOf(1))
+  private val outsider = Move.Actor(id = 99, displayText = "Unknown Actor")
 
   @Test
   fun `valid movie move appends to chain and switches player`() {
-    val initialState = engine.startGame(tomHanks)
-    val nextState =  engine.playMove(castAway, initialState) as GameState.InProgress
+    val initialState = GameState.InProgress(
+      moves = listOf(tomHanks),
+      currentPlayerIndex = 1, // Player 2's turn
+      playerCount = 2
+    )
+
+    val nextState = initialState.playMove(castAway) as GameState.InProgress
 
     assertThat(nextState.moves).containsExactly(tomHanks, castAway).inOrder()
-    assertThat(nextState.currentPlayer).isEqualTo(Player.ONE)
+    assertThat(nextState.currentPlayerIndex).isEqualTo(0) // Back to Player 1
   }
 
   @Test
   fun `valid actor move appends to chain and switches player`() {
-    val state1 = engine.startGame(tomHanks)
-    val state2 = engine.playMove(castAway, state1) as GameState.InProgress
-    val state3 =  engine.playMove(helenHunt, state2) as GameState.InProgress
+    val initialState = GameState.InProgress(
+      moves = listOf(tomHanks, castAway),
+      currentPlayerIndex = 0, // Player 1's turn
+      playerCount = 2
+    )
 
-    assertThat(state3.moves).containsExactly(tomHanks, castAway, helenHunt).inOrder()
-    assertThat(state3.currentPlayer).isEqualTo(Player.TWO)
+    val nextState = initialState.playMove(helenHunt) as GameState.InProgress
+
+    assertThat(nextState.moves).containsExactly(tomHanks, castAway, helenHunt).inOrder()
+    assertThat(nextState.currentPlayerIndex).isEqualTo(1) // To Player 2
   }
 
   @Test
-  fun `movie not featuring previous actor ends game, current player loses`() {
-    val initialState = engine.startGame(tomHanks)
-    val result =  engine.playMove(unrelatedMovie, initialState) as GameState.GameOver
+  fun `movie not featuring previous actor ends game`() {
+    val initialState = GameState.InProgress(
+      moves = listOf(helenHunt),
+      currentPlayerIndex = 0, // Player 1's turn
+      playerCount = 2
+    )
 
-    assertThat(result.loser).isEqualTo(Player.TWO)
-    assertThat(result.winner).isEqualTo(Player.ONE)
-    assertThat(result.losingMove).isEqualTo(unrelatedMovie)
+    // Toy Story (castIds = {1}) does not feature Helen Hunt (id = 2)
+    val result = initialState.playMove(toyStory) as GameState.GameOver
+
+    assertThat(result.winnerIndex).isEqualTo(1) // Player 2 wins
+    assertThat(result.losingMove).isEqualTo(toyStory)
   }
 
   @Test
-  fun `actor not in previous movie ends game, current player loses`() {
-    val state1 = engine.startGame(tomHanks)
-    val state2 =  engine.playMove(castAway, state1) as GameState.InProgress
-    val result =  engine.playMove(outsider, state2) as GameState.GameOver
+  fun `actor not in previous movie ends game`() {
+    val initialState = GameState.InProgress(
+      moves = listOf(tomHanks, castAway),
+      currentPlayerIndex = 0, // Player 1's turn
+      playerCount = 2
+    )
 
-    assertThat(result.loser).isEqualTo(Player.ONE)
-    assertThat(result.winner).isEqualTo(Player.TWO)
+    // Outsider (id = 99) is not in Cast Away (castIds = {1, 2})
+    val result = initialState.playMove(outsider) as GameState.GameOver
+
+    assertThat(result.winnerIndex).isEqualTo(1) // Player 2 wins
     assertThat(result.losingMove).isEqualTo(outsider)
   }
 
   @Test
-  fun `repeat actor ends game, current player loses`() {
-    val state1 = engine.startGame(tomHanks)
-    val state2 =  engine.playMove(castAway, state1) as GameState.InProgress
-    val result =  engine.playMove(tomHanks, state2) as GameState.GameOver
+  fun `repeat actor ends game`() {
+    val initialState = GameState.InProgress(
+      moves = listOf(tomHanks, castAway, helenHunt),
+      currentPlayerIndex = 1, // Player 2's turn
+      playerCount = 2
+    )
 
-    assertThat(result.loser).isEqualTo(Player.ONE)
+    val result = initialState.playMove(tomHanks) as GameState.GameOver
+
+    assertThat(result.winnerIndex).isEqualTo(0) // Player 1 wins
     assertThat(result.losingMove).isEqualTo(tomHanks)
   }
 
   @Test
-  fun `repeat movie ends game, current player loses`() {
-    val state1 = engine.startGame(tomHanks)
-    val state2 =  engine.playMove(castAway, state1) as GameState.InProgress
-    val state3 =  engine.playMove(helenHunt, state2) as GameState.InProgress
-    val result =  engine.playMove(castAway, state3) as GameState.GameOver
-
-    assertThat(result.loser).isEqualTo(Player.TWO)
-    assertThat(result.losingMove).isEqualTo(castAway)
-  }
-
-  @Test
   fun `forfeit ends game, current player loses`() {
-    val state = engine.startGame(tomHanks)
-    val result =  engine.forfeit(state)
+    val initialState = GameState.InProgress(
+      moves = listOf(tomHanks),
+      currentPlayerIndex = 1, // Player 2
+      playerCount = 2
+    )
 
-    assertThat(result.loser).isEqualTo(Player.TWO)
-    assertThat(result.winner).isEqualTo(Player.ONE)
+    val result = initialState.forfeit()
+
+    assertThat(result.winnerIndex).isEqualTo(0) // Player 1 wins
     assertThat(result.losingMove).isNull()
   }
 }

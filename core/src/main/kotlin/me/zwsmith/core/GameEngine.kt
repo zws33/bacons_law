@@ -1,16 +1,33 @@
 package me.zwsmith.core
 
+fun GameEngine(): GameEngine = GameEngineImpl()
+
+interface GameEngine {
+  fun playMove(currentState: GameState.InProgress, move: Move): GameState
+  fun forfeit(currentState: GameState.InProgress): GameState.GameOver
+}
+
+class GameEngineImpl : GameEngine {
+  override fun playMove(currentState: GameState.InProgress, move: Move): GameState {
+    return currentState.playMove(move)
+  }
+
+  override fun forfeit(currentState: GameState.InProgress): GameState.GameOver {
+    return currentState.forfeit()
+  }
+}
+
 sealed class GameState {
   data class InProgress(
-    val moves: List<Move>,
-    val currentPlayer: Player,
+    val moves: List<Move> = emptyList(),
+    val currentPlayerIndex: Int = 0,
+    val playerCount: Int,
   ) : GameState()
 
   data class GameOver(
-    val winner: Player,
-    val loser: Player,
+    val winnerIndex: Int,
     val chain: List<Move>,
-    val losingMove: Move? = null
+    val losingMove: Move? = null,
   ) : GameState()
 }
 
@@ -34,67 +51,40 @@ sealed class Move {
   ) : Move()
 }
 
-enum class Player {
-  ONE,
-  TWO;
-
-  fun other(): Player {
-    return when (this) {
-      ONE -> TWO
-      TWO -> ONE
-    }
-  }
-}
-
-interface GameEngine {
-  fun startGame(move: Move): GameState.InProgress
-  fun playMove(move: Move, state: GameState.InProgress): GameState
-  fun forfeit(state: GameState.InProgress): GameState.GameOver
-}
-
-fun GameEngine(): GameEngine = DefaultGameEngine
-
-object DefaultGameEngine : GameEngine {
-  override fun startGame(move: Move): GameState.InProgress {
-    return GameState.InProgress(
-      moves = listOf(move),
-      currentPlayer = Player.TWO
+fun GameState.InProgress.playMove(move: Move): GameState {
+  return if (moves.isNotEmpty() && (isRepeat(move, moves) || !isValidConnection(move, moves.last()))) {
+    GameState.GameOver(
+      winnerIndex = previous(currentPlayerIndex, playerCount),
+      chain = moves,
+      losingMove = move,
+    )
+  } else {
+    copy(
+      moves = moves + move,
+      currentPlayerIndex = next(currentPlayerIndex, playerCount),
     )
   }
-
-  override fun playMove(move: Move, state: GameState.InProgress): GameState {
-    return if (isRepeat(move, state.moves) || !isValidConnection(move, state.moves.last())) {
-      GameState.GameOver(
-        winner = state.currentPlayer.other(),
-        loser = state.currentPlayer,
-        chain = state.moves,
-        losingMove = move
-      )
-    } else {
-      GameState.InProgress(
-        moves = state.moves + move,
-        currentPlayer = state.currentPlayer.other()
-      )
-    }
-  }
-
-  override fun forfeit(state: GameState.InProgress): GameState.GameOver {
-    return GameState.GameOver(
-      winner = state.currentPlayer.other(),
-      loser = state.currentPlayer,
-      chain = state.moves,
-      losingMove = null
-    )
-  }
-
-  private fun isRepeat(move: Move, moves: List<Move>): Boolean = when (move) {
-    is Move.Actor -> moves.filterIsInstance<Move.Actor>().any { it.id == move.id }
-    is Move.Movie -> moves.filterIsInstance<Move.Movie>().any { it.id == move.id }
-  }
-
-  private fun isValidConnection(move: Move, previousMove: Move): Boolean = when (previousMove) {
-    is Move.Actor if move is Move.Movie -> move.castIds.contains(previousMove.id)
-    is Move.Movie if move is Move.Actor -> previousMove.castIds.contains(move.id)
-    else -> false // same type twice — shouldn't happen if UI enforces turn order
-  }
 }
+
+fun GameState.InProgress.forfeit(): GameState.GameOver {
+  return GameState.GameOver(
+    winnerIndex = previous(currentPlayerIndex, playerCount),
+    chain = moves,
+    losingMove = null,
+  )
+}
+
+private fun isRepeat(move: Move, moves: List<Move>): Boolean = when (move) {
+  is Move.Actor -> moves.filterIsInstance<Move.Actor>().any { it.id == move.id }
+  is Move.Movie -> moves.filterIsInstance<Move.Movie>().any { it.id == move.id }
+}
+
+private fun isValidConnection(move: Move, previousMove: Move): Boolean = when (previousMove) {
+  is Move.Actor if move is Move.Movie -> move.castIds.contains(previousMove.id)
+  is Move.Movie if move is Move.Actor -> previousMove.castIds.contains(move.id)
+  else -> false
+}
+
+private fun next(current: Int, count: Int) = (current + 1) % count
+
+private fun previous(current: Int, count: Int) = (current - 1 + count) % count

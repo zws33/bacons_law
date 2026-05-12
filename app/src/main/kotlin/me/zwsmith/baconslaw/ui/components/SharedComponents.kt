@@ -1,26 +1,27 @@
 package me.zwsmith.baconslaw.ui.components
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.Text
-import androidx.compose.material.TextFieldDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,66 +29,106 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import me.zwsmith.baconslaw.ui.SearchResultItem
-import me.zwsmith.core.GameState
+import me.zwsmith.baconslaw.R
+import me.zwsmith.baconslaw.data.MoveCandidate
 import me.zwsmith.core.Move
 
 @Composable
-internal fun ChainDisplay(moves: List<Move>) {
+internal fun ChainDisplay(
+  moves: List<Move>,
+  modifier: Modifier = Modifier,
+  contentPadding: PaddingValues = PaddingValues(0.dp),
+) {
   if (moves.isEmpty()) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
       Text(
         text = "Name an Actor to start the chain!",
-        style = MaterialTheme.typography.body1,
-        color = MaterialTheme.colors.secondary.copy(alpha = 0.7f),
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f),
       )
     }
   } else {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      items(moves) {
-        ChainItem(it)
-      }
+    val listState = rememberLazyListState()
+    LaunchedEffect(moves.size) {
+      listState.animateScrollToItem(moves.size - 1)
+    }
+    LazyColumn(
+      state = listState,
+      modifier = modifier,
+      contentPadding = contentPadding,
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      items(moves) { ChainItem(it) }
     }
   }
 }
 
 @Composable
-internal fun ResultsList(results: List<SearchResultItem>, onResultClicked: (SearchResultItem) -> Unit) {
-  val shape = RoundedCornerShape(8.dp)
-  LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+internal fun MoveCandidates(
+  results: List<MoveCandidate>,
+  onResultClicked: (MoveCandidate) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  LazyColumn(
+    modifier = modifier,
+    verticalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
     items(results) { item ->
-      Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .clip(shape)
-          .background(MaterialTheme.colors.surface)
-          .clickable { onResultClicked(item) }
-          .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-      ) {
+      MoveCandidateItem(onResultClicked, item)
+    }
+  }
+}
+
+@Composable
+private fun MoveCandidateItem(
+  onResultClicked: (MoveCandidate) -> Unit,
+  item: MoveCandidate
+) {
+  val shape = RoundedCornerShape(8.dp)
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(shape)
+      .background(MaterialTheme.colorScheme.surface)
+      .clickable { onResultClicked(item) }
+      .padding(8.dp),
+    verticalAlignment = Alignment.CenterVertically
+  ) {
+    when (item) {
+      is MoveCandidate.Actor -> {
         AsyncImage(
-          model = item.imagePath,
+          model = item.imageUrl,
           contentDescription = null,
           modifier = Modifier
-            .size(60.dp, 90.dp)
+            .size(48.dp)
             .clip(RoundedCornerShape(4.dp))
             .background(Color.Gray),
-          contentScale = ContentScale.Crop
+          contentScale = ContentScale.Crop,
         )
         Spacer(Modifier.width(12.dp))
+        Text(
+          text = item.displayText,
+          style = MaterialTheme.typography.bodyLarge,
+          color = MaterialTheme.colorScheme.onSurface,
+        )
+      }
+
+      is MoveCandidate.Movie -> {
         Column {
           Text(
             text = item.displayText,
-            style = MaterialTheme.typography.body1,
-            color = MaterialTheme.colors.onSurface,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
           )
           item.releaseYear?.let {
             Text(
               text = it,
-              style = MaterialTheme.typography.body2,
-              color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             )
           }
         }
@@ -100,19 +141,17 @@ internal fun ResultsList(results: List<SearchResultItem>, onResultClicked: (Sear
 internal fun SearchBox(
   text: String,
   onTextInput: (String) -> Unit,
+  modifier: Modifier = Modifier,
   enabled: Boolean = true,
   focusRequester: FocusRequester? = null,
-  placeholder: String = "Search…",
+  placeholder: String = "Type an actor or movie…",
 ) {
   OutlinedTextField(
-    modifier = Modifier
+    modifier = modifier
       .fillMaxWidth()
       .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier),
     value = text,
     enabled = enabled,
-    colors = TextFieldDefaults.outlinedTextFieldColors(
-      textColor = MaterialTheme.colors.onSurface,
-    ),
     placeholder = { Text(placeholder) },
     onValueChange = onTextInput,
     singleLine = true,
@@ -124,44 +163,22 @@ internal fun ErrorMessage(message: String, onDismiss: () -> Unit) {
   Row(
     modifier = Modifier
       .fillMaxWidth()
-      .background(MaterialTheme.colors.error.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
+      .background(MaterialTheme.colorScheme.error.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
       .padding(horizontal = 12.dp, vertical = 8.dp),
     verticalAlignment = Alignment.CenterVertically
   ) {
     Text(
       text = message,
-      style = MaterialTheme.typography.body2,
+      style = MaterialTheme.typography.bodyLarge,
       color = Color.White,
       modifier = Modifier.weight(1f),
     )
     Spacer(Modifier.width(8.dp))
     Text(
       text = "Dismiss",
-      style = MaterialTheme.typography.button,
+      style = MaterialTheme.typography.labelMedium,
       color = Color.White.copy(alpha = 0.8f),
       modifier = Modifier.clickable { onDismiss() },
-    )
-  }
-}
-
-@Composable
-internal fun PromptHeader(state: GameState.InProgress, currentPlayerName: String) {
-  val prompt = when (val previousMove = state.moves.lastOrNull()) {
-    is Move.Actor -> "Name a movie with ${previousMove.displayText}"
-    is Move.Movie -> "Name an actor from ${previousMove.displayText}"
-    null -> "Choose a starting actor"
-  }
-  Column {
-    Text(
-      text = currentPlayerName.uppercase(),
-      style = MaterialTheme.typography.overline,
-      color = MaterialTheme.colors.secondary,
-    )
-    Spacer(modifier = Modifier.height(4.dp))
-    Text(
-      text = prompt,
-      style = MaterialTheme.typography.h5,
-      color = MaterialTheme.colors.primary,
     )
   }
 }
@@ -177,40 +194,30 @@ internal fun ChainItem(item: Move) {
     modifier = Modifier
       .fillMaxWidth()
       .clip(shape)
-      .background(MaterialTheme.colors.surface)
+      .background(MaterialTheme.colorScheme.surface)
       .padding(8.dp),
     verticalAlignment = Alignment.CenterVertically
   ) {
-    AsyncImage(
-      model = item.imagePath,
-      contentDescription = null,
-      modifier = Modifier
-        .size(60.dp, 90.dp)
-        .clip(RoundedCornerShape(4.dp))
-        .background(Color.Gray),
-      contentScale = ContentScale.Crop
-    )
-    Spacer(Modifier.width(12.dp))
     Column(
       horizontalAlignment = Alignment.Start,
       verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
       Text(
         text = label,
-        style = MaterialTheme.typography.overline,
-        color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
       )
       Text(
         text = item.displayText,
-        style = MaterialTheme.typography.body1,
-        color = MaterialTheme.colors.onSurface,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface,
       )
       if (item is Move.Movie) {
         item.releaseYear?.let {
           Text(
             text = it,
-            style = MaterialTheme.typography.body2,
-            color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
           )
         }
       }
@@ -220,31 +227,22 @@ internal fun ChainItem(item: Move) {
 
 @Composable
 internal fun TmdbAttribution(modifier: Modifier = Modifier) {
-  Column(
+  Row(
     modifier = modifier.fillMaxWidth(),
-    horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(4.dp)
+    horizontalArrangement = Arrangement.spacedBy(4.dp),
+    verticalAlignment = Alignment.CenterVertically,
   ) {
-    // Placeholder for TMDB Logo
-    Box(
-      modifier = Modifier
-        .size(60.dp, 20.dp)
-        .background(Color(0xFF01B4E4), RoundedCornerShape(2.dp)),
-      contentAlignment = Alignment.Center
-    ) {
-      Text(
-        text = "TMDB",
-        style = MaterialTheme.typography.caption,
-        color = Color(0xFF0D253F),
-        modifier = Modifier.padding(horizontal = 4.dp)
-      )
-    }
+    Image(
+      modifier = Modifier.size(64.dp, 24.dp),
+      painter = painterResource(R.drawable.tmdb_logo),
+      contentDescription = null
+    )
     Text(
       text = "This product uses the TMDb API but is not endorsed or certified by TMDb.",
-      style = MaterialTheme.typography.caption,
-      color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f),
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
       modifier = Modifier.padding(horizontal = 16.dp),
-      textAlign = androidx.compose.ui.text.style.TextAlign.Center
+      textAlign = TextAlign.Start
     )
   }
 }

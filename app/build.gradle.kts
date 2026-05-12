@@ -22,6 +22,7 @@ android {
     }
     release {
       isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       buildConfigField("String", "BACKEND_URL", "\"https://bacons-law-backend-ic7p3y7rrq-uc.a.run.app\"")
     }
@@ -45,11 +46,16 @@ dependencies {
   implementation(libs.bundles.ktor.client)
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.appcompat)
+  implementation(libs.androidx.navigation.compose)
+  implementation(libs.material.icons.extended)
   implementation(libs.material)
   implementation(libs.timber)
   implementation(libs.coil.compose)
+  implementation(libs.androidx.compose.ui.tooling.preview)
+  debugImplementation(libs.androidx.compose.ui.tooling)
   implementation(project(":core"))
 
+  testImplementation(libs.bundles.test.bundle)
   androidTestImplementation(libs.androidx.test.ext.junit)
   androidTestImplementation(libs.androidx.espresso.core)
 }

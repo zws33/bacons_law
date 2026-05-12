@@ -44,7 +44,7 @@ class DefaultApiClient : ApiClient {
     return client.get("$BASE_URL/movies/$movieId/credits").body()
   }
   companion object {
-    val BASE_URL = me.zwsmith.baconslaw.BuildConfig.BACKEND_URL
+    const val BASE_URL = me.zwsmith.baconslaw.BuildConfig.BACKEND_URL
   }
 }
 
