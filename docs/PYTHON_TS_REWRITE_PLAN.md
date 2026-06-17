@@ -1,12 +1,35 @@
 # Bacon's Law — Python/TypeScript Rewrite Plan
 
+<!--toc:start-->
+
+- [Bacon's Law — Python/TypeScript Rewrite Plan](#bacons-law-pythontypescript-rewrite-plan)
+  - [Why this exists](#why-this-exists)
+  - [Goals](#goals)
+  - [Tech stack](#tech-stack)
+  - [Architecture](#architecture)
+    - [REST vs. WebSocket split](#rest-vs-websocket-split)
+    - [Data ownership](#data-ownership)
+    - [Identity model](#identity-model)
+    - [Reconnect scope (v1)](#reconnect-scope-v1)
+    - [Repo structure (this branch)](#repo-structure-this-branch)
+  - [Phased plan](#phased-plan)
+    - [Phase 0: Foundation](#phase-0-foundation)
+    - [Phase 1: Engine port](#phase-1-engine-port)
+    - [Phase 2: TMDB REST proxy](#phase-2-tmdb-rest-proxy)
+    - [Phase 3: Multiplayer session layer](#phase-3-multiplayer-session-layer)
+    - [Phase 4: React client](#phase-4-react-client)
+    - [Phase 5: Deploy + playtest](#phase-5-deploy-playtest)
+    - [Explicitly future / out of scope](#explicitly-future-out-of-scope)
+  - [Decisions](#decisions)
+  <!--toc:end-->
+
 This document is the source of truth for the `fullstack-py-ts-rewrite` initiative. It governs everything built on the `fullstack-py-ts-rewrite` branch.
 
 ## Why this exists
 
 The original Bacon's Law project (see root [ROADMAP.md](../ROADMAP.md), [docs/DECISIONS.md](DECISIONS.md), [docs/GAME_SPEC.md](GAME_SPEC.md)) is a Kotlin/Compose fullstack showcase. This initiative is a **parallel showcase, not a replacement** — it rebuilds the same game concept on a Python + TypeScript stack to practice and demonstrate that stack specifically. Both versions are intended to coexist indefinitely as independent portfolio pieces. Nothing here assumes the Kotlin code exists, and nothing in the Kotlin docs should be assumed to apply here except where explicitly referenced.
 
-The game rules themselves are unchanged — [docs/GAME_SPEC.md](GAME_SPEC.md) remains the source of truth for what a "valid move" is. What's new in this initiative is the *delivery mechanism*: remote, real-time, two-device multiplayer, where the original was local pass-the-phone.
+The game rules themselves are unchanged — [docs/GAME_SPEC.md](GAME_SPEC.md) remains the source of truth for what a "valid move" is. What's new in this initiative is the _delivery mechanism_: remote, real-time, two-device multiplayer, where the original was local pass-the-phone.
 
 ## Goals
 
@@ -17,19 +40,19 @@ The game rules themselves are unchanged — [docs/GAME_SPEC.md](GAME_SPEC.md) re
 
 ## Tech stack
 
-| Layer | Choice | Why |
-|---|---|---|
-| Backend framework | FastAPI | Async-native, built-in WebSocket support, Pydantic validation, OpenAPI docs for free |
-| Backend tooling | `uv`, `ruff`, `mypy`, `pytest` / `pytest-asyncio` | Fast modern toolchain, single dependency manager |
-| Live session state | Redis | Ephemeral per-room game state, keyed by room code, supports reconnect lookups and horizontal scaling |
-| Durable history | Postgres (SQLAlchemy + Alembic) | Queryable record of completed games — players, full move chain, winner, timestamps |
-| Hosting (backend + Redis + Postgres) | Fly.io | Native fit for long-lived WebSocket connections; colocated Redis (Upstash) and Fly Postgres keep infra in one place |
-| Frontend framework | React + TypeScript + Vite | Standard, fast dev loop, mobile-responsive by design intent |
-| Frontend styling | Tailwind CSS | Fast to build responsive UI, no custom design system needed for v1 |
-| Frontend state | React hooks/context | App's actual state surface (one active game) doesn't justify Redux or similar |
-| Monorepo tooling | pnpm workspaces | Lightweight; add Turborepo later only if build times demand it |
-| Realtime transport | WebSocket (room/session events) | Standard answer for turn-based multiplayer push; see "REST vs. WebSocket split" below |
-| Stateless data | REST (search, credits) | No reason to put cacheable, stateless lookups on a stateful connection |
+| Layer                                | Choice                                            | Why                                                                                                                 |
+| ------------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Backend framework                    | FastAPI                                           | Async-native, built-in WebSocket support, Pydantic validation, OpenAPI docs for free                                |
+| Backend tooling                      | `uv`, `ruff`, `mypy`, `pytest` / `pytest-asyncio` | Fast modern toolchain, single dependency manager                                                                    |
+| Live session state                   | Redis                                             | Ephemeral per-room game state, keyed by room code, supports reconnect lookups and horizontal scaling                |
+| Durable history                      | Postgres (SQLAlchemy + Alembic)                   | Queryable record of completed games — players, full move chain, winner, timestamps                                  |
+| Hosting (backend + Redis + Postgres) | Fly.io                                            | Native fit for long-lived WebSocket connections; colocated Redis (Upstash) and Fly Postgres keep infra in one place |
+| Frontend framework                   | React + TypeScript + Vite                         | Standard, fast dev loop, mobile-responsive by design intent                                                         |
+| Frontend styling                     | Tailwind CSS                                      | Fast to build responsive UI, no custom design system needed for v1                                                  |
+| Frontend state                       | React hooks/context                               | App's actual state surface (one active game) doesn't justify Redux or similar                                       |
+| Monorepo tooling                     | pnpm workspaces                                   | Lightweight; add Turborepo later only if build times demand it                                                      |
+| Realtime transport                   | WebSocket (room/session events)                   | Standard answer for turn-based multiplayer push; see "REST vs. WebSocket split" below                               |
+| Stateless data                       | REST (search, credits)                            | No reason to put cacheable, stateless lookups on a stateful connection                                              |
 
 ## Architecture
 
