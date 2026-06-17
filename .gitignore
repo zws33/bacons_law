@@ -6,7 +6,18 @@ captures
 
 /local.properties
 
+# Secrets
+.env
+.env.*
+
 # IDE
 .idea/
 *.iml.kotlin/
 .kotlin/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/

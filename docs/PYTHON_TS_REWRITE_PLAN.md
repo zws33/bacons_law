@@ -1,28 +1,5 @@
 # Bacon's Law — Python/TypeScript Rewrite Plan
 
-<!--toc:start-->
-
-- [Bacon's Law — Python/TypeScript Rewrite Plan](#bacons-law-pythontypescript-rewrite-plan)
-  - [Why this exists](#why-this-exists)
-  - [Goals](#goals)
-  - [Tech stack](#tech-stack)
-  - [Architecture](#architecture)
-    - [REST vs. WebSocket split](#rest-vs-websocket-split)
-    - [Data ownership](#data-ownership)
-    - [Identity model](#identity-model)
-    - [Reconnect scope (v1)](#reconnect-scope-v1)
-    - [Repo structure (this branch)](#repo-structure-this-branch)
-  - [Phased plan](#phased-plan)
-    - [Phase 0: Foundation](#phase-0-foundation)
-    - [Phase 1: Engine port](#phase-1-engine-port)
-    - [Phase 2: TMDB REST proxy](#phase-2-tmdb-rest-proxy)
-    - [Phase 3: Multiplayer session layer](#phase-3-multiplayer-session-layer)
-    - [Phase 4: React client](#phase-4-react-client)
-    - [Phase 5: Deploy + playtest](#phase-5-deploy-playtest)
-    - [Explicitly future / out of scope](#explicitly-future-out-of-scope)
-  - [Decisions](#decisions)
-  <!--toc:end-->
-
 This document is the source of truth for the `fullstack-py-ts-rewrite` initiative. It governs everything built on the `fullstack-py-ts-rewrite` branch.
 
 ## Why this exists

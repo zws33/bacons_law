@@ -2,175 +2,394 @@
 
 Source of scope: [PYTHON_TS_REWRITE_PLAN.md](PYTHON_TS_REWRITE_PLAN.md#phase-0-foundation)
 
-**Done when:** empty-but-wired apps build, lint, and test green in CI.
+**Done when:** server builds, lints, type-checks, and tests green in CI. The React web client is deferred until after Phase 3 — see decision below.
+
+**Audience:** Senior engineer familiar with TypeScript and Kotlin web APIs. Python-specific syntax, conventions, and tooling are explained where they differ from what you already know.
+
+> **Decision — web client deferred to post-Phase 3**
+>
+> Original plan included a React + pnpm workspace setup in Phase 0. That work is deferred. The game logic and multiplayer session layer (Phases 1–3) can be fully validated with pytest and FastAPI's `/docs` UI — no frontend needed. Building HTMX templates as a stopgap was considered and rejected: it's a throwaway technology for this project that would couple the server to HTML rendering and test the WebSocket layer through a poor client. React gets built once, in Phase 4, against a known-good API. `packages/game-client/` is still created in Phase 0 to establish the boundary early — it costs nothing and is harder to retrofit later.
 
 ---
 
-## Step 1 — Remove Kotlin artifacts
+## Step 1 — Remove Kotlin artifacts ✓ DONE
 
-Delete from `fullstack-py-ts-rewrite` (they remain intact on `main`):
-
-| Path                                                                            | Reason                                               |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `app/`, `backend/`, `core/`                                                     | Kotlin modules                                       |
-| `build/`, `build.gradle.kts`, `buildscripts/`                                   | Gradle build                                         |
-| `gradle/`, `gradle.properties`, `gradlew`, `gradlew.bat`, `settings.gradle.kts` | Gradle wrapper + config                              |
-| `Dockerfile`                                                                    | Ktor-specific; FastAPI gets its own in Phase 5       |
-| `scripts/deploy.sh`                                                             | Cloud Run deploy — replaced by Fly.io workflow later |
-
-Keep: `docs/`, `CLAUDE.md`, `AGENTS.md`, `README.md`, `ROADMAP.md`, `GEMINI.md`.
-
-Note: `local.properties` contains the TMDB API key and must not be committed. If it is currently tracked, remove it here. If untracked, no action needed.
-
-Commit: `chore: remove kotlin modules and gradle from py-ts branch`
+Committed as `8eb770d`.
 
 ---
 
 ## Step 2 — `server/` FastAPI skeleton
 
-### Directory structure
+### Concepts for Kotlin/TS engineers
+
+**`uv` is the Python equivalent of `npm` + a venv manager.** Python doesn't have a global package scope like Node's `node_modules` — every project gets an isolated virtual environment (`.venv/`). `uv` creates and manages that venv, resolves dependencies, and produces a lockfile (`uv.lock`) analogous to `package-lock.json` or `pnpm-lock.yaml`.
+
+| Kotlin/TS | Python/uv |
+|---|---|
+| `package.json` / `build.gradle.kts` | `pyproject.toml` |
+| `npm install` / `gradle sync` | `uv sync` |
+| `npx <cmd>` | `uv run <cmd>` |
+| `devDependencies` | `[dependency-groups] dev = [...]` |
+| `node_modules/` | `.venv/` |
+| `package-lock.json` | `uv.lock` |
+
+**Always prefix commands with `uv run`.** This is how you invoke tools (ruff, mypy, pytest, uvicorn) inside the project's venv without activating it first. `uv run pytest` is equivalent to `npx vitest` — it finds the venv automatically.
+
+**FastAPI uses decorators for route registration.** A decorator in Python is the `@` syntax placed above a function definition. It's a function that wraps another function. FastAPI's route decorators are equivalent to Ktor's `routing { get("/path") { ... } }` or Express's `app.get("/path", handler)`:
+
+```python
+# Python / FastAPI
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+```
+
+```kotlin
+// Kotlin / Ktor equivalent
+routing {
+    get("/health") {
+        call.respond(mapOf("status" to "ok"))
+    }
+}
+```
+
+**`async def` is Python's equivalent of Kotlin's `suspend fun`.** FastAPI runs on an async event loop (uvicorn + asyncio). Route handlers defined with `async def` are coroutines — they can `await` I/O without blocking the event loop. In Phase 0 the health endpoint has no I/O, so `async def` vs `def` doesn't matter yet. Use `async def` by convention for all route handlers so the pattern is consistent when async matters in Phase 2+.
+
+**Python type hints look like TypeScript.** They're optional at runtime but enforced by mypy at check time:
+
+```python
+def greet(name: str) -> str:        # str param, str return
+    return f"Hello, {name}"
+
+def maybe(x: int | None) -> None:   # int or None param, no return value
+    pass
+```
+
+| TypeScript | Python |
+|---|---|
+| `string` | `str` |
+| `number` | `int` / `float` |
+| `boolean` | `bool` |
+| `string \| null` | `str \| None` |
+| `string[]` | `list[str]` |
+| `Record<string, any>` | `dict[str, Any]` |
+| `void` | `None` |
+
+---
+
+### Target directory structure
 
 ```
 server/
-├── pyproject.toml          # uv project; ruff + mypy + pytest config inline
+├── .gitignore              # ignores .venv/, .mypy_cache/, .ruff_cache/, etc.
+├── .python-version         # pins Python version for uv
+├── pyrightconfig.json      # tells basedpyright where the venv is (for Neovim LSP)
+├── pyproject.toml          # project metadata, dependencies, tool config
+├── uv.lock                 # committed lockfile — generated by uv sync
 ├── app/
-│   ├── __init__.py
-│   ├── main.py             # FastAPI app, GET /health → {"status": "ok"}
-│   ├── engine/             # empty __init__.py (Phase 1 target)
-│   ├── api/                # empty __init__.py (Phase 2 target)
-│   ├── ws/                 # empty __init__.py (Phase 3 target)
-│   ├── store/              # empty __init__.py (Phase 3 target)
-│   └── models/             # empty __init__.py (Phase 2+ target)
+│   ├── __init__.py         # marks app/ as a Python package (can be empty)
+│   ├── main.py             # FastAPI app instance + GET /health endpoint
+│   ├── engine/
+│   │   └── __init__.py     # empty — Phase 1 target
+│   ├── api/
+│   │   └── __init__.py     # empty — Phase 2 target
+│   ├── ws/
+│   │   └── __init__.py     # empty — Phase 3 target
+│   ├── store/
+│   │   └── __init__.py     # empty — Phase 3 target
+│   └── models/
+│       └── __init__.py     # empty — Phase 2+ target
 └── tests/
-    ├── __init__.py
-    └── test_health.py      # httpx TestClient → GET /health → 200 {"status": "ok"}
+    ├── __init__.py         # marks tests/ as a Python package (can be empty)
+    └── test_health.py      # one test: GET /health returns 200 {"status": "ok"}
 ```
 
-### `pyproject.toml` shape
+---
+
+### File-by-file implementation
+
+#### `server/.gitignore`
+
+Create this before anything else to prevent the venv from being staged.
+
+```gitignore
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+```
+
+`.mypy_cache/` and `.ruff_cache/` self-gitignore when the tools run, but listing them here is an explicit safety net. `__pycache__/` is Python's compiled bytecode cache — equivalent to `.class` files in JVM projects. `*.py[cod]` catches `.pyc`, `.pyo`, `.pyd` compiled files.
+
+---
+
+#### `server/.python-version`
+
+```
+3.12
+```
+
+`uv` reads this file to know which Python interpreter to use when creating the venv. Pin to 3.12 — it's the current stable LTS equivalent. (3.14 is pre-release as of this writing.)
+
+---
+
+#### `server/pyrightconfig.json`
+
+```json
+{
+  "venvPath": ".",
+  "venv": ".venv"
+}
+```
+
+Tells basedpyright (the LSP powering Neovim's Python support via LazyVim's Python extras) where the venv lives. Without this, basedpyright searches from the git root (`bacons-law/`) and doesn't find `server/.venv`, so imports like `fastapi` appear unresolved in the editor. This is a project config file, not a personal editor preference — commit it.
+
+---
+
+#### `server/pyproject.toml`
+
+`pyproject.toml` is the Python equivalent of `package.json` + `build.gradle.kts`. It declares project metadata, dependencies, and tool configuration all in one file.
 
 ```toml
 [project]
 name = "bacons-law-server"
 version = "0.1.0"
+description = "Bacon's Law FastAPI backend"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi",
   "uvicorn[standard]",
 ]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
+  "httpx",
+  "mypy",
   "pytest",
   "pytest-asyncio",
-  "httpx",
   "ruff",
-  "mypy",
 ]
+```
 
+**`[project.dependencies]`** — runtime deps, always installed. `uvicorn[standard]` is the ASGI server that runs FastAPI — the `[standard]` extra pulls in websocket and HTTP/2 support. The `[extra]` syntax is pip's way of expressing optional feature sets; it's like Gradle's feature variants.
+
+**`[dependency-groups] dev`** — development-only deps, not installed in production. `httpx` is the HTTP client used by FastAPI's `TestClient` for tests (more on this below). `pytest-asyncio` is required when testing async code with pytest.
+
+```toml
 [tool.ruff]
 line-length = 100
-select = ["E", "F", "I"]   # pycodestyle errors, pyflakes, isort
 
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+```
+
+**`[tool.ruff]`** configures the linter/formatter. `select` enables rule sets: `E` = pycodestyle style errors, `F` = pyflakes (undefined names, unused imports), `I` = isort (import ordering). This is roughly equivalent to an ESLint config.
+
+```toml
 [tool.mypy]
 strict = true
 python_version = "3.12"
+```
 
+**`[tool.mypy]`** configures the static type checker. `strict = true` is equivalent to `"strict": true` in `tsconfig.json` — it enables all strict checks including disallowing untyped function definitions.
+
+```toml
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 ```
 
-### Verification (local)
-
-```bash
-cd server
-uv sync
-uv run ruff check .
-uv run mypy app
-uv run pytest
-```
-
-Commit: `feat: initialize fastapi server skeleton with health endpoint`
+**`[tool.pytest.ini_options]`** configures pytest. `testpaths` tells pytest where to look for tests — without this it scans the whole project. `asyncio_mode = "auto"` tells `pytest-asyncio` to automatically handle async test functions; without it you'd need to decorate every async test with `@pytest.mark.asyncio`.
 
 ---
 
-## Step 3 — pnpm workspace root + `web/`
+#### `server/app/__init__.py`
 
-### Workspace root
+Empty file. Its presence is what makes `app/` a Python package — without it, `from app.main import app` would fail with a `ModuleNotFoundError`.
 
-`pnpm-workspace.yaml` at the repo root:
+```python
+```
+
+(Empty. No content needed.)
+
+---
+
+#### `server/app/main.py`
+
+This is the FastAPI application entry point — equivalent to the `Application.kt` in the Kotlin backend.
+
+```python
+from fastapi import FastAPI
+
+app = FastAPI()
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+```
+
+**`app = FastAPI()`** creates the application instance. This is the object uvicorn receives when you start the server — equivalent to `embeddedServer(CIO, port = 8080) { ... }` in Ktor.
+
+**`@app.get("/health")`** is a route decorator. It registers the function below it as the handler for `GET /health`. FastAPI reads the return type annotation (`dict[str, str]`) to validate and document the response shape — it generates OpenAPI docs automatically from these annotations.
+
+**`async def health() -> dict[str, str]:`** — the `->` return type annotation is Python's syntax for declaring a return type. It's identical in purpose to `fun health(): Map<String, String>` in Kotlin or `function health(): Record<string, string>` in TypeScript.
+
+FastAPI automatically serializes the returned dict to JSON. You don't call `call.respond()` or `res.json()` — returning the value is enough.
+
+---
+
+#### `server/tests/__init__.py`
+
+Empty file. Makes `tests/` a Python package so pytest can import test files as modules.
+
+```python
+```
+
+---
+
+#### `server/tests/test_health.py`
+
+```python
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+client = TestClient(app)
+
+
+def test_health_returns_ok() -> None:
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+```
+
+**`TestClient`** is FastAPI's built-in test utility, backed by `httpx`. It wraps the app and lets you make HTTP requests without starting a real server — equivalent to Ktor's `testApplication { client.get("/health") }` or `supertest(app).get("/health")` in Node. No port binding, no network — it runs the full request/response cycle in-process.
+
+**`from app.main import app`** — Python imports use dot-separated paths matching the directory structure. `app.main` means `server/app/main.py`; `app` at the end imports the `app` variable from that file.
+
+**pytest test conventions:**
+- Test files must be named `test_*.py` or `*_test.py`
+- Test functions must be named `test_*`
+- No `@Test` annotation (unlike JUnit) — the naming convention is the signal
+- Assertions use plain `assert` statements — `assert x == y` is equivalent to `assertThat(x).isEqualTo(y)` in Truth or `expect(x).toBe(y)` in Jest
+
+**`-> None`** on the test function return type is mypy's requirement under `strict = true`. Test functions don't return anything meaningful, so the return type is `None` (equivalent to `void` in TypeScript or `Unit` in Kotlin).
+
+---
+
+### Installation and verification
+
+Run all of these from the `server/` directory.
+
+**Install dependencies:**
+```bash
+uv sync
+```
+
+This reads `pyproject.toml`, resolves all dependencies, creates `.venv/` if it doesn't exist, and writes `uv.lock`. Run this whenever you add a new dependency to `pyproject.toml`. Commit `uv.lock` — it's the equivalent of committing `pnpm-lock.yaml`.
+
+**Run the dev server (optional — just to see it work):**
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+`app.main:app` means "in the module `app.main`, find the object named `app`." `--reload` is hot reload — equivalent to `nodemon` or Vite's dev server. Visit `http://localhost:8000/health` to confirm the endpoint responds. FastAPI also auto-generates interactive API docs at `http://localhost:8000/docs`.
+
+**Lint:**
+```bash
+uv run ruff check .
+```
+
+Equivalent to `eslint .`. Checks all `.py` files in the current directory.
+
+**Format (if needed):**
+```bash
+uv run ruff format .
+```
+
+Equivalent to `prettier --write .`. Ruff handles both linting and formatting.
+
+**Type check:**
+```bash
+uv run mypy app
+```
+
+Equivalent to `tsc --noEmit`. Checks all type annotations in the `app/` directory. On empty modules this passes trivially — the real work begins in Phase 1 when engine types are introduced.
+
+**Run tests:**
+```bash
+uv run pytest
+```
+
+Pytest discovers all `test_*.py` files in `tests/` (per `testpaths` config), runs every `test_*` function, and reports results. Equivalent to `vitest run` or `./gradlew :core:test`.
+
+**Expected output:**
+```
+collected 1 item
+
+tests/test_health.py .                                    [100%]
+
+1 passed in 0.XXs
+```
+
+---
+
+### Commit
+
+Stage everything in `server/` except `.venv/` (which is gitignored):
+
+```bash
+git add server/
+git commit -m "feat: initialize fastapi server skeleton with health endpoint"
+```
+
+Verify `.venv/` is not staged: `git status` should not show any `server/.venv/` paths.
+
+---
+
+## Step 3 — pnpm workspace root + `packages/game-client/` *(web/ deferred)*
+
+### Why `web/` is deferred but `packages/game-client/` is not
+
+`web/` (React + Vite + Tailwind + Vitest) is deferred to Phase 4 — the server can be fully built and validated without it.
+
+`packages/game-client/` is still created now. It establishes the boundary between UI code and shared game/session logic from day one. Extracting it later — after `web/` has organically accumulated that logic — is a real refactor. Creating an empty package now costs nothing.
+
+---
+
+### 3a — Workspace root
+
+Create `pnpm-workspace.yaml` at the **repo root**:
 
 ```yaml
 packages:
-  - "web"
   - "packages/*"
 ```
 
-### `web/`
-
-Scaffold: `pnpm create vite web/ --template react-ts`
-
-Then configure Tailwind CSS (v4, Vite plugin — not PostCSS):
-
-```bash
-cd web
-pnpm add -D tailwindcss @tailwindcss/vite
-```
-
-`vite.config.ts` — add `tailwindcss()` to the Vite plugins array.
-
-`src/index.css` — replace contents with `@import "tailwindcss";`
-
-`tsconfig.json` — ensure `"strict": true`.
-
-Add Vitest + React Testing Library:
-
-```bash
-pnpm add -D vitest @vitest/ui jsdom @testing-library/react @testing-library/jest-dom
-```
-
-`vite.config.ts` — add vitest test config block (`environment: "jsdom"`).
-
-One placeholder test at `src/App.test.tsx`:
-
-```tsx
-import { render, screen } from "@testing-library/react";
-import App from "./App";
-
-it("renders without crashing", () => {
-  render(<App />);
-  expect(document.body).toBeTruthy();
-});
-```
-
-Replace the default Vite `<App />` template content with a minimal Tailwind-styled element to prove Tailwind is wired (e.g. a `<h1>` with a Tailwind class).
-
-### Verification (local)
-
-```bash
-cd web
-pnpm tsc --noEmit
-pnpm lint
-pnpm test
-```
-
-Commit: `feat: initialize pnpm workspace with web and game-client packages`
+Note: `web` is intentionally omitted from the workspace for now. It gets added in Phase 4 when `web/` is scaffolded.
 
 ---
 
 ## Step 4 — `packages/game-client/`
 
-### Structure
+An empty TypeScript package. No implementation yet — just the package scaffolding that establishes the boundary.
+
+Its purpose: shared client logic (game state types, REST calls, WebSocket client, reconnect handling) will live here rather than inside `web/`. When `web/` is built in Phase 4, it will consume this package via the pnpm workspace link. When a React Native app is added later, it will consume the same package with no changes.
+
+### Directory structure
 
 ```
 packages/game-client/
 ├── package.json
 ├── tsconfig.json
 └── src/
-    └── index.ts    # export {} — empty barrel, placeholder for Phase 3+
+    └── index.ts    # empty barrel export — placeholder for Phase 3+
 ```
 
-### `package.json`
+### `packages/game-client/package.json`
 
 ```json
 {
@@ -184,7 +403,11 @@ packages/game-client/
 }
 ```
 
-### `tsconfig.json`
+**`"type": "module"`** — tells Node to treat `.js` files as ES modules (using `import`/`export` rather than `require`). Required for a modern TypeScript package.
+
+**`"main": "./src/index.ts"`** — the package entry point. In a workspace context, `web/` will resolve imports from this package to this file directly (TypeScript source, not compiled output — the workspace link bypasses the build step during development).
+
+### `packages/game-client/tsconfig.json`
 
 ```json
 {
@@ -199,23 +422,40 @@ packages/game-client/
 }
 ```
 
-Wire into `web/` by adding to `web/package.json`:
+**`"moduleResolution": "bundler"`** — tells TypeScript to resolve modules the way a bundler (Vite, webpack) does, rather than the way Node.js does. Required for TypeScript packages consumed by Vite.
 
-```json
-"dependencies": {
-  "@bacons-law/game-client": "workspace:*"
-}
+**`"noEmit": true`** — this package is not compiled to JavaScript directly. It's consumed as TypeScript source by `web/` (via the workspace link) and Vite handles compilation at build time. This is the standard approach for monorepo packages consumed by a Vite project.
+
+### `packages/game-client/src/index.ts`
+
+```ts
+export {};
 ```
 
-Then `pnpm install` from the repo root to link the workspace.
+An empty barrel export. The `export {}` is required to make TypeScript treat this as a module rather than a script — without it, variables declared here would leak into the global scope.
 
-Included in the same commit as Step 3.
+From the **repo root**, run:
+
+```bash
+pnpm install
+```
+
+This creates `pnpm-lock.yaml` and links the workspace. Commit everything added in Steps 3 and 4 together:
+
+```bash
+git add packages/ pnpm-workspace.yaml pnpm-lock.yaml
+git commit -m "feat: initialize pnpm workspace with game-client package"
+```
+
+`web/` is not committed yet — it gets added in Phase 4.
 
 ---
 
 ## Step 5 — GitHub Actions CI
 
-### `.github/workflows/ci.yml`
+Server-only for now. The `web-ci` job gets added in Phase 4 when `web/` is scaffolded.
+
+Create `.github/workflows/ci.yml` at the **repo root**:
 
 ```yaml
 name: CI
@@ -233,47 +473,46 @@ jobs:
         working-directory: server
     steps:
       - uses: actions/checkout@v4
+
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+
       - run: uv sync --frozen
+
       - run: uv run ruff check .
       - run: uv run mypy app
       - run: uv run pytest
-
-  web-ci:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter web tsc --noEmit
-      - run: pnpm --filter web lint
-      - run: pnpm --filter web test --run
 ```
 
-Commit: `ci: add github actions workflow for server and web`
+**`defaults.run.working-directory: server`** — sets the working directory for all `run` steps in this job. Equivalent to `cd server &&` before every command, but cleaner.
+
+**`astral-sh/setup-uv@v5`** — the official GitHub Action for installing `uv`. It also installs the specified Python version via uv's managed Python support.
+
+**`uv sync --frozen`** — like `pnpm install --frozen-lockfile`. Installs exactly what's in `uv.lock` without updating it. Fails if `uv.lock` is missing or stale — which is what you want in CI.
+
+Commit:
+```bash
+git add .github/
+git commit -m "ci: add github actions workflow for server"
+```
 
 ---
 
 ## Commit sequence
 
-1. `chore: remove kotlin modules and gradle from py-ts branch`
-2. `feat: initialize fastapi server skeleton with health endpoint`
-3. `feat: initialize pnpm workspace with web and game-client packages`
-4. `ci: add github actions workflow for server and web`
+1. ✓ `chore: remove kotlin modules and gradle from py-ts branch`
+2. ✓ `feat: initialize fastapi server skeleton with health endpoint`
+3. `feat: initialize pnpm workspace with game-client package`
+4. `ci: add github actions workflow for server`
+
+Steps 3 and 4 from the original plan (`web/` scaffold and `web-ci` job) are deferred to Phase 4.
 
 ---
 
 ## Risk flags
 
-- **Tailwind v4** uses the Vite plugin (`@tailwindcss/vite`), not the PostCSS approach documented in most tutorials. Verify against current Tailwind docs when implementing.
-- **`mypy --strict` on empty modules** will pass trivially in Phase 0. Real type discipline comes in Phase 1 when engine types are introduced — that's expected.
-- **`uv sync --frozen` in CI** requires a committed `uv.lock`. Running `uv sync` locally before committing generates it. Don't skip this.
-- **pnpm lockfile** — `pnpm install` from the repo root must be run after wiring `game-client` as a workspace dep, and the resulting `pnpm-lock.yaml` must be committed before CI runs `--frozen-lockfile`.
+- **`uv.lock` must be committed.** Run `uv sync` locally and commit `uv.lock` before pushing. CI runs `uv sync --frozen` which fails if the lockfile is missing or stale.
+- **`pnpm-lock.yaml` must be committed.** Run `pnpm install` from the repo root after creating `packages/game-client/` and commit the resulting lockfile.
+- **`mypy --strict` on empty modules passes trivially.** That's expected for Phase 0. Real type friction comes in Phase 1 when engine types are introduced.
+- **`.venv/` must not be committed.** `server/.gitignore` covers this — verify with `git status` before committing `server/`.
