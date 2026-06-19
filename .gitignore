@@ -15,6 +15,9 @@ captures
 *.iml.kotlin/
 .kotlin/
 
+# Node
+node_modules/
+
 # Python
 .venv/
 __pycache__/
