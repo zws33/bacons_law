@@ -119,7 +119,7 @@ The TMDB key is injected at runtime via Secret Manager — it is never embedded 
 
 ## Code Conventions
 
-- **Indent:** 2 spaces (enforced by `.editorconfig`)
+- **Indent:** 4 spaces (enforced by `.editorconfig`)
 - **Commits:** Conventional commit format — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`
 - **Kotlin style:** Follow the existing code style. Prefer pure functions and immutable data in `:core`.
 - **Build versions:** All dependency versions are declared in `gradle/libs.versions.toml`. Do not hardcode version strings in build files.
