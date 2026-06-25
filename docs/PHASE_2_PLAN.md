@@ -49,11 +49,11 @@ class TmdbClient(Protocol):
 
 Any class with a compatible signature satisfies `TmdbClient` — no explicit declaration needed. `HttpxTmdbClient` and `FakeTmdbClient` both satisfy this protocol without inheriting from it.
 
-| Kotlin                              | Python                              |
-| ----------------------------------- | ----------------------------------- |
-| `interface TmdbClient`              | `class TmdbClient(Protocol)`        |
-| `class HttpxImpl : TmdbClient`      | `class HttpxTmdbClient` (structurally compatible) |
-| compiler-verified                   | mypy-verified via type annotations  |
+| Kotlin                         | Python                                            |
+| ------------------------------ | ------------------------------------------------- |
+| `interface TmdbClient`         | `class TmdbClient(Protocol)`                      |
+| `class HttpxImpl : TmdbClient` | `class HttpxTmdbClient` (structurally compatible) |
+| compiler-verified              | mypy-verified via type annotations                |
 
 mypy verifies Protocol compatibility when you annotate the assignment: `tmdb: TmdbClient = HttpxTmdbClient(...)`. Inside the annotation, mypy checks that all Protocol methods are present with matching signatures.
 
@@ -66,6 +66,7 @@ mypy verifies Protocol compatibility when you annotate the assignment: `tmdb: Tm
 Phase 1 used stdlib `@dataclass(frozen=True)` for engine types — zero framework dependency. API responses have different requirements: JSON serialization with field renaming, OpenAPI schema generation, optional field defaults. Pydantic is the right tool for both, and it is already a FastAPI dependency.
 
 Two distinct model layers:
+
 - **Engine models** (`app/engine/models.py`) — immutable domain types, stdlib dataclasses, no framework imports. These never cross the API boundary.
 - **API response models** (`app/models/tmdb.py`) — Pydantic `BaseModel`, serialization-aware, API boundary only.
 
@@ -328,7 +329,7 @@ Notes:
 
 ### `server/app/api/people.py`
 
-```python
+````python
 from fastapi import APIRouter, Depends
 
 from app.deps import get_tmdb_client
@@ -343,8 +344,7 @@ async def search_people(
     query: str,
     tmdb: TmdbClient = Depends(get_tmdb_client),
 ) -> list[PersonSearchResult]:
-    return await tmdb.search_people(query)
-```
+    return await tmdb.search_people(query) ```
 
 ### `server/app/api/__init__.py`
 
@@ -357,7 +357,7 @@ from app.api.people import router as people_router
 router = APIRouter()
 router.include_router(movies_router)
 router.include_router(people_router)
-```
+````
 
 ### `server/app/main.py` (updated)
 
@@ -521,24 +521,24 @@ def test_people_search_missing_query_returns_422(client: TestClient) -> None:
 
 ## Endpoint → code mapping
 
-| Endpoint                         | Route function        | TmdbClient method       | Response model        |
-| -------------------------------- | --------------------- | ----------------------- | --------------------- |
-| `GET /movies/search?query=`      | `search_movies`       | `search_movies`         | `list[MovieSearchResult]` |
-| `GET /movies/{id}/credits`       | `get_movie_credits`   | `get_movie_credits`     | `MovieCreditsResult`  |
-| `GET /people/search?query=`      | `search_people`       | `search_people`         | `list[PersonSearchResult]` |
+| Endpoint                    | Route function      | TmdbClient method   | Response model             |
+| --------------------------- | ------------------- | ------------------- | -------------------------- |
+| `GET /movies/search?query=` | `search_movies`     | `search_movies`     | `list[MovieSearchResult]`  |
+| `GET /movies/{id}/credits`  | `get_movie_credits` | `get_movie_credits` | `MovieCreditsResult`       |
+| `GET /people/search?query=` | `search_people`     | `search_people`     | `list[PersonSearchResult]` |
 
 ## Test case → test function mapping
 
-| TC   | Scenario                                      | Test function                              |
-| ---- | --------------------------------------------- | ------------------------------------------ |
-| M-01 | Movie search returns results                  | `test_movie_search_returns_results`        |
-| M-02 | Movie search response uses camelCase          | `test_movie_search_response_is_camel_case` |
-| M-03 | Movie search missing query → 422              | `test_movie_search_missing_query_returns_422` |
-| M-04 | Movie credits returns cast IDs               | `test_movie_credits_returns_cast_ids`      |
-| M-05 | Movie credits non-integer ID → 422            | `test_movie_credits_invalid_id_returns_422` |
-| P-01 | People search returns results                 | `test_people_search_returns_results`       |
-| P-02 | People search response uses camelCase         | `test_people_search_response_is_camel_case` |
-| P-03 | People search missing query → 422             | `test_people_search_missing_query_returns_422` |
+| TC   | Scenario                              | Test function                                  |
+| ---- | ------------------------------------- | ---------------------------------------------- |
+| M-01 | Movie search returns results          | `test_movie_search_returns_results`            |
+| M-02 | Movie search response uses camelCase  | `test_movie_search_response_is_camel_case`     |
+| M-03 | Movie search missing query → 422      | `test_movie_search_missing_query_returns_422`  |
+| M-04 | Movie credits returns cast IDs        | `test_movie_credits_returns_cast_ids`          |
+| M-05 | Movie credits non-integer ID → 422    | `test_movie_credits_invalid_id_returns_422`    |
+| P-01 | People search returns results         | `test_people_search_returns_results`           |
+| P-02 | People search response uses camelCase | `test_people_search_response_is_camel_case`    |
+| P-03 | People search missing query → 422     | `test_people_search_missing_query_returns_422` |
 
 ---
 

@@ -63,12 +63,12 @@ We do not use Redis pub/sub in v1 — broadcasting is in-process (see D6). Redis
 
 SQLAlchemy 2.0's async API (`create_async_engine`, `async_sessionmaker`, `AsyncSession`) is the standard way to talk to Postgres from FastAPI. The driver is `asyncpg`. Alembic is the migration tool — the Python equivalent of Flyway/Liquibase in the JVM world, or Prisma Migrate in Node. We define one ORM model (`GameRecord`) and one migration that creates its table.
 
-| Kotlin/JVM | Python |
-| --- | --- |
+| Kotlin/JVM           | Python                             |
+| -------------------- | ---------------------------------- |
 | Exposed / JPA entity | SQLAlchemy `DeclarativeBase` model |
-| Flyway migration SQL | Alembic `versions/*.py` |
-| HikariCP pool | `create_async_engine(...)` pool |
-| `Database.connect()` | `async_sessionmaker(engine)()` |
+| Flyway migration SQL | Alembic `versions/*.py`            |
+| HikariCP pool        | `create_async_engine(...)` pool    |
+| `Database.connect()` | `async_sessionmaker(engine)()`     |
 
 ### Pydantic discriminated unions
 
@@ -81,7 +81,7 @@ ClientMessage = Annotated[
 ]
 ```
 
-This is the wire-protocol analogue of the engine's `Move = ActorMove | MovieMove` union (Phase 1), but here Pydantic *does* enforce exhaustiveness at parse time because the discriminator is explicit. For a TS engineer this is a discriminated union on a `type` literal field; Pydantic does the `switch (msg.type)` narrowing for you.
+This is the wire-protocol analogue of the engine's `Move = ActorMove | MovieMove` union (Phase 1), but here Pydantic _does_ enforce exhaustiveness at parse time because the discriminator is explicit. For a TS engineer this is a discriminated union on a `type` literal field; Pydantic does the `switch (msg.type)` narrowing for you.
 
 ### Per-room `asyncio.Lock`
 
@@ -184,6 +184,7 @@ server/tests/
 ```
 
 `pyproject.toml` additions:
+
 - prod: `redis>=5.2.0`, `sqlalchemy>=2.0.36`, `asyncpg>=0.30.0`, `alembic>=1.14.0`
 - dev: `fakeredis>=2.26.0`, `aiosqlite>=0.20.0`
 
@@ -311,6 +312,7 @@ def apply_game_over(room: Room, state: GameOver) -> Room:
 ```
 
 Notes:
+
 - `MoveModel`'s `kind` discriminator is the persistence/wire equivalent of `isinstance` on the engine union. Pydantic parses the right subtype from stored JSON and rejects unknown kinds.
 - `cast_ids: set[int]` round-trips cleanly: Pydantic serializes a set to a JSON array and parses it back to a set on load, so the engine's `set[int]` contract holds end-to-end without manual conversion.
 - `phase` is **derived**, not stored — fewer invariants to keep consistent (D4 rationale, same as the Kotlin `GameSession`'s `null = not started`).
@@ -360,6 +362,7 @@ class RoomStore:
 ```
 
 Notes:
+
 - `model_dump_json()` / `model_validate_json()` are the only serialization surface — no hand-written serde. Sets, optionals, nested unions all handled by Pydantic.
 - `get` upper-cases the code so client input is case-insensitive (D9).
 - TTL is set on every `create`/`save` (`ex=`), so a room only expires after 24h of no activity.
@@ -407,7 +410,8 @@ def make_session_factory(engine) -> async_sessionmaker[AsyncSession]:
 ```
 
 Notes:
-- `JSON` columns store the `MoveModel`/name lists directly — Postgres maps `JSON` to `jsonb`-compatible `json`; SQLite (tests) stores text. We never query *inside* the chain, so a typed relational move table would be over-engineering (history is read whole, by id).
+
+- `JSON` columns store the `MoveModel`/name lists directly — Postgres maps `JSON` to `jsonb`-compatible `json`; SQLite (tests) stores text. We never query _inside_ the chain, so a typed relational move table would be over-engineering (history is read whole, by id).
 - `expire_on_commit=False` keeps attributes accessible after commit without a reload — standard for the write-and-discard pattern here.
 
 ### `server/app/store/history.py` — the one-shot archival write
@@ -511,6 +515,7 @@ class ErrorMessage(_CamelModel):
 ```
 
 Notes:
+
 - `SubmitMoveMessage.move` reuses `MoveModel`, but the handler **discards** any client-sent `cast_ids` for movie moves and re-fetches (D1). Reusing the type keeps one move schema across persistence and wire.
 - `StateView` is the token-free projection (D5). `PlayerView.connected` is filled from the `ConnectionManager`, not from `Room`.
 
@@ -552,6 +557,7 @@ class ConnectionManager:
 ```
 
 Notes:
+
 - `connected_indices` feeds `PlayerView.connected`. A player can exist in `Room.players` (joined, has a token) but be absent here (disconnected) — exactly the reconnect case.
 - A single connection per `player_index`: a `resume` from a second tab replaces the first (last-writer-wins). v1 doesn't fan out to multiple devices per player.
 - `model_dump(by_alias=True)` emits camelCase on the wire.
@@ -742,8 +748,9 @@ async def _build_move(msg: SubmitMoveMessage, tmdb: TmdbClient):
 ```
 
 Notes:
+
 - The lock is held across `get → engine → save → (history) → broadcast` so no two frames for the same room interleave (D6). The TMDB fetch in `_build_move` happens **inside** the lock — acceptable for a 2-player turn-based game where at most one move is in flight; the alternative (fetch before locking) reintroduces a stale-read window.
-- Protocol errors (`not_your_turn`, `room_full`, `bad_token`, `bad_message`) reply only to `ws` and never touch state (D3). A losing move is *not* one of these — it flows through `play_move` → `GameOver` → broadcast.
+- Protocol errors (`not_your_turn`, `room_full`, `bad_token`, `bad_message`) reply only to `ws` and never touch state (D3). A losing move is _not_ one of these — it flows through `play_move` → `GameOver` → broadcast.
 - `room.phase != "playing"` rejects moves before the second player joins and after the game ends — and is what makes the Postgres write fire exactly once (D7): once `phase == "over"`, every further frame is rejected here.
 
 ### `server/app/api/rooms.py` and `models/room.py`
@@ -969,20 +976,20 @@ def client(wired_app) -> TestClient:
 
 ### Key test cases
 
-| TC | Scenario | File |
-| --- | --- | --- |
-| R-01 | `POST /rooms` returns code + token + `playerIndex: 0` | `test_rooms.py` |
-| R-02 | room code is 6 uppercase base32 chars | `test_rooms.py` |
-| G-01 | creator `resume`s, second `join`s → both get `welcome`, phase flips `waiting`→`playing` | `test_gameplay.py` |
-| G-02 | full valid game: moves alternate, `current_player_index` rotates, broadcasts reach both | `test_gameplay.py` |
-| G-03 | invalid connection → `state` with `phase=over`, correct `winnerIndex`, `losingMove` set | `test_gameplay.py` |
-| G-04 | move when not your turn → `error{code:"not_your_turn"}`, state unchanged | `test_gameplay.py` |
-| G-05 | forfeit → `phase=over`, `losingMove=null`, previous player wins | `test_gameplay.py` |
-| C-01 | reconnect with creator token → `welcome` with fresh snapshot, no new token | `test_reconnect.py` |
-| C-02 | bad token on resume → `error{code:"bad_token"}`, socket closed | `test_reconnect.py` |
-| C-03 | third `join` on a full room → `error{code:"room_full"}` | `test_reconnect.py` |
-| H-01 | on `GameOver`, exactly one `games` row exists with correct winner/chain/names | `test_history.py` |
-| H-02 | forfeit also writes a row with `losing_move = NULL` | `test_history.py` |
+| TC   | Scenario                                                                                | File                |
+| ---- | --------------------------------------------------------------------------------------- | ------------------- |
+| R-01 | `POST /rooms` returns code + token + `playerIndex: 0`                                   | `test_rooms.py`     |
+| R-02 | room code is 6 uppercase base32 chars                                                   | `test_rooms.py`     |
+| G-01 | creator `resume`s, second `join`s → both get `welcome`, phase flips `waiting`→`playing` | `test_gameplay.py`  |
+| G-02 | full valid game: moves alternate, `current_player_index` rotates, broadcasts reach both | `test_gameplay.py`  |
+| G-03 | invalid connection → `state` with `phase=over`, correct `winnerIndex`, `losingMove` set | `test_gameplay.py`  |
+| G-04 | move when not your turn → `error{code:"not_your_turn"}`, state unchanged                | `test_gameplay.py`  |
+| G-05 | forfeit → `phase=over`, `losingMove=null`, previous player wins                         | `test_gameplay.py`  |
+| C-01 | reconnect with creator token → `welcome` with fresh snapshot, no new token              | `test_reconnect.py` |
+| C-02 | bad token on resume → `error{code:"bad_token"}`, socket closed                          | `test_reconnect.py` |
+| C-03 | third `join` on a full room → `error{code:"room_full"}`                                 | `test_reconnect.py` |
+| H-01 | on `GameOver`, exactly one `games` row exists with correct winner/chain/names           | `test_history.py`   |
+| H-02 | forfeit also writes a row with `losing_move = NULL`                                     | `test_history.py`   |
 
 G-02/G-03 use `FakeTmdbClient`'s deterministic credits so a scripted move sequence has a known valid/invalid outcome — line up the fake's `cast_ids` with the actor IDs the test submits.
 
@@ -990,13 +997,13 @@ G-02/G-03 use `FakeTmdbClient`'s deterministic credits so a scripted move sequen
 
 ## Move-flow → engine mapping
 
-| Wire event | Session step | Engine call |
-| --- | --- | --- |
-| `submit_move` (actor) | build `ActorMove` directly | `play_move(state, ActorMove)` |
-| `submit_move` (movie) | `tmdb.get_movie_credits(id)` → `cast_ids` → `MovieMove` | `play_move(state, MovieMove)` |
-| `forfeit` | none | `forfeit(state)` |
-| result `InProgress` | `apply_in_progress` → `store.save` → broadcast | — |
-| result `GameOver` | `apply_game_over` → `store.save` → `write_completed_game` → broadcast | — |
+| Wire event            | Session step                                                          | Engine call                   |
+| --------------------- | --------------------------------------------------------------------- | ----------------------------- |
+| `submit_move` (actor) | build `ActorMove` directly                                            | `play_move(state, ActorMove)` |
+| `submit_move` (movie) | `tmdb.get_movie_credits(id)` → `cast_ids` → `MovieMove`               | `play_move(state, MovieMove)` |
+| `forfeit`             | none                                                                  | `forfeit(state)`              |
+| result `InProgress`   | `apply_in_progress` → `store.save` → broadcast                        | —                             |
+| result `GameOver`     | `apply_game_over` → `store.save` → `write_completed_game` → broadcast | —                             |
 
 ---
 
@@ -1039,4 +1046,7 @@ Commits 1–2 add code with no caller (compiles, type-checks, but unexercised); 
 - **Exactly-once Postgres write (D7).** Guaranteed only because `_handle_frame` rejects all frames once `phase == "over"`. If a code path ever mutates a terminal room, dedup (unique on `room_code` won't work — codes are reused after expiry; use an idempotency check on `ended_at` already set, or a per-game UUID).
 - **Token in `WelcomeMessage` only.** The fresh-join token is sent once, to the joining socket only, and never appears in `StateView` (D5). A regression that leaks `Room.players[].token` into a broadcast would hand every client every player's identity — the `StateView`/`PlayerView` split is the guard; keep `Player` out of any broadcast model.
 - **`REDIS_URL`/`DATABASE_URL` at startup.** Like `TMDB_API_KEY` in Phase 2, these are read in the lifespan and fail fast if absent. Phase 5 supplies them via Fly secrets; local dev needs them in the shell or a `.env` loaded before `uvicorn`.
+
+```
+
 ```
