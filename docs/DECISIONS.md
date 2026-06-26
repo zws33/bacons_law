@@ -113,3 +113,24 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 - In Phase 4 (remote multiplayer), this inverts: `:backend` becomes the authoritative game state owner, and `:app` becomes a thin state consumer. The ViewModel will shrink significantly — it will render state received from the server rather than state it owns.
 - `:core` remains the shared domain layer throughout. `GameState`, `Move`, and `Player` are valid on both client and server.
 - When Phase 4 arrives, introduce `GameRepository` (wrapping the WebSocket/SSE connection) and a use case layer at that point — not before.
+
+---
+
+## 008: Package barrel imports are a convention, enforced by review — not tooling
+
+**Date:** 2026-06-26
+
+**Context:** Unlike Kotlin (`internal`), Java (package-private), or TypeScript (`export`), Python has no language-enforced module privacy. Every submodule is importable from anywhere, and `__all__` only governs `from module import *` — it does not prevent a caller from reaching past a package's `__init__.py` into its internal modules. The Python server (Phase 2) introduced package barrels (`app.models` re-exports its public types via `__init__.py`), but nothing distinguished "import the package's public surface" from "reach into its internals." `app/tmdb_client.py` and `tests/api/conftest.py` had drifted into deep imports (`from app.models.tmdb import ...`), bypassing the barrel.
+
+**Options considered:**
+1. Enforce with a ruff `flake8-tidy-imports` `banned-api` rule (TID251) denylisting `app.models.tmdb`, with a per-file-ignore for the barrel itself.
+2. Enforce with `import-linter` contract-based rules.
+3. Document the convention and enforce by code review; fix the existing deep imports by hand.
+
+**Decision:** Option 3. The convention: a **cross-package consumer imports from the package barrel** (`from app.models import X`); a module imports a **sibling within its own package directly** (`from app.models.tmdb import X` is allowed only inside `app/models/`). It is enforced by convention and code review, not by a linter. The two existing deep imports were corrected to go through the barrel.
+
+**Rationale:** A package's barrel re-exports are its contract; deep imports couple callers to internal file layout, so renaming or splitting a submodule breaks unrelated code. That cost is real, but the `banned-api` rule that would prevent it is a hand-maintained denylist — one entry per protected submodule, with no general "barrel-only" rule available in the Python ecosystem. At solo hobby scale, a denylist that grows with every new module costs more than the bug it prevents, and `app/models/` currently has a single submodule, so the rule would guard almost nothing. The documented convention plus review is sufficient teeth here. This is a discipline Python requires that compiled languages with enforced module privacy provide for free — naming it explicitly is the point of this entry.
+
+**Consequences:**
+- Phase 3's new packages (`store`, `ws`) follow the same rule: external code consumes them through their barrels; their internal modules import siblings directly.
+- If an *architectural* boundary later warrants enforced teeth — most importantly keeping the engine pure (`app.engine` must never import `app.store` or `app.ws`) — reach for `import-linter` with a contract-based rule rather than growing a per-path `banned-api` denylist. That boundary, not barrel hygiene, is where automated enforcement would actually pay off.

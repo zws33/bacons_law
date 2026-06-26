@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.deps import get_tmdb_client
 from app.main import app
-from app.models.tmdb import MovieCreditsResult, MovieSearchResult, PersonSearchResult
+from app.models import MovieCreditsResult, MovieSearchResult, PersonSearchResult
 
 
 class FakeTmdbClient:

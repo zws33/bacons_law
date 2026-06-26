@@ -3,7 +3,7 @@ from typing import Protocol
 import httpx2
 from pydantic import BaseModel
 
-from app.models.tmdb import MovieCreditsResult, MovieSearchResult, PersonSearchResult
+from app.models import MovieCreditsResult, MovieSearchResult, PersonSearchResult
 
 _TMDB_BASE = "https://api.themoviedb.org/3"
 
