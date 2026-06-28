@@ -37,8 +37,11 @@ bacons-law/
 
 ## Status
 
-**In development.** The Python game engine and backend scaffolding are built. Currently implementing
-the TMDB proxy endpoints (Phase 2). See [ROADMAP.md](ROADMAP.md) for the full plan.
+**In development.** The pure game engine (Phase 1) and TMDB REST proxy (Phase 2) are built. Currently
+building the multiplayer session layer — Redis-backed rooms and WebSocket gameplay (Phase 3). See
+[ROADMAP.md](ROADMAP.md) for the full plan.
+
+A separate Kotlin/Android implementation of the same game is a parallel showcase on the `main` branch.
 
 ## Setup
 
@@ -76,7 +79,8 @@ uv run pytest
 
 ## Documentation
 
-- [Game Spec](docs/GAME_SPEC.md) — Rules and mechanics
+- [Rewrite Plan](docs/PYTHON_TS_REWRITE_PLAN.md) — Source of truth: architecture, stack, phased plan
+- [Game Spec v2](docs/GAME_SPEC_V2.md) — Engine rules and mechanics
 - [Decision Log](docs/DECISIONS.md) — Key technical and product decisions with rationale
 - [Roadmap](ROADMAP.md) — Phased development plan
 

@@ -1,8 +1,25 @@
-# Agents Guide — Bacon's Law
+# Agents Guide — Bacon's Law (Python/TypeScript)
 
-A two-player Android trivia game based on "Six Degrees of Kevin Bacon." Players pass a phone, taking turns naming movies and actors to build a chain of connections. Every move is validated in real-time via a Kotlin/Ktor backend that proxies the TMDB API. First player who can't name a valid connection loses.
+A trivia game based on "Six Degrees of Kevin Bacon." Two players take turns naming movies and actors
+to build a chain of connections; every move is validated in real time against TMDB data. First player
+who can't name a valid connection loses.
 
-**Current status:** Game engine, backend proxy, and data layer are built. The active work is the game flow UI and wiring them into a connected game loop (Phase 1 of [ROADMAP.md](ROADMAP.md)).
+**Target model: remote, real-time, two-device multiplayer.** Two players on **separate devices**
+connect to the same room over the network. A FastAPI backend owns authoritative game state; clients
+submit move *intents* over a WebSocket and render the state the server pushes back. There is no
+local-only / pass-the-phone mode in this project — multi-device is the core requirement, not a
+deferred phase. Turns are sequential as a game rule, but the server treats turn-validation and
+state-mutation as a single atomic step (a near-simultaneous out-of-turn message must be rejected, not
+raced).
+
+> **This branch (`fullstack-py-ts-rewrite`) is the Python/TypeScript project.** A separate
+> Kotlin/Android implementation of the same game is a parallel showcase living on `main`; its docs
+> are archived under [`docs/kotlin/`](docs/kotlin/). Nothing on this branch depends on it.
+
+**Current status:** Phase 3 (Multiplayer Session Layer) — building the Redis-backed room store and
+WebSocket session handling. The pure game engine (Phase 1) and TMDB REST proxy (Phase 2) are built.
+See [docs/PYTHON_TS_REWRITE_PLAN.md](docs/PYTHON_TS_REWRITE_PLAN.md) for the source-of-truth plan and
+[ROADMAP.md](ROADMAP.md) for the phase overview.
 
 ---
 
@@ -10,142 +27,162 @@ A two-player Android trivia game based on "Six Degrees of Kevin Bacon." Players 
 
 ```
 bacons-law/
-├── core/      # Pure Kotlin/JVM — game engine and shared domain types, zero platform dependencies
-├── app/       # Android — Compose UI, ViewModels, HTTP client to :backend
-└── backend/   # Ktor service — TMDB proxy, move validation, future game session management
+├── server/                  # Python — FastAPI backend (the authoritative game server)
+│   ├── app/
+│   │   ├── engine/          # Pure game engine — GameState, Move, play_move, forfeit. No I/O.
+│   │   ├── api/             # REST routes — TMDB proxy (search, credits), POST /rooms, history
+│   │   ├── ws/              # WebSocket room/session handling — join, move, forfeit, broadcast
+│   │   ├── store/           # Redis (live room state) + Postgres (game history) access
+│   │   ├── models/          # Pydantic models (request/response, TMDB) — barrel-exported
+│   │   ├── util/            # Shared helpers
+│   │   ├── deps.py          # FastAPI dependency providers (DI)
+│   │   └── main.py          # App factory, router wiring, lifespan
+│   └── tests/               # pytest suite (asyncio_mode=auto)
+├── packages/
+│   └── game-client/         # Shared TypeScript — game/session types, REST + WS client, hooks.
+│                            #   No UI-framework dependency; structured so a future React Native
+│                            #   app can reuse it. (RN itself is out of scope for this initiative.)
+└── web/                     # React + Vite + TS app — NOT YET CREATED (Phase 4). Consumes game-client.
 ```
 
-### `:core`
+### `server/app/engine` — the pure core
 
-Contains the game state machine: `GameState`, `Move`, `Player`, and `GameEngine`. This module has no Android or platform-specific dependencies and must stay that way. All game logic lives here. Both `:app` and `:backend` depend on `:core` — it is the shared domain layer.
+The game state machine: `ActorMove`, `MovieMove`, `Move`, `InProgress`, `GameOver`, `GameState`,
+`play_move`, `forfeit`. **It performs no I/O** — no TMDB, Redis, Postgres, or network calls. All data
+needed for validation (a movie's `cast_ids`) must be populated by the caller before a move reaches
+`play_move`. This purity is an architectural boundary (see below). The engine is the Python port of
+the Kotlin `:core` module; [docs/GAME_SPEC_V2.md](docs/GAME_SPEC_V2.md) is its authoritative spec.
 
-### `:app`
+### `server/app/{api,ws,store}` — the session layer
 
-Contains everything Android-specific:
-- **`data/`** — Ktor Client, `:backend` request/response models
-- **`ui/`** — Compose UI, ViewModels, `Repository`
+- **`api/`** — stateless REST: the TMDB proxy (`/movies/search`, `/people/search`,
+  `/movies/{id}/credits`), plus `POST /rooms` (create room) and history read endpoints.
+- **`ws/`** — one WebSocket channel per room (`/ws/rooms/{code}`): join, submit move (delegates to
+  the engine), forfeit, reconnect, and state broadcast to all connected clients in the room.
+- **`store/`** — **Redis** holds live `GameState` per room, keyed by room code, TTL'd so abandoned
+  rooms expire. **Postgres** (SQLAlchemy + Alembic) is written exactly once per game, when a room
+  reaches `GameOver`, for history/list/detail views. Redis is authoritative during play; Postgres is
+  a one-shot archival write at the end — no in-flight dual-write to reconcile.
 
-The `:app` module depends on `:core` and calls `:backend` for all TMDB data. It never holds TMDB credentials.
+### `packages/game-client` — shared client logic
 
-#### Android notes
-
-For any Android-specific task in this repo, prefer Google's `android` CLI if available on PATH.
-
-Check first:
-
-```bash
-android version || android --help
-```
-
-If available, use it for:
-- SDK install/update
-- Emulator and device workflows
-- Android project discovery
-- Android skills
-- Android docs / official guidance
-
-Prefer `android` CLI over hand-written SDK setup steps or IDE-only assumptions.
-
-Use Gradle for normal project builds/tests, but use `android` for Android environment management, docs, skills, and device-oriented workflows.
-
-If `android` is not installed, state that clearly and fall back to the repo's existing Gradle + Android SDK command-line flow.
-
-### `:backend`
-
-Contains the Ktor HTTP service:
-- **Endpoints** — movie search, person search, movie credits (proxied from TMDB)
-- **Normalization** — maps TMDB responses to `:core` domain models before returning them to clients
-- **Credentials** — TMDB API key lives here only, never in any client module
-
-The `:backend` module depends on `:core`, not the other way around.
+REST calls, WebSocket client, state types, and reconnect handling live here, framework-agnostic, so
+`web/` (and a hypothetical React Native app) contain UI only. The boundary exists from day one even
+though `web/` doesn't yet — extracting it after the fact would be a real refactor.
 
 ---
 
 ## Environment Setup
 
-TMDB API access requires a key that is **never embedded in any client binary**. The key belongs to `:backend` only — it must not appear in `:app` or any future client module as a `BuildConfig` field or hardcoded string.
+TMDB API access requires a key that is **never embedded in any client bundle**. The key belongs to
+`server/` only.
 
-**Production:** The key is stored in Google Secret Manager and injected into the Cloud Run service at runtime.
+**Production:** stored as a Fly.io secret (`fly secrets set TMDB_API_KEY=…`), injected as an env var.
 
-**Local development:** Add the key to `local.properties` at the project root for use by the `:backend` module:
+**Local development:** set it in the environment for the backend:
 
 ```
-TMDB_API_KEY=your_key_here
+export TMDB_API_KEY=your_key_here
 ```
 
 Get a free key at https://developer.themoviedb.org/docs/getting-started
 
-Do not commit `local.properties`. The `:app` module does not read this key.
+Do not commit the key. The web client never reads it — all TMDB access goes through `server/`.
 
 ---
 
 ## Build & Test Commands
 
-All commands run from the project root.
+### Backend (`server/`) — requires Python 3.12+ and [uv](https://docs.astral.sh/uv/)
 
-| Task | Command |
-|------|---------|
-| Build debug APK | `./gradlew :app:assembleDebug` |
-| Run `:core` unit tests | `./gradlew :core:test` |
-| Run all JVM unit tests | `./gradlew test` |
-| Run Android lint | `./gradlew :app:lint` |
-| Full local check (no device needed) | `./gradlew :core:test :app:assembleDebug :app:lint` |
+| Task | Command (run from `server/`) |
+|------|------|
+| Install deps | `uv sync` |
+| Run the dev server | `uv run uvicorn app.main:app --reload` |
+| Lint | `uv run ruff check .` |
+| Type-check | `uv run mypy app` |
+| Tests | `uv run pytest` |
+| Full local check | `./scripts/check.sh` (ruff + mypy + pytest) |
 
-**Note on instrumented tests:** `./gradlew :app:connectedAndroidTest` requires a connected device or running emulator. Prefer `:core:test` for fast feedback on game logic.
+### Workspace (TypeScript) — requires [pnpm](https://pnpm.io/)
+
+| Task | Command (run from repo root) |
+|------|------|
+| Install deps | `pnpm install` |
+| Type-check the shared client | `pnpm --filter @bacons-law/game-client typecheck` |
+
+**CI:** `.github/workflows/ci.yml` runs `uv sync --frozen`, ruff, mypy, and pytest for `server/` on
+pull requests targeting `fullstack-py-ts-rewrite`.
 
 ---
 
-## Deploying `:backend`
+## Deployment
 
-The backend is deployed to Cloud Run via `scripts/deploy.sh`. Run it from the project root:
+Hosting is **Fly.io, not Cloud Run** — persistent WebSocket connections and in-process session state
+are fundamentally incompatible with scale-to-zero / multi-instance autoscaling. Fly.io runs
+long-lived processes and offers colocated Redis (Upstash) and Postgres. The backend runs as a single
+long-lived instance **by design**; the per-room `asyncio.Lock` is authoritative for serializing room
+mutations. See [docs/PHASE_5_PLAN.md](docs/PHASE_5_PLAN.md) for the full deploy walkthrough.
 
-```bash
-./scripts/deploy.sh
-```
-
-This uses `gcloud run deploy --source .`, which triggers Cloud Build to:
-1. Detect the `Dockerfile` at the repo root
-2. Build the image and push it to Artifact Registry (`us-central1`)
-3. Deploy the new revision to the `bacons-law-backend` Cloud Run service
-
-**Prerequisites:**
-- `gcloud` CLI installed and authenticated (`gcloud auth login`)
-- Active project set to `bacons-law` (`gcloud config set project bacons-law`)
-- TMDB API key stored in Secret Manager as `TMDB_API_KEY` and accessible to the Cloud Run service account
-
-The TMDB key is injected at runtime via Secret Manager — it is never embedded in the image or the source.
+- App + Redis + Postgres on Fly.io; `TMDB_API_KEY`, `REDIS_URL`, `DATABASE_URL` injected via
+  `fly secrets`.
+- Web build deployed to a static host (Vercel/Netlify — decided at Phase 5).
 
 ---
 
 ## Code Conventions
 
-- **Indent:** 4 spaces (enforced by `.editorconfig`)
-- **Commits:** Conventional commit format — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`
-- **Kotlin style:** Follow the existing code style. Prefer pure functions and immutable data in `:core`.
-- **Build versions:** All dependency versions are declared in `gradle/libs.versions.toml`. Do not hardcode version strings in build files.
+- **Python:** `ruff` (line length 100; rules `E`, `F`, `I`) and `mypy --strict` are the gate. Prefer
+  pure functions and immutable data in `engine/`. Pydantic models use a camelCase alias generator for
+  the wire format.
+- **Package barrels:** a **cross-package consumer imports from the package barrel**
+  (`from app.models import X`); a module imports a **sibling within its own package directly**
+  (`from app.models.tmdb import X` only inside `app/models/`). Convention, enforced by review — see
+  [ADR 008](docs/DECISIONS.md#008-package-barrel-imports-are-a-convention-enforced-by-review--not-tooling).
+- **Commits:** Conventional commit format — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`.
+- **Dependencies:** managed by `uv` (Python) and `pnpm` workspaces (TS). Don't hand-edit lockfiles.
 
 ---
 
 ## Architecture Boundaries
 
-**Keep `:core` pure.** It must not import `android.*`, `androidx.*`, or any platform-specific library. The game engine is pure Kotlin/JVM so it can be tested on the JVM and shared across `:app`, `:backend`, and future KMP targets. If you need to add game logic, add it to `:core` with a JUnit 5 test.
+**Keep `engine/` pure.** It must not import from `app.store`, `app.ws`, `app.api`, or any I/O
+library. The engine receives moves and returns new state — nothing else. This is what lets it be
+tested in isolation against [GAME_SPEC_V2.md](docs/GAME_SPEC_V2.md) and shared with the client.
 
-**TMDB credentials stay in `:backend`.**  All TMDB API calls are made by the `:backend` service. The `:app` module calls `:backend` endpoints — it never calls TMDB directly and must not hold a TMDB API key. Do not add a TMDB key as a `BuildConfig` field in `app/build.gradle.kts`.
+**TMDB credentials stay server-side.** All TMDB calls are made by `server/`. No client (web, future
+RN) ever holds a TMDB key.
 
-**`castIds` is the validation contract.** `Move.Movie` carries a `Set<Int>` of TMDB cast member IDs. The `:app` layer is responsible for fetching these IDs from `:backend` and populating them before passing a `Move.Movie` to `playMove`. The engine itself does not make network calls.
+**`cast_ids` is the validation contract.** A `MovieMove` carries a `set[int]` of TMDB cast member
+IDs. The caller (session layer) fetches these via the TMDB proxy and populates them before passing a
+move to `play_move`. The engine makes no network calls.
 
-**`GameViewModel` owns game state in Phase 1.** The ViewModel holds `GameState`, calls `GameEngine` for transitions, and calls `Repository` for data. Game state is ephemeral and local — appropriate for a pass-the-phone MVP. In Phase 4, this inverts: `:backend` becomes the authoritative game state owner, `:core` remains the shared domain layer, and `:app` renders state it receives rather than state it owns. The ViewModel thins to a state consumer.
+**Redis is authoritative during play; Postgres is archival.** Live `GameState` lives only in Redis
+while a game is in progress. Postgres is written once, at `GameOver`. Never read game state from
+Postgres during an active game.
+
+**Identity is a room-scoped opaque token.** No accounts. Creating or joining a room issues a
+server-generated token tied to that player-in-that-room, returned to the client and stored
+client-side. The token is the capability required to reconnect and resume — it is **never** broadcast
+to other clients (it lives server-side in Redis; the state projection sent to clients is token-free).
+Lost token = lost identity in that room; no recovery flow in v1.
 
 ---
 
 ## What to Avoid
 
-- **Do not commit `local.properties`** — it contains the TMDB API key for local backend development.
-- **Do not embed API credentials in any client binary** — the TMDB API key must never appear in `:app` or any future client module (iOS, web) as a `BuildConfig` field, hardcoded string, or bundled asset. All TMDB access goes through `:backend`.
-- **Do not add Android dependencies to `:core`** — it must remain a pure Kotlin/JVM module.
-- **Do not bypass repeat detection** — `playMove` rejects moves that reuse an actor or movie already in the chain. This is a game rule, not a bug.
-- **Do not add MVP out-of-scope mechanics** — time limits, passes, challenges, and scoring are explicitly deferred. See [docs/GAME_SPEC.md](docs/GAME_SPEC.md#explicitly-out-of-scope-mvp).
-- **Do not use TV shows or documentaries** — TMDB is queried for movies only. The game spec excludes non-theatrical content for MVP.
+- **Do not put a TMDB key in any client bundle** — web or future RN. All TMDB access goes through
+  `server/`.
+- **Do not add I/O to `engine/`** — it must remain pure (no Redis, Postgres, TMDB, or network).
+- **Do not broadcast a player's token** to other clients — it is an auth capability, not display
+  data.
+- **Do not bypass repeat detection** — `play_move` rejects moves that reuse an actor or movie already
+  in the chain. This is a game rule (R5), not a bug.
+- **Do not add out-of-scope mechanics** — time limits, passes, challenges, scoring, turn timers, AFK
+  auto-forfeit, and accounts are explicitly deferred. See
+  [GAME_SPEC_V2.md](docs/GAME_SPEC_V2.md) and the "out of scope" section of
+  [PYTHON_TS_REWRITE_PLAN.md](docs/PYTHON_TS_REWRITE_PLAN.md).
+- **Do not use TV shows or documentaries** — TMDB is queried for movies only.
 
 ---
 
@@ -153,7 +190,9 @@ The TMDB key is injected at runtime via Secret Manager — it is never embedded 
 
 | Document | Purpose |
 |----------|---------|
-| [docs/GAME_SPEC.md](docs/GAME_SPEC.md) | Source of truth for game rules and engine behavior |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | ADR-style log of key technical and product decisions |
-| [ROADMAP.md](ROADMAP.md) | Phased development plan; current work is Phase 1 |
-| [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Detailed implementation plan for Phase 1 |
+| [docs/PYTHON_TS_REWRITE_PLAN.md](docs/PYTHON_TS_REWRITE_PLAN.md) | **Source of truth** for this initiative — architecture, tech stack, phased plan, decisions |
+| [docs/GAME_SPEC_V2.md](docs/GAME_SPEC_V2.md) | Authoritative spec for the pure game engine (rules + test cases) |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Rewrite-era ADR log (008+). Kotlin-era ADRs 001–007 archived at [docs/kotlin/](docs/kotlin/DECISIONS.md) |
+| [ROADMAP.md](ROADMAP.md) | Phase overview (0–5) |
+| [docs/PHASE_*_PLAN.md](docs/) | Detailed per-phase implementation plans |
+| [docs/kotlin/](docs/kotlin/) | Archived docs for the parallel Kotlin/Android showcase on `main` |

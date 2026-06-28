@@ -2,90 +2,108 @@
 
 ## Project Summary
 
-A two-player mobile trivia game based on "Six Degrees of Kevin Bacon." Players pass a phone back and forth, taking turns naming movies and actors. Each answer must connect to the previous one — the actor must have been in that movie, or the movie must feature that actor. The app validates every move using TMDB data. First player who can't name a valid connection loses.
+A trivia game based on "Six Degrees of Kevin Bacon." Two players take turns naming movies and actors;
+each answer must connect to the previous one (the actor was in that movie, or the movie features that
+actor). Every move is validated against [TMDB](https://www.themoviedb.org/) data. First player who
+can't name a valid connection loses.
 
-**Current state:** Existing Kotlin/Compose codebase with TMDB API integration (search + credits) and a game state machine. The game logic and UI are not yet connected. The existing code is a starting point — reusable where it serves the MVP, replaceable where it doesn't.
+This is the **Python/TypeScript** build: remote, real-time, **two-device** multiplayer with a
+server-authoritative FastAPI backend. A separate Kotlin/Android implementation of the same game is a
+parallel showcase on `main` (its roadmap is archived at [docs/kotlin/ROADMAP.md](docs/kotlin/ROADMAP.md)).
 
-See [docs/GAME_SPEC.md](docs/GAME_SPEC.md) for the full game rules.
-See [docs/DECISIONS.md](docs/DECISIONS.md) for key technical and product decisions.
+> **Source of truth:** [docs/PYTHON_TS_REWRITE_PLAN.md](docs/PYTHON_TS_REWRITE_PLAN.md). This file is
+> the phase overview; that document governs architecture and scope. Per-phase detail lives in
+> [docs/PHASE_0_PLAN.md](docs/PHASE_0_PLAN.md) … [docs/PHASE_5_PLAN.md](docs/PHASE_5_PLAN.md).
 
----
+**Current phase:** Phase 3 — Multiplayer Session Layer.
 
-## Phase 1: Playable MVP
-
-**Goal:** Two people can pass a phone and play a complete round of Bacon's Law. The app validates every move. Nothing more.
-
-### Game Flow
-- [ ] Start screen — enter two player names, start game
-- [ ] Player 1 searches for and selects a starting actor
-- [ ] Prompt screen — shows current player, the previous chain entry, and what type of move is needed ("Name a movie **[Actor]** was in")
-- [ ] Search and select — current player searches, picks from results
-- [ ] Validation — app checks the connection via TMDB credits. Valid: add to chain, switch turns. Invalid: game over.
-- [ ] Repeat detection — reject moves that reuse an actor or movie already in the chain
-- [ ] Forfeit — "I can't answer" button that concedes the round
-- [ ] Game over screen — show winner, display the full chain, play again button
-
-### Technical
-- [ ] Evaluate existing `:core` game engine against game spec — adapt or rewrite
-- [ ] Stand up `:backend` Ktor module with three proxy endpoints: movie search, person search, movie credits
-- [ ] Deploy `:backend` to Cloud Run with TMDB API key stored in Google Secret Manager
-- [ ] Wire `:app` Repository to `:backend` endpoints (not TMDB directly)
-- [ ] Wire TMDB credits API (via `:backend`) to move validation
-- [ ] Compose navigation for game flow (start → play → game over)
-- [ ] Update Gradle/Kotlin/AGP to current stable versions
-- [ ] TMDB API key must not be embedded in any client binary — all TMDB calls go through `:backend`
-
-### Done When
-- Two players can complete a full game by passing the phone
-- Every move is validated against TMDB data
-- Invalid moves and repeats end the game correctly
-- The chain is visible throughout the game
+See [docs/GAME_SPEC_V2.md](docs/GAME_SPEC_V2.md) for the engine rules and
+[docs/DECISIONS.md](docs/DECISIONS.md) for the decision log.
 
 ---
 
-## Phase 2: Polish and Publish
+## Phase 0: Foundation ✅
 
-**Goal:** Good enough for the Play Store. Not perfect — shippable.
+**Goal:** Empty-but-wired apps that build, lint, and test green in CI.
 
-- [ ] Onboarding — brief rules explanation for first-time players
-- [ ] UI polish — movie posters / actor photos from TMDB, chain visualization, turn transitions
-- [ ] Error handling — network failures, empty search results, API rate limits surfaced to the user
-- [ ] Loading states during API calls
-- [ ] TMDB attribution (required by API terms of use)
-- [ ] Play Store listing — icon, screenshots, description, privacy policy
-- [ ] Publish — internal testing track, then production
+- Stand up `server/` — FastAPI skeleton, `uv` project, `ruff`/`mypy`/`pytest` configured, health check.
+- Stand up the pnpm workspace and `packages/game-client/` as a wired-in package.
+- GitHub Actions: lint + test on PRs targeting `fullstack-py-ts-rewrite`.
 
 ---
 
-## Phase 3: Game Depth
+## Phase 1: Engine Port ✅
 
-**Goal:** Mechanics that make the game more engaging, informed by real play experience.
+**Goal:** The pure game engine, ported and tested.
 
-Candidates (prioritize based on what feels missing after playing):
-- [ ] Single-player quiz-master mode — app prompts, you respond
-- [ ] Time limits per turn
-- [ ] Pass / miss tolerance mechanics
-- [ ] Difficulty settings (popular vs. obscure movies/actors)
-- [ ] Game history and statistics
-- [ ] Share results ("We built a chain of 12 connections!")
+- Port `GameState`, `Move`, and the engine from Kotlin `:core` to Python (`server/app/engine/`) as
+  pure, dependency-free logic — no network, no Redis, no FastAPI.
+- Port the Kotlin engine test cases to `pytest`; they are the spec to satisfy. See
+  [docs/GAME_SPEC_V2.md](docs/GAME_SPEC_V2.md).
 
----
-
-## Phase 4: Online Multiplayer (Ktor Backend)
-
-**Goal:** Play remotely against friends on separate devices. The `:backend` service evolves from a stateless TMDB proxy to an authoritative game server.
-
-- [ ] Game session management — create, join, and persist match state in `:backend`
-- [ ] Move validation moves server-side — clients submit intents, backend validates and advances state
-- [ ] WebSocket or SSE — real-time state push to connected clients
-- [ ] Android client updates — connect to remote game session
-- [ ] Persistence — game history, player accounts
-
-**T-shape value:** Server-side Kotlin, coroutine-based concurrency, real-time communication, API design, deployment on Cloud Run.
+**Done when:** the ported suite passes — valid moves, invalid connections, repeats, forfeit.
 
 ---
 
-## Phase 5: Cross-Platform
+## Phase 2: TMDB REST Proxy ✅
 
-- [ ] iOS client via Kotlin Multiplatform — share `:core` game engine and network layer with the Android app
-- [ ] Web client (Compose for Web) against the Ktor backend
+**Goal:** Stateless TMDB proxy endpoints.
+
+- `GET /movies/search`, `GET /people/search`, `GET /movies/{id}/credits`.
+- TMDB key via Fly secrets, never in any client bundle.
+
+**Done when:** all three endpoints work against real TMDB data with integration tests over a mocked
+TMDB client.
+
+---
+
+## Phase 3: Multiplayer Session Layer ⬅ current
+
+**Goal:** Two separate WebSocket clients can complete a full game, validated server-side.
+
+- `POST /rooms` creates a room, returns room code + creator token.
+- WebSocket `/ws/rooms/{code}`: join (with display name), submit move (delegates to the engine),
+  forfeit, broadcast resulting state to all connected clients in the room.
+- Redis-backed `GameState` per room, TTL'd. Reconnect via existing token + room code yields a fresh
+  state snapshot.
+- On `GameOver`, write one Postgres row (room code, players, full move chain, winner, timestamps).
+  Alembic migration for the schema.
+
+**Done when:** two browser tabs can play a full game with server-side validation, and the completed
+game is persisted to Postgres.
+
+---
+
+## Phase 4: React Client
+
+**Goal:** A real, mobile-responsive web client.
+
+- Screens: create/join room, gameplay (chain display, search, submit, forfeit), game over.
+- Mobile-responsive layout is the primary design target.
+- All game/session logic (REST, WebSocket, state types, reconnect) lives in
+  `packages/game-client`; `web/` consumes it via hooks and contains UI only.
+- Minimal history views — list of past games, detail of a single game's chain — from the
+  Postgres-backed history endpoint.
+
+**Done when:** two people on two separate devices, on the public internet, can play a full game
+through the deployed web app.
+
+---
+
+## Phase 5: Deploy + Playtest
+
+**Goal:** The whole stack running on real infrastructure.
+
+- FastAPI app, Redis, and Postgres on Fly.io (long-lived process, no scale-to-zero — required for
+  persistent WebSocket connections). `web/` on a static host.
+- Manual two-device playtest as the acceptance test for the initiative.
+
+**Done when:** the Phase 4 "done when" is met against the deployed (not local) stack.
+
+---
+
+## Explicitly out of scope
+
+React Native app (the shared `game-client` makes it cheap later, but no RN code here); turn timers /
+AFK auto-forfeit; accounts or persistent identity beyond a room-scoped token; multi-instance scaling
+validation; and the deferred game mechanics (time limits, passes, scoring) from the game spec.

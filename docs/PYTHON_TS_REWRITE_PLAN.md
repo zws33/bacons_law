@@ -4,9 +4,9 @@ This document is the source of truth for the `fullstack-py-ts-rewrite` initiativ
 
 ## Why this exists
 
-The original Bacon's Law project (see root [ROADMAP.md](../ROADMAP.md), [docs/DECISIONS.md](DECISIONS.md), [docs/GAME_SPEC.md](GAME_SPEC.md)) is a Kotlin/Compose fullstack showcase. This initiative is a **parallel showcase, not a replacement** — it rebuilds the same game concept on a Python + TypeScript stack to practice and demonstrate that stack specifically. Both versions are intended to coexist indefinitely as independent portfolio pieces. Nothing here assumes the Kotlin code exists, and nothing in the Kotlin docs should be assumed to apply here except where explicitly referenced.
+The original Bacon's Law project (Kotlin docs archived at [docs/kotlin/ROADMAP.md](kotlin/ROADMAP.md), [docs/kotlin/DECISIONS.md](kotlin/DECISIONS.md), [docs/kotlin/GAME_SPEC.md](kotlin/GAME_SPEC.md); code on `main`) is a Kotlin/Compose fullstack showcase. This initiative is a **parallel showcase, not a replacement** — it rebuilds the same game concept on a Python + TypeScript stack to practice and demonstrate that stack specifically. Both versions are intended to coexist indefinitely as independent portfolio pieces. Nothing here assumes the Kotlin code exists, and nothing in the Kotlin docs should be assumed to apply here except where explicitly referenced.
 
-The game rules themselves are unchanged — [docs/GAME_SPEC.md](GAME_SPEC.md) remains the source of truth for what a "valid move" is. What's new in this initiative is the _delivery mechanism_: remote, real-time, two-device multiplayer, where the original was local pass-the-phone.
+The game rules themselves are unchanged — [docs/GAME_SPEC_V2.md](GAME_SPEC_V2.md) is the source of truth for what a "valid move" is. What's new in this initiative is the _delivery mechanism_: remote, real-time, two-device multiplayer, where the original was local pass-the-phone.
 
 ## Goals
 
@@ -136,7 +136,7 @@ bacons-law/  (on fullstack-py-ts-rewrite)
 - Turn timers, AFK auto-forfeit, reconnect grace windows beyond "token still works."
 - Accounts, login, or any persistent identity beyond a room-scoped token.
 - Multi-instance backend scaling validation (Redis already supports it architecturally, but proving it under load is not a goal here).
-- Game mechanic changes — out-of-scope mechanics from [docs/GAME_SPEC.md](GAME_SPEC.md#explicitly-out-of-scope-mvp) (time limits, passes, scoring, etc.) remain out of scope here too.
+- Game mechanic changes — out-of-scope mechanics from the archived [docs/kotlin/GAME_SPEC.md](kotlin/GAME_SPEC.md#explicitly-out-of-scope-mvp) (time limits, passes, scoring, etc.) remain out of scope here too.
 
 ## Decisions
 

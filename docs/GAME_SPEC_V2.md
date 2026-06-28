@@ -1,6 +1,6 @@
 # Bacon's Law — Game Spec v2
 
-This document is the authoritative specification for the game engine. It supersedes the game rules section of [GAME_SPEC.md](GAME_SPEC.md) for implementation purposes. The original spec remains the source of truth for product intent and out-of-scope decisions.
+This document is the authoritative specification for the game engine on the Python/TypeScript rewrite. It supersedes the game rules section of the original, archived [GAME_SPEC.md](kotlin/GAME_SPEC.md) for implementation purposes; that archived spec remains a reference for product intent and out-of-scope decisions.
 
 **Scope:** This document specifies the pure game engine only — state transitions, validation, and end conditions. It makes no assumptions about network transport, UI, or persistence. The engine receives moves and returns new state. It performs no I/O.
 
