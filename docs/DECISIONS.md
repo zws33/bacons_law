@@ -2,9 +2,17 @@
 
 Lightweight ADR-style record of key technical and product decisions.
 
+> ADRs 001–007 are the original Kotlin/Android decisions. ADRs 008+ cover the current direction — a
+> Kotlin/Ktor server validating moves against a precomputed Wikidata graph built by a Python ETL.
+> The archived Python/FastAPI showcase kept its own log at [`python/DECISIONS.md`](python/DECISIONS.md).
+
 ---
 
 ## 001: MVP is pass-the-phone two-player, not solo chain-building
+
+> **Superseded by [ADR 008](#008-multi-device-server-authoritative-play-is-the-core-requirement).**
+> Pass-the-phone was the single-device MVP; multi-device, server-authoritative play is now the core
+> requirement.
 
 **Date:** 2026-03-19
 
@@ -60,6 +68,13 @@ Lightweight ADR-style record of key technical and product decisions.
 
 ## 005: Kotlin/Ktor backend proxy for TMDB — credentials never in client binaries
 
+> **Partially superseded.** The TMDB-proxy role is dropped by
+> [ADR 010](#010-wikidata-cc0-is-the-data-source-tmdb-is-dropped) (data now comes from Wikidata,
+> precomputed offline), and the Cloud Run hosting choice is replaced by
+> [ADR 011](#011-kotlinktor-server--python-etl-single-flyio-instance-not-cloud-run). The
+> "credentials never in a client binary" principle still holds — trivially, since there are now no
+> credentials.
+
 **Date:** 2026-04-01
 
 **Context:** The Android app needs TMDB API access for movie search, person search, and credits. The straightforward approach is to inject the key as a `BuildConfig` field in the APK. However, Android APK binaries are extractable — "not committed to source control" is not the same as "not recoverable from the binary." Any key shipped in a client binary should be treated as public.
@@ -113,3 +128,73 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 - In Phase 4 (remote multiplayer), this inverts: `:backend` becomes the authoritative game state owner, and `:app` becomes a thin state consumer. The ViewModel will shrink significantly — it will render state received from the server rather than state it owns.
 - `:core` remains the shared domain layer throughout. `GameState`, `Move`, and `Player` are valid on both client and server.
 - When Phase 4 arrives, introduce `GameRepository` (wrapping the WebSocket/SSE connection) and a use case layer at that point — not before.
+
+---
+
+## 008: Multi-device, server-authoritative play is the core requirement
+
+**Date:** 2026-06-29
+
+**Supersedes:** [ADR 001](#001-mvp-is-pass-the-phone-two-player-not-solo-chain-building) (pass-the-phone was the single-device MVP, not the end state). Carries forward the substance of the Python showcase's ADR 009, re-expressed for the Kotlin trunk.
+
+**Context:** Multiple devices connect to the same room over the network, and the backend owns authoritative game state. The single-device framing misleads design — most concretely, it makes the room store's concurrency model look like a non-problem ("turns are sequential, only one device") when two devices can send near-simultaneous messages to the same room.
+
+**Decision:** Multi-device play is core, not a deferred enhancement. The Ktor server is the authoritative owner of game state; clients submit move *intents* over a WebSocket and render the state the server pushes back. Turns remain sequential as a game rule, but turn-validation and state-mutation are atomic *together* on the server — sequential turns are a rule the server enforces, not a guarantee that only one message arrives at a time.
+
+**Consequences:**
+- **Multi-device (clients) ≠ multi-instance (servers).** A single instance can hold thousands of WebSocket connections across thousands of rooms; multi-device does **not** by itself require horizontal scaling.
+- **Single instance + per-room lock (Kotlin `Mutex`) is sufficient.** Concurrent moves to the same room are serialized by an in-process per-room lock. This is the v1 design.
+- **Horizontal scaling is deferred and comes as a pair:** Redis-coordinated locking *and* Redis Pub/Sub broadcast (a second instance can't see the first's sockets). Build both or neither.
+- This realizes the inversion anticipated in [ADR 007](#007-gameviewmodel-owns-game-state-for-phase-1-client-thins-in-phase-4): the server becomes the authoritative owner; `:app` thins to a state consumer.
+
+---
+
+## 009: Validation is precomputed offline and served in-process — no per-turn external API
+
+**Date:** 2026-06-29
+
+**Context:** The intuitive approach validates "did this actor appear in this movie?" with a movie-API call per turn — the Python showcase did exactly that (a TMDB credits call per movie move). [CASE_STUDY.md](CASE_STUDY.md) (§2–3) shows this is backwards: precompute the actor↔movie relationship once, offline, and the per-turn check collapses to an O(1) set-membership lookup. The system is connection-bound, not compute-bound; the connection check is the cheapest thing in it.
+
+**Decision:** The actor↔movie relationship is precomputed offline into a bipartite graph (`movie_id → set(actor_id)`, `actor_id → set(movie_id)`) and loaded **read-only, in-process** into the server at boot. Move validation is `castIds.contains(...)` against the loaded graph — no network call in the hot path. The pure `:core` engine is unchanged; only its data source changes.
+
+**Rationale & consequences:**
+- The O(1) property holds **only while the graph lives in the same process as the validation logic** (CASE_STUDY §2/§6 caveat). The engine/data seam must not cross a network hop — this constrains deployment (the server loads the artifact at boot; see [ADR 011](#011-kotlinktor-server--python-etl-single-flyio-instance-not-cloud-run)).
+- **Cast-depth cap (top-N billed)** is applied at build time — at once a gameplay knob, a policy lever for what "appeared in" means, and a graph-size lever (CASE_STUDY §3).
+- **Name resolution moves to the boundary:** a typeahead resolves names to entity IDs before submission; the server receives `{type, id}`, never free text.
+
+---
+
+## 010: Wikidata (CC0) is the data source; TMDB is dropped
+
+**Date:** 2026-06-29
+
+**Supersedes the TMDB premise of:** [ADR 005](#005-kotlinktor-backend-proxy-for-tmdb--credentials-never-in-client-binaries) (the Ktor service is no longer a TMDB proxy).
+
+**Context:** ADR 005 introduced a proxy to hide a TMDB key. With validation precomputed offline ([ADR 009](#009-validation-is-precomputed-offline-and-served-in-process--no-per-turn-external-api)), the data source is a build-time input, not a request-path dependency. CASE_STUDY §4 separates copyright (facts aren't copyrightable — *Feist*) from contract (provider terms bind by *how you obtained* the data). TMDB's terms treat donation-funded operation as commercial and include an AI/ML clause — a recurring question for a no-profit hobby project.
+
+**Decision:** Build the graph from **Wikidata (CC0)**. No attribution requirement, no AI restriction, no commercial-use question. The TMDB proxy is removed; there is no TMDB key anywhere in the new architecture.
+
+**Consequences:**
+- Provenance is clean permanently — adding donations or AI components later does not reopen a licensing question (CASE_STUDY §4).
+- The ADR 005 "no credentials in a client binary" invariant holds trivially: there are no credentials.
+- TMDB image assets are out of scope. If poster art is wanted later, that's a separate, explicitly-scoped decision reintroducing TMDB terms for the image path only.
+
+---
+
+## 011: Kotlin/Ktor server + Python ETL; single Fly.io instance, not Cloud Run
+
+**Date:** 2026-06-29
+
+**Supersedes the hosting choice of:** [ADR 005](#005-kotlinktor-backend-proxy-for-tmdb--credentials-never-in-client-binaries) (Cloud Run scale-to-zero is incompatible with persistent WebSockets).
+
+**Context:** The server is connection-bound (CASE_STUDY §6). Kotlin is the strongest language on hand, with structured concurrency (coroutines / virtual threads) well-suited to many long-lived, mostly-idle connections, sealed classes that model the engine, and KMP reach for an Android client. The offline graph build is data-wrangling work where Python excels — and CASE_STUDY §6 blesses a polyglot split across the *offline/online* seam (but **not** across the engine/data seam).
+
+**Decision:**
+- **Server: Kotlin/Ktor.** Reuse the pure `:core` engine as-is; rebuild `:backend` from a TMDB proxy into the graph-backed authoritative session server (WS rooms, Redis live state, in-process graph). Modernize `:app` into a multi-device client later (secondary).
+- **ETL: Python**, a separate offline toolchain (`etl/`) producing the versioned graph artifact.
+- **Hosting: a single long-lived Fly.io instance**, not Cloud Run — persistent WebSocket connections and in-process session state + graph are incompatible with scale-to-zero / multi-instance autoscaling.
+
+**Consequences:**
+- The running system stays all-Kotlin (client + server + shared `:core`), preserving [ADR 002](#002-androidkotlincompose-for-mvp-client)'s all-Kotlin property; Python is offline-only.
+- Redis holds live room state and is the coordination point if horizontal scaling is ever justified ([ADR 008](#008-multi-device-server-authoritative-play-is-the-core-requirement)).
+- Egress is the dominant cost driver at scale (CASE_STUDY §5); a Cloudflare-front + cheap-origin posture is a future lever, not a v1 requirement.

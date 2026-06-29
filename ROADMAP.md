@@ -2,90 +2,123 @@
 
 ## Project Summary
 
-A two-player mobile trivia game based on "Six Degrees of Kevin Bacon." Players pass a phone back and forth, taking turns naming movies and actors. Each answer must connect to the previous one — the actor must have been in that movie, or the movie must feature that actor. The app validates every move using TMDB data. First player who can't name a valid connection loses.
+A real-time trivia game based on "Six Degrees of Kevin Bacon." Two players on **separate devices**
+take turns naming movies and actors; each answer must connect to the previous one — the actor must
+have appeared in that movie, or the movie must feature that actor. A Kotlin/Ktor server owns
+authoritative game state and validates every move against a precomputed actor↔movie graph. First
+player who can't name a valid connection loses.
 
-**Current state:** Existing Kotlin/Compose codebase with TMDB API integration (search + credits) and a game state machine. The game logic and UI are not yet connected. The existing code is a starting point — reusable where it serves the MVP, replaceable where it doesn't.
+**Architecture in one line:** a Python ETL precomputes a bipartite movie↔actor graph from CC0
+Wikidata data; a Kotlin/Ktor server loads it **read-only, in-process** and validates moves with an
+O(1) set-membership check — no per-turn external API call. The pure game engine is the existing
+Kotlin `:core` module, reused unchanged.
 
-See [docs/GAME_SPEC.md](docs/GAME_SPEC.md) for the full game rules.
-See [docs/DECISIONS.md](docs/DECISIONS.md) for key technical and product decisions.
+**Current state:** Pivoting to this direction. The existing Kotlin `:core` engine and Ktor
+`:backend` are the starting point — `:core` is reused as-is; `:backend` is rebuilt from a TMDB proxy
+into the graph-backed session server. Two prior efforts are preserved as reference, not maintained:
+the Kotlin/Compose Android client (`:app`, on this history) and the Python/FastAPI showcase (branch
+`fullstack-py-ts-rewrite`, tag `python-fastapi-showcase`, docs archived under
+[docs/python/](docs/python/README.md)).
 
----
+See [docs/GAME_SPEC_V2.md](docs/GAME_SPEC_V2.md) for the engine spec, [docs/CASE_STUDY.md](docs/CASE_STUDY.md)
+for the system-design reasoning behind this direction, and [docs/DECISIONS.md](docs/DECISIONS.md) for
+the decision log.
 
-## Phase 1: Playable MVP
-
-**Goal:** Two people can pass a phone and play a complete round of Bacon's Law. The app validates every move. Nothing more.
-
-### Game Flow
-- [ ] Start screen — enter two player names, start game
-- [ ] Player 1 searches for and selects a starting actor
-- [ ] Prompt screen — shows current player, the previous chain entry, and what type of move is needed ("Name a movie **[Actor]** was in")
-- [ ] Search and select — current player searches, picks from results
-- [ ] Validation — app checks the connection via TMDB credits. Valid: add to chain, switch turns. Invalid: game over.
-- [ ] Repeat detection — reject moves that reuse an actor or movie already in the chain
-- [ ] Forfeit — "I can't answer" button that concedes the round
-- [ ] Game over screen — show winner, display the full chain, play again button
-
-### Technical
-- [ ] Evaluate existing `:core` game engine against game spec — adapt or rewrite
-- [ ] Stand up `:backend` Ktor module with three proxy endpoints: movie search, person search, movie credits
-- [ ] Deploy `:backend` to Cloud Run with TMDB API key stored in Google Secret Manager
-- [ ] Wire `:app` Repository to `:backend` endpoints (not TMDB directly)
-- [ ] Wire TMDB credits API (via `:backend`) to move validation
-- [ ] Compose navigation for game flow (start → play → game over)
-- [ ] Update Gradle/Kotlin/AGP to current stable versions
-- [ ] TMDB API key must not be embedded in any client binary — all TMDB calls go through `:backend`
-
-### Done When
-- Two players can complete a full game by passing the phone
-- Every move is validated against TMDB data
-- Invalid moves and repeats end the game correctly
-- The chain is visible throughout the game
+> The architecture rests on one property: **validation is co-located with the graph, in-process.**
+> The O(1) check holds only while the graph and the validation logic share a process — so the
+> engine/data seam must never cross a network hop (see [CASE_STUDY](docs/CASE_STUDY.md) §2, §6 and
+> [ADR 009](docs/DECISIONS.md)).
 
 ---
 
-## Phase 2: Polish and Publish
+## Phase 0: Pivot & reorganization
 
-**Goal:** Good enough for the Play Store. Not perfect — shippable.
+**Goal:** The trunk reflects the new direction, with prior work preserved and discoverable.
 
-- [ ] Onboarding — brief rules explanation for first-time players
-- [ ] UI polish — movie posters / actor photos from TMDB, chain visualization, turn transitions
-- [ ] Error handling — network failures, empty search results, API rate limits surfaced to the user
-- [ ] Loading states during API calls
-- [ ] TMDB attribution (required by API terms of use)
-- [ ] Play Store listing — icon, screenshots, description, privacy policy
-- [ ] Publish — internal testing track, then production
+- [ ] Promote stack-agnostic docs to the trunk (CASE_STUDY, GAME_SPEC_V2, game-rules skill).
+- [ ] Archive the Python/FastAPI planning docs under `docs/python/`; tag the code
+      (`python-fastapi-showcase`).
+- [ ] Reconcile the decision log (multi-device, offline validation, Wikidata, Kotlin/Ktor + Fly.io)
+      and replace this roadmap.
 
----
-
-## Phase 3: Game Depth
-
-**Goal:** Mechanics that make the game more engaging, informed by real play experience.
-
-Candidates (prioritize based on what feels missing after playing):
-- [ ] Single-player quiz-master mode — app prompts, you respond
-- [ ] Time limits per turn
-- [ ] Pass / miss tolerance mechanics
-- [ ] Difficulty settings (popular vs. obscure movies/actors)
-- [ ] Game history and statistics
-- [ ] Share results ("We built a chain of 12 connections!")
+**Done when:** the trunk builds green, the Python work is tagged + archived, and the docs describe
+the Kotlin-server + Python-ETL + Wikidata direction coherently.
 
 ---
 
-## Phase 4: Online Multiplayer (Ktor Backend)
+## Phase 1: ETL → graph artifact (Python)
 
-**Goal:** Play remotely against friends on separate devices. The `:backend` service evolves from a stateless TMDB proxy to an authoritative game server.
+**Goal:** A reproducible offline pipeline that produces the data the server validates against.
 
-- [ ] Game session management — create, join, and persist match state in `:backend`
-- [ ] Move validation moves server-side — clients submit intents, backend validates and advances state
-- [ ] WebSocket or SSE — real-time state push to connected clients
-- [ ] Android client updates — connect to remote game session
-- [ ] Persistence — game history, player accounts
+- [ ] Pull movie↔cast relationships from Wikidata (SPARQL / dumps), CC0.
+- [ ] Apply a cast-depth cap (top-N billed) — gameplay, policy, and scale lever in one
+      ([CASE_STUDY](docs/CASE_STUDY.md) §3).
+- [ ] Emit a **versioned artifact**: the bipartite graph (`movie_id → set(actor_id)`,
+      `actor_id → set(movie_id)`) plus an entity search index for typeahead.
+- [ ] Separate toolchain (`etl/`, `uv`/`ruff`) — no coupling to the Gradle project.
 
-**T-shape value:** Server-side Kotlin, coroutine-based concurrency, real-time communication, API design, deployment on Cloud Run.
+**Done when:** a documented offline run produces a loadable, versioned artifact from scratch.
 
 ---
 
-## Phase 5: Cross-Platform
+## Phase 2: Engine + graph loading (Kotlin)
 
-- [ ] iOS client via Kotlin Multiplatform — share `:core` game engine and network layer with the Android app
-- [ ] Web client (Compose for Web) against the Ktor backend
+**Goal:** The server validates moves from the loaded graph with zero external calls.
+
+- [ ] Reuse `:core` as-is (already pure; `Move.Movie.castIds: Set<Int>` is the validation contract).
+- [ ] Server-side graph loader: read the Phase 1 artifact into memory at boot, read-only.
+- [ ] Wire validation: populate `castIds` from the in-memory graph; the engine is unchanged.
+
+**Done when:** the server accepts/rejects moves correctly against the loaded graph, with no network
+call in the validation path.
+
+---
+
+## Phase 3: Session layer (Ktor)
+
+**Goal:** Two separate WebSocket clients can complete a full game, validated server-side.
+
+- [ ] `POST /rooms` creates a room, returns room code + creator token.
+- [ ] WebSocket `/ws/rooms/{code}`: join / resume / submit move / forfeit / broadcast.
+- [ ] Redis-backed live room state, TTL'd; reconnect via token + room code yields a snapshot.
+- [ ] Per-room `Mutex` serializes read-modify-write; protocol errors (sent to the offender) are
+      distinct from game events (invalid move → game over, broadcast).
+- [ ] Port the session design proven in the Python showcase — it's language-independent.
+
+**Done when:** two WebSocket clients play a full game start to finish with server-side validation.
+
+---
+
+## Phase 4: Search + client
+
+**Goal:** A real, playable two-device experience. (Clients are a secondary learning goal.)
+
+- [ ] Typeahead/search endpoint served from the Phase 1 entity index (resolves names → entity IDs).
+- [ ] A client: modernize `:app` into a multi-device client, or build a new web client — decided at
+      this phase.
+- [ ] Client holds no game logic it doesn't need; it renders server-pushed state.
+
+**Done when:** two people on two separate devices play a full game through the client.
+
+---
+
+## Phase 5: Deploy + playtest
+
+**Goal:** The whole stack running on real infrastructure.
+
+- [ ] Kotlin/Ktor server + Redis on **Fly.io** — a single long-lived instance (no scale-to-zero;
+      required for persistent WebSockets and the in-process graph).
+- [ ] Graph artifact bundled with / loaded by the deployed server at boot.
+- [ ] Secrets via `fly secrets` (`REDIS_URL`; no TMDB key — there is none).
+- [ ] Manual two-device playtest as the acceptance test.
+
+**Done when:** the Phase 4 "done when" is met against the deployed (not local) stack.
+
+---
+
+## Explicitly out of scope
+
+Turn timers / AFK auto-forfeit; accounts or persistent identity beyond a room-scoped token;
+multi-instance horizontal scaling (Redis-coordinated locking + Pub/Sub — a deferred pair, see
+[ADR 008](docs/DECISIONS.md)); game-history persistence; TMDB image assets; and the deferred game
+mechanics (time limits, passes, scoring) from [GAME_SPEC.md](docs/GAME_SPEC.md).
