@@ -25,8 +25,9 @@ class ConnectionManager:
         return set(self._rooms.setdefault(code, {}).keys())
 
     async def send(self, ws: WebSocket, message: WelcomeMessage | StateView | ErrorMessage) -> None:
-        await ws.send_json(message.model_dump(by_alias=True))
+        await ws.send_json(message.model_dump(mode="json", by_alias=True))
 
     async def broadcast(self, code: str, msg: StateView) -> None:
+        payload = msg.model_dump(mode="json", by_alias=True)
         for ws in list(self._rooms.get(code, {}).values()):
-            await ws.send_json(msg.model_dump(by_alias=True))
+            await ws.send_json(payload)

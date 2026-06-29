@@ -124,7 +124,7 @@ async def _handle_frame(
     ws: WebSocket,
     code: str,
     player_index: int,
-    raw: str,
+    raw: object,
     store: RoomStore,
     manager: ConnectionManager,
     tmdb: TmdbClient,
