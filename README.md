@@ -42,14 +42,17 @@ validation cheap.
 
 ## Project Structure
 
+The root is stack-agnostic; each implementation lives in its own self-contained top-level directory.
+
 ```
 bacons-law/
-├── core/      # Pure Kotlin game engine — state machine, validation, turn management
-├── backend/   # Ktor server — graph-backed authoritative session server (being rebuilt from a proxy)
-├── etl/       # Python — offline Wikidata graph build (planned)
-├── app/       # Android/Compose client (secondary)
-├── docs/      # Engine spec, case study, decision log; docs/python/ archives the prior showcase
-└── ROADMAP.md # Phased development plan
+├── docs/          # Engine spec, case study, decision log; docs/python/ archives the prior showcase
+├── kotlin/        # Self-contained Gradle project — the Kotlin implementation
+│   ├── core/      #   Pure Kotlin game engine — state machine, validation, turn management
+│   ├── backend/   #   Ktor server — graph-backed session server (being rebuilt from a proxy)
+│   └── app/       #   Android/Compose client (secondary)
+├── etl/           # Python — offline Wikidata graph build (planned)
+└── ROADMAP.md     # Phased development plan
 ```
 
 ## Status
