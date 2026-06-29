@@ -1,6 +1,12 @@
 # Bacon's Law — Game Spec (MVP)
 
-This document is the source of truth for game behavior and engine tests.
+> **Superseded for the engine by [GAME_SPEC_V2.md](GAME_SPEC_V2.md).** V2 is the authoritative spec
+> for the pure engine (state transitions, validation, end conditions). This document is retained for
+> **product intent and out-of-scope decisions**. Note its "local (pass-the-phone)" setup is itself
+> superseded — multi-device, server-authoritative play is now a core requirement (see the decision
+> log in [DECISIONS.md](DECISIONS.md)).
+
+This document is a historical reference for game behavior and product intent.
 
 ## Concept
 
