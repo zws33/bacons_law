@@ -1,12 +1,13 @@
-# Gradle
-.gradle
-build/
-
-captures
-
-/local.properties
+# Root is stack-agnostic — keep this generic.
+# Per-project ignores (Gradle, Python, etc.) live in each top-level project dir,
+# e.g. kotlin/.gitignore.
 
 # IDE
 .idea/
-*.iml.kotlin/
-.kotlin/
+*.iml
+
+# OS
+.DS_Store
+
+# Local env / secrets
+.env
