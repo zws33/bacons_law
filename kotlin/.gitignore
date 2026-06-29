@@ -1,0 +1,12 @@
+# Gradle
+.gradle
+build/
+
+# Android
+captures
+
+# Kotlin
+.kotlin/
+
+# Local config (may contain secrets, e.g. API keys)
+/local.properties
