@@ -11,3 +11,4 @@
 
 # Local env / secrets
 .env
+worktrees/

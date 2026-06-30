@@ -1,13 +1,27 @@
 plugins {
-    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.multiplatform)
 }
 
 kotlin {
-    jvmToolchain(17)
-}
+    jvm()
+    iosX64()
+    iosArm64()
+    iosSimulatorArm64()
 
-dependencies {
-    testImplementation(libs.bundles.test.bundle)
+    jvmToolchain(17)
+
+    sourceSets {
+        commonMain {
+            dependencies {
+                // No dependencies for now
+            }
+        }
+        val jvmTest by getting {
+            dependencies {
+                implementation(libs.bundles.test.bundle)
+            }
+        }
+    }
 }
 
 tasks.withType(Test::class.java) {
