@@ -21,7 +21,7 @@ class MovesRepositoryTest {
     val results = repository.search("Tom", MoveType.ACTOR)
 
     val expected = listOf(
-      MoveCandidate.Actor(id = 1, displayText = "Tom Hanks", imageUrl = "/hanks.jpg")
+      MoveCandidate.Actor(id = 1, displayText = "Tom Hanks", imageUrl = "https://image.tmdb.org/t/p/w185/hanks.jpg")
     )
     assertThat(results).isEqualTo(expected)
   }
