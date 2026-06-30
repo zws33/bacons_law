@@ -1,3 +1,5 @@
+# Repo-wide defaults. Indent width is per-language (this root is stack-agnostic);
+# add a section per language as new top-level projects are introduced.
 root = true
 
 [*]
@@ -12,3 +14,6 @@ indent_size = 2
 
 [*.xml]
 indent_size = 2
+
+[*.py]
+indent_size = 4

@@ -21,17 +21,27 @@ under [docs/python/](docs/python/README.md)).
 
 ---
 
-## Module Map
+## Repository layout
+
+The repo root is intentionally **stack-agnostic** — it holds shared docs and meta only. Each
+implementation/component is a **self-contained project in its own top-level directory** with its own
+toolchain. Adding a new (polyglot) experiment is *adding a directory*, not restructuring the root.
 
 ```
-bacons-law/
-├── core/      # Pure Kotlin/JVM — game engine + shared domain types. Zero platform deps. REUSED as-is.
-├── backend/   # Ktor service. TODAY: TMDB proxy (prior phase). TARGET: graph-backed game server —
-│              #   loads the graph in-process, WS rooms, Redis live state, O(1) validation.
-├── etl/       # Python (planned, Phase 1) — offline batch pipeline. Pulls Wikidata (CC0), caps cast
-│              #   depth, emits the versioned graph artifact + entity search index. Separate toolchain.
-└── app/       # Android/Compose client. Secondary; to be modernized into a multi-device client later.
+bacons-law/               # stack-agnostic root — shared docs + meta only
+├── docs/                 # shared knowledge: case study, engine spec, decisions; docs/python/ archive
+├── kotlin/               # self-contained Gradle project — the Kotlin implementation
+│   ├── core/             # Pure Kotlin/JVM — game engine + shared domain types. Zero platform deps. REUSED.
+│   ├── backend/          # Ktor service. TODAY: TMDB proxy (prior phase). TARGET: graph-backed game
+│   │                     #   server — loads the graph in-process, WS rooms, Redis live state, O(1) validation.
+│   └── app/              # Android/Compose client. Secondary; modernized into a multi-device client later.
+├── etl/                  # Python (planned, Phase 1) — offline batch pipeline. Pulls Wikidata (CC0),
+│                         #   caps cast depth, emits the versioned graph artifact. Separate toolchain.
+└── <future>/            # new experiments / components are new top-level dirs; the root stays neutral
 ```
+
+Gradle commands run from `kotlin/` (that's where `settings.gradle.kts` and the wrapper live). Gradle
+module notation (`:core`, `:backend`, `:app`) is unchanged — it's relative to the `kotlin/` project.
 
 ### `:core` — the pure engine (reused)
 
@@ -81,12 +91,14 @@ offline. Do not reintroduce a per-turn movie-API dependency.
 
 ## Build & Test Commands
 
-| Task | Command (from repo root) |
+Gradle commands run from `kotlin/`; the ETL runs from `etl/`. No build tooling runs from the repo root.
+
+| Task | Command |
 |------|------|
-| Run `:core` unit tests | `./gradlew :core:test` |
-| Run all JVM unit tests | `./gradlew test` |
-| Build everything | `./gradlew build` |
-| Run the server (when built) | `./gradlew :backend:run` |
+| Run `:core` unit tests | `cd kotlin && ./gradlew :core:test` |
+| Run all JVM unit tests | `cd kotlin && ./gradlew test` |
+| Build everything | `cd kotlin && ./gradlew build` |
+| Run the server (when built) | `cd kotlin && ./gradlew :backend:run` |
 | ETL (planned) | `uv run …` from `etl/` (separate toolchain) |
 
 `:core:test` is the fast feedback loop for game logic.
@@ -105,7 +117,7 @@ The graph artifact is bundled with / loaded by the server at boot. Redis runs co
 
 ## Code Conventions
 
-- **Indent:** 2 spaces (enforced by `.editorconfig`).
+- **Indent:** per-language via `.editorconfig` (Kotlin/XML 2 spaces, Python 4).
 - **Commits:** Conventional commit format — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`.
 - **Kotlin style:** follow existing style; prefer pure functions and immutable data in `:core`.
 - **Build versions:** declared in `gradle/libs.versions.toml`. Don't hardcode version strings.
