@@ -1,2 +1,0 @@
-# Plan
-Refactor UI.
