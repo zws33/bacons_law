@@ -1,9 +1,9 @@
 # Bacon's Law
 
-A real-time, two-player trivia game based on "Six Degrees of Kevin Bacon." Two players on **separate
-devices** take turns naming movies and actors to build a chain of connections. A Kotlin/Ktor server
-validates every move against a precomputed actor↔movie graph. The first player who can't name a valid
-connection loses.
+A two-player trivia game based on "Six Degrees of Kevin Bacon." Two players on **separate devices**
+take turns naming movies and actors to build a chain of connections — playable **real-time** (live,
+with a chess clock) or **async ("correspondence")**. A Kotlin/Ktor server validates every move against
+a precomputed actor↔movie graph. The first player who can't name a valid connection loses.
 
 ## How It Works
 
@@ -25,19 +25,21 @@ that it should be **precomputed, not looked up per turn**:
   (`movie_id → set(actor_id)`, `actor_id → set(movie_id)`), capped to top-billed cast.
 - The **Kotlin/Ktor server** loads that graph **read-only, in-process** at boot and validates a move
   with an O(1) set-membership check — no per-turn external API call.
-- The pure **Kotlin `:core` engine** owns the rules; **Redis** holds live per-room state for
-  multi-device, server-authoritative play.
+- The pure **Kotlin `:core` engine** owns the rules. A **durable store (Postgres)** holds
+  authoritative game state for both modes; **Redis** provides presence, pub/sub broadcast, and
+  hot-game caching for real-time play.
 
 The graph and the validation logic must stay in the same process — that co-location is what makes
 validation cheap.
 
 ## Tech Stack
 
-- **Kotlin / Ktor** — authoritative game server (WebSocket rooms, in-process graph)
+- **Kotlin / Ktor** — authoritative game server (HTTP + WebSocket move adapters, in-process graph)
 - **Kotlin `:core`** — pure game engine (state machine, validation, turn management)
 - **Python** — offline ETL building the Wikidata graph artifact
-- **Redis** — live per-room state
-- **Fly.io** — single long-lived instance (required for persistent WebSockets)
+- **Postgres** — durable, authoritative game state (real-time + correspondence)
+- **Redis** — presence, pub/sub broadcast, hot-game cache
+- **Fly.io** — single long-lived instance (required for real-time WebSockets + the in-process graph)
 - **Kotlin / Jetpack Compose** — Android client (secondary)
 
 ## Project Structure
@@ -51,16 +53,18 @@ bacons-law/
 │   ├── core/      #   Pure Kotlin game engine — state machine, validation, turn management
 │   ├── backend/   #   Ktor server — graph-backed session server (being rebuilt from a proxy)
 │   └── app/       #   Android/Compose client (secondary)
-├── etl/           # Python — offline Wikidata graph build (planned)
+├── etl/           # Python — offline Wikidata graph build
 └── ROADMAP.md     # Phased development plan
 ```
 
 ## Status
 
-**Pivoting** to the architecture above. The `:core` engine is reused as-is; `:backend` is being
-rebuilt from a TMDB proxy into the graph-backed server. Two prior efforts are preserved as reference:
-the Kotlin/Compose Android client and a Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag
-`python-fastapi-showcase`). See [ROADMAP.md](ROADMAP.md).
+The architecture above is the committed direction (see [docs/DECISIONS.md](docs/DECISIONS.md),
+ADRs 008–013). Current work is **Phase 1 — the Python ETL**. The `:core` engine is reused as-is;
+`:backend` is being rebuilt from a TMDB proxy into the graph-backed session server
+(correspondence-first, then real-time). Two prior efforts are preserved as reference: the
+Kotlin/Compose Android client and a Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag
+`python-fastapi-showcase`). See [ROADMAP.md](ROADMAP.md) for phase and status.
 
 ## Setup
 
