@@ -74,18 +74,31 @@ call in the validation path.
 
 ---
 
-## Phase 3: Session layer (Ktor)
+## Phase 3: Session layer (Ktor) — correspondence-first
 
-**Goal:** Two separate WebSocket clients can complete a full game, validated server-side.
+**Goal:** Two players complete a full game against durable, server-authoritative state — async
+(correspondence) first, real-time layered on after. See [ADR 012](docs/DECISIONS.md) /
+[ADR 013](docs/DECISIONS.md).
 
-- [ ] `POST /rooms` creates a room, returns room code + creator token.
-- [ ] WebSocket `/ws/rooms/{code}`: join / resume / submit move / forfeit / broadcast.
-- [ ] Redis-backed live room state, TTL'd; reconnect via token + room code yields a snapshot.
-- [ ] Per-room `Mutex` serializes read-modify-write; protocol errors (sent to the offender) are
-      distinct from game events (invalid move → game over, broadcast).
-- [ ] Port the session design proven in the Python showcase — it's language-independent.
+**3a — durable foundation + correspondence (async):**
+- [ ] Device-anchored persistent **Player** identity ([ADR 013](docs/DECISIONS.md)); a "my games" list.
+- [ ] Durable **Game** store (Postgres) as source of truth: mode, time-control, both players, the
+      serialized `:core` `GameState`, clock/deadline state, status, timestamps.
+- [ ] `POST /games` creates a game (mode + time-control), returns a room code = challenge-a-friend link.
+- [ ] Transport-agnostic move pipeline — *authenticate → load → validate against graph → persist →
+      notify* — with an HTTP move-submission + poll adapter. Serialize with optimistic concurrency
+      (version/CAS) on the store, not an in-process `Mutex`.
+- [ ] Correspondence per-move deadline (timestamp, lazy/swept); protocol errors (to the offender) stay
+      distinct from game events (invalid move → game over).
 
-**Done when:** two WebSocket clients play a full game start to finish with server-side validation.
+**3b — real-time layer (additive):**
+- [ ] WebSocket `/ws/games/{code}` adapter into the same pipeline; presence + Redis pub/sub broadcast.
+- [ ] Real-time chess-clock subsystem (server-authoritative, survives disconnects) → terminal
+      "out of time → loss" injected through the engine.
+- [ ] Redis as presence + broadcast + hot-game cache (not source of truth).
+
+**Done when:** two players finish a correspondence game against the durable store (3a), then two
+WebSocket clients finish a real-time game with clocks (3b).
 
 ---
 
@@ -118,7 +131,12 @@ call in the validation path.
 
 ## Explicitly out of scope
 
-Turn timers / AFK auto-forfeit; accounts or persistent identity beyond a room-scoped token;
-multi-instance horizontal scaling (Redis-coordinated locking + Pub/Sub — a deferred pair, see
-[ADR 008](docs/DECISIONS.md)); game-history persistence; TMDB image assets; and the deferred game
-mechanics (time limits, passes, scoring) from [GAME_SPEC.md](docs/GAME_SPEC.md).
+Full credentialed accounts (email/OAuth, cross-device, recovery — v1 identity is a device-anchored
+persistent token, [ADR 013](docs/DECISIONS.md)); open matchmaking pools (v1 is challenge-a-friend by
+room code); multi-instance horizontal scaling (Redis-coordinated locking + Pub/Sub — a deferred pair,
+see [ADR 008](docs/DECISIONS.md)); TMDB image assets; and the deferred game mechanics (passes, scoring)
+from [GAME_SPEC.md](docs/GAME_SPEC.md).
+
+> Time controls (real-time chess clock + correspondence per-move deadline), persistent identity, and
+> durable game-state persistence are **in scope** as of [ADR 012](docs/DECISIONS.md) /
+> [ADR 013](docs/DECISIONS.md) — the chess.com-style real-time/correspondence mode split.
