@@ -198,3 +198,90 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 - The running system stays all-Kotlin (client + server + shared `:core`), preserving [ADR 002](#002-androidkotlincompose-for-mvp-client)'s all-Kotlin property; Python is offline-only.
 - Redis holds live room state and is the coordination point if horizontal scaling is ever justified ([ADR 008](#008-multi-device-server-authoritative-play-is-the-core-requirement)).
 - Egress is the dominant cost driver at scale (CASE_STUDY §5); a Cloudflare-front + cheap-origin posture is a future lever, not a v1 requirement.
+
+---
+
+## 012: Async ("correspondence") is a first-class mode; durable store authoritative
+
+**Date:** 2026-07-06
+
+**Amends [ADR 008](#008-multi-device-server-authoritative-play-is-the-core-requirement):** the in-process
+per-room `Mutex` is demoted (below). **Supersedes** parts of the ROADMAP "out of scope" list — turn
+timers and game-history persistence move *in scope*. **[ADR 011](#011-kotlinktor-server--python-etl-single-flyio-instance-not-cloud-run)
+survives** — real-time still requires persistent WebSockets + in-process graph on a single Fly
+instance. Identity is split into [ADR 013](#013-persistent-player-identity-device-anchored-first).
+
+**Context:** The product target is the chess.com model: at game creation a player picks a **mode** —
+*real-time* (live, with a chess clock) or *correspondence* (async, move-when-you-can, notified on your
+turn). Async is a firm functional requirement, not a future enhancement. The current design (Phase 3:
+Redis-TTL live room state as source of truth) cannot express a game spanning days or a player with many
+concurrent games.
+
+The engine (`:core`) is already mode-agnostic — a turn-based state machine with no concept of wall-clock
+time. The difference between modes lives entirely in the **session layer**: state lifetime, transport,
+notification, and clocks.
+
+**Decision:**
+
+1. **Durable store is authoritative** for game state (Postgres, most likely). Redis is demoted from
+   source-of-truth to **presence + pub/sub broadcast + hot-game cache**. Realizes case-study lock-in #4
+   ("serializable authoritative state").
+2. **`mode` and time-control are per-game config**, set at creation. One game-creation surface extends
+   the existing `POST /rooms` (room code = "challenge a friend by link"). Open matchmaking pools are out
+   of scope for v1.
+3. **The move-processing core is transport-agnostic:** a handler over `(player, gameId, validatedMove)`.
+   HTTP (correspondence) and WebSocket (real-time) are thin adapters into the same pipeline:
+   *authenticate → load game → validate against graph → persist → notify.*
+4. **Serialization is via optimistic concurrency on the store** (version/rev column, compare-and-swap on
+   move), replacing the in-process `Mutex` as the authoritative mechanism. Works for both modes and
+   survives an eventual multi-instance move. The `Mutex` may remain only as a same-instance fast-path.
+5. **Clocks are session-layer state, part of the durable serializable game state**, never in `:core`.
+   Two models: correspondence = per-move deadline (timestamp, lazy/swept); real-time = a running chess
+   clock (server-authoritative, keeps ticking through disconnects). Their only engine interaction is
+   injecting a terminal "out of time → loss" outcome.
+6. **Build order: correspondence-first**, then real-time as an additive layer (WS transport + presence +
+   pub/sub + the clock subsystem) on the proven foundation.
+
+**Consequences:**
+- Phase 3 is reframed: not "Redis-TTL session layer" but "durable store + the shared move pipeline,"
+  built correspondence-first.
+- Phases 1 (ETL) and 2 (engine + graph loading) are unchanged. This does not block current ETL work.
+- New **Game** entity: id, mode, time-control, two players, serialized `:core` `GameState`,
+  clock/deadline state, status, timestamps. The `GameState` serializes *inside* the Game row.
+- The real-time chess clock is a genuine subsystem, budgeted as such — not a per-turn timeout checkbox.
+- Real-time gracefully degrading to correspondence on disconnect becomes nearly free (no live socket →
+  deliver via push), if the notify abstraction is pluggable from the start.
+
+---
+
+## 013: Persistent player identity, device-anchored first
+
+**Date:** 2026-07-06
+
+**Supersedes** the "room-scoped opaque tokens, no accounts" strategy.
+**Depends on [ADR 012](#012-async-correspondence-is-a-first-class-mode-durable-store-authoritative)**
+(correspondence requires identity outliving a single game).
+
+**Context:** Correspondence games span days, a player holds many concurrent games, and "it's your turn"
+must reach a disconnected player. Each requires identity that outlives a room — room-scoped ephemeral
+tokens can't express any of it. The open question is *how far* toward full accounts v1 goes.
+
+**Options considered:**
+1. **Full accounts** (email/login, cross-device, recovery) up front — matches chess.com, but builds an
+   auth system before the game is playable.
+2. **Device-anchored persistent tokens** — a durable token stored on-device, registered as a push
+   target; upgradeable to a credentialed account later.
+
+**Decision:** Option 2. v1 identity is a **device-anchored persistent token**: it establishes a stable
+Player, carries push tokens, and backs the "my games" list — without a login system. A credentialed
+account upgrade path (email/OAuth, cross-device, recovery) is designed for but deferred until
+cross-device play or account recovery is actually needed.
+
+**Consequences:**
+- New **Player** entity: id, display name, push token(s), device anchor, (later) auth credentials.
+- **Accepted v1 limitations:** a lost/wiped device loses that player's games, and a player can't play
+  the same identity on two devices. Both are resolved by the deferred account upgrade — surface them in
+  the UI ("add an email to save your games across devices") rather than hiding them.
+- Enables a "my games" inbox and push-on-your-turn without an auth build.
+- The upgrade must be non-destructive: claiming an account adopts the device-anchored Player's existing
+  games, not a fresh identity.

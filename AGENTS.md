@@ -1,23 +1,23 @@
 # Agents Guide — Bacon's Law
 
-A real-time trivia game based on "Six Degrees of Kevin Bacon." Two players on **separate devices**
-take turns naming movies and actors to build a chain of connections; each answer must connect
-factually to the previous one. A **Kotlin/Ktor server** owns authoritative game state and validates
-every move against a **precomputed actor↔movie graph** held in memory. First player who can't name a
-valid connection loses.
+A trivia game based on "Six Degrees of Kevin Bacon." Two players on **separate devices** take turns
+naming movies and actors to build a chain of connections; each answer must connect factually to the
+previous one. Games run in one of two modes (chess.com-style, chosen at creation): **real-time** (live,
+with a chess clock) or **correspondence** (async, move-when-you-can). A **Kotlin/Ktor server** owns
+authoritative game state and validates every move against a **precomputed actor↔movie graph** held in
+memory (O(1) set membership — no per-turn external API call). The pure Kotlin `:core` engine is reused
+unchanged. First player who can't name a valid connection loses.
 
-**Target architecture:** a Python ETL precomputes a bipartite movie↔actor graph from **CC0 Wikidata**
-data; the Ktor server loads it **read-only, in-process** at boot and validates a move with an O(1)
-set-membership check — **no per-turn external API call**. The pure game engine is the existing Kotlin
-`:core` module, reused unchanged. See [docs/CASE_STUDY.md](docs/CASE_STUDY.md) for the reasoning and
-[docs/DECISIONS.md](docs/DECISIONS.md) (ADRs 008–011) for the decisions.
-
-**Current status:** Pivoting to this direction (Phase 0 of [ROADMAP.md](ROADMAP.md)). `:core` is
-reused as-is. `:backend` currently exists as the prior TMDB proxy and is being rebuilt into the
-graph-backed session server (Phases 2–3). The `etl/` pipeline is not yet created (Phase 1). Two prior
-efforts are preserved as reference, not maintained: the Kotlin/Compose Android client (`:app`) and
-the Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag `python-fastapi-showcase`, docs
-under [docs/python/](docs/python/README.md)).
+> **Architecture, technical decisions, and roadmap** live in the **`bacons-law-architecture`** skill and
+> the documents it points to (`docs/DECISIONS.md`, `ROADMAP.md`, `docs/CASE_STUDY.md`) — consult it when
+> reasoning about how the system is built or what to build next. This file holds the **always-on
+> operating rules**: repository layout, build/test commands, conventions, and the architecture
+> boundaries below. `ROADMAP.md` is the single source for current phase and status.
+>
+> **Prior efforts preserved as reference, not maintained** — do not modify unless explicitly asked: the
+> Kotlin/Compose Android client (`:app`) and the Python/FastAPI showcase (branch
+> `fullstack-py-ts-rewrite`, tag `python-fastapi-showcase`, docs under
+> [docs/python/](docs/python/README.md)).
 
 ---
 
@@ -33,7 +33,8 @@ bacons-law/               # stack-agnostic root — shared docs + meta only
 ├── kotlin/               # self-contained Gradle project — the Kotlin implementation
 │   ├── core/             # Pure Kotlin/JVM — game engine + shared domain types. Zero platform deps. REUSED.
 │   ├── backend/          # Ktor service. TODAY: TMDB proxy (prior phase). TARGET: graph-backed game
-│   │                     #   server — loads the graph in-process, WS rooms, Redis live state, O(1) validation.
+│   │                     #   server — loads the graph in-process, durable game store (Postgres), HTTP +
+│   │                     #   WS move adapters, Redis presence/cache, O(1) validation.
 │   └── app/              # Android/Compose client. Secondary; modernized into a multi-device client later.
 ├── etl/                  # Python (planned, Phase 1) — offline batch pipeline. Pulls Wikidata (CC0),
 │                         #   caps cast depth, emits the versioned graph artifact. Separate toolchain.
@@ -52,12 +53,12 @@ authoritative engine spec is [docs/GAME_SPEC_V2.md](docs/GAME_SPEC_V2.md).
 
 ### `:backend` → the game server
 
-Currently a thin TMDB proxy (movie/person search, credits). The pivot rebuilds it into the
-authoritative session server: load the precomputed graph at boot, serve a WebSocket channel per room
-(`/ws/rooms/{code}`: join / resume / move / forfeit / broadcast), keep live room state in Redis,
-serve typeahead/search from the local entity index. It depends on `:core`, never the reverse.
+Currently a thin TMDB proxy (movie/person search, credits); being rebuilt into the graph-backed
+authoritative session server. It depends on `:core`, never the reverse. For the target session-layer
+design (durable store, transport-agnostic move pipeline, real-time/correspondence modes, identity), see
+the **`bacons-law-architecture`** skill.
 
-### `etl/` — the offline graph build (Python, planned)
+### `etl/` — the offline graph build (Python)
 
 A separate Python toolchain (`uv`/`ruff`) that runs offline, not in the request path. It produces the
 versioned artifact the server loads. Python is the right tool for the data-wrangling here; the
@@ -84,8 +85,9 @@ offline. Do not reintroduce a per-turn movie-API dependency.
 
 - **ETL (Phase 1+):** runs offline; its Wikidata access needs no secret. Output is a versioned graph
   artifact consumed by the server.
-- **Server:** needs `REDIS_URL` for live room state. In production these are injected via
-  `fly secrets`; locally, export them in the environment.
+- **Server:** needs `DATABASE_URL` (Postgres — authoritative game state) and `REDIS_URL` (presence,
+  pub/sub broadcast, hot-game cache). In production these are injected via `fly secrets`; locally,
+  export them in the environment.
 
 ---
 
@@ -107,11 +109,13 @@ Gradle commands run from `kotlin/`; the ETL runs from `etl/`. No build tooling r
 
 ## Deployment
 
-Hosting is **Fly.io, not Cloud Run** — persistent WebSocket connections and in-process session state +
-graph are incompatible with scale-to-zero / multi-instance autoscaling. The server runs as a **single
-long-lived instance by design**; the per-room `Mutex` is authoritative for serializing room mutations.
-The graph artifact is bundled with / loaded by the server at boot. Redis runs colocated on Fly. See
-[ROADMAP.md](ROADMAP.md) Phase 5.
+Hosting is **Fly.io, not Cloud Run** — persistent WebSocket connections (real-time mode) and the
+in-process graph are incompatible with scale-to-zero / multi-instance autoscaling. The server runs as a
+**single long-lived instance by design**. Concurrent moves are serialized by **optimistic concurrency
+(version/CAS) on the durable store** — the authoritative mechanism across both modes (an in-process
+per-room `Mutex` may remain only as a same-instance fast-path). The graph artifact is bundled with /
+loaded by the server at boot. Postgres (authoritative game state) and Redis (presence/cache) run
+colocated on Fly. See [ROADMAP.md](ROADMAP.md) Phase 5.
 
 ---
 
@@ -143,9 +147,12 @@ move path — that is the anti-pattern this architecture exists to remove.
 server populates it from the in-memory graph before passing a `Move.Movie` to `playMove`. The engine
 makes no network calls.
 
-**Redis is authoritative for live room state.** Live `GameState` lives in Redis per room, TTL'd.
-Multi-device (many clients on one room) does not require multiple server instances; horizontal scaling
-is a deferred pair (Redis-coordinated locking + Pub/Sub broadcast — ADR 008).
+**The durable store is authoritative for game state.** The serialized `:core` `GameState` (plus mode,
+time-control, players, and clock/deadline state) lives in Postgres per game — it must survive restarts
+and span days for correspondence play (ADR 012). **Redis is presence + pub/sub broadcast + hot-game
+cache, never the source of truth** (do not put authoritative state behind a TTL). Multi-device (many
+clients on one game) does not require multiple server instances; horizontal scaling is a deferred pair
+(Redis-coordinated locking + Pub/Sub broadcast — ADR 008).
 
 ---
 
@@ -172,7 +179,9 @@ is a deferred pair (Redis-coordinated locking + Pub/Sub broadcast — ADR 008).
 |----------|---------|
 | [docs/GAME_SPEC_V2.md](docs/GAME_SPEC_V2.md) | **Authoritative** spec for the pure game engine (rules + state machine) |
 | [docs/CASE_STUDY.md](docs/CASE_STUDY.md) | System-design reasoning behind this architecture |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | ADR log; 008–011 cover the current direction |
-| [ROADMAP.md](ROADMAP.md) | Phased plan; current work is Phase 0 (pivot) |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | ADR log; 008–013 cover the current direction (012–013: async modes + identity) |
+| [ROADMAP.md](ROADMAP.md) | Phased plan, sequencing, and current status (single source for phase/status) |
+| `bacons-law-architecture` skill | System architecture, decisions, and roadmap orientation (points to the docs above) |
+| `movie-actor-chain-game` skill | Domain rules, vocabulary, and state machine (implementation-agnostic) |
 | [docs/GAME_SPEC.md](docs/GAME_SPEC.md) | Retained for product intent / out-of-scope (engine rules superseded by V2) |
 | [docs/python/](docs/python/README.md) | Archived Python/FastAPI showcase docs |
