@@ -166,6 +166,7 @@ SELECT ?film ?filmLabel ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE 
   `data/raw/films-<year>.json` already exists and skip if so. This makes an interrupted pull safe to
   re-run (idempotent), and means a threshold change that widens the catalog only fetches the *new*
   slices. Illustrative:
+
   ```python
   for year in range(cfg.year_from, cfg.year_to + 1):
       path = raw_dir / f"films-{year}.json"
@@ -174,6 +175,7 @@ SELECT ?film ?filmLabel ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE 
       rows = sparql.query(render_query(year, cfg))   # raises on timeout → let it, then rerun
       path.write_text(json.dumps(rows))
       time.sleep(1)                                    # be a good citizen; don't burst
+
   ```
 - **Fallback if a year still times out** (prolific modern years): sub-partition — split that year by a
   second axis (e.g. two sitelink bands, or half-years). Keep the partition key in the filename so the

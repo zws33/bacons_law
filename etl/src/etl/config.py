@@ -9,3 +9,5 @@ class BuildConfig:
     require_enwiki: bool = True  # English-audience recognizability anchor
     user_agent: str = "bacons-law-etl/0.1 (zach.smith33@gmail.com)"
     endpoint: str = "https://query.wikidata.org/sparql"
+    from_year: int = 1900
+    to_year: int = 2026
