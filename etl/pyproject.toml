@@ -10,9 +10,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.39.9",
     "pytest>=9.1.1",
     "ruff>=0.15.20",
-    "ty>=0.0.56",
 ]
 
 [build-system]
@@ -27,12 +27,11 @@ src = ["src", "tests"]
 # pyflakes, pycodestyle, isort, pyupgrade, bugbear, simplify
 select = ["F", "E", "I", "UP", "B", "SIM"]
 
-[tool.ty.environment]
-python-version = "3.14"
-
-[tool.ty.src]
+[tool.basedpyright]
+pythonVersion = "3.14"
 include = ["src", "tests"]
 exclude = ["**/fixtures/**"]
+typeCheckingMode = "standard"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

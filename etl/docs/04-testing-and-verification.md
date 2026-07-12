@@ -213,7 +213,7 @@ with the **default config (years 1900–2026)**:
    - extract prints `skip <year> (cached)` for every year — **no new network calls**;
    - `graph/v1/graph.json` is **byte-identical** to the previous run
      (`shasum graph/v1/graph.json` before and after match).
-5. **Green gates.** `uv run pytest` passes; `uv run ruff check` clean; `uv run ty check` clean.
+5. **Green gates.** `uv run pytest` passes; `uv run ruff check` clean; `uv run basedpyright` clean.
 
 Quick one-liner for step 4's reproducibility hash:
 

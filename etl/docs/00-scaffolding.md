@@ -23,9 +23,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.39.9",
     "pytest>=9.1.1",
     "ruff>=0.15.20",
-    "ty>=0.0.56",
 ]
 
 [build-system]
@@ -61,7 +61,7 @@ uv run pytest                 # the fast suite (no network)
 uv run pytest -m live         # opt-in: the single live SPARQL smoke test
 uv run ruff check             # lint
 uv run ruff format            # format
-uv run ty check               # typecheck (src + tests)
+uv run basedpyright           # typecheck (src + tests)
 ```
 
 If you're adding a dependency later: `uv add <pkg>` (runtime) / `uv add --dev <pkg>` (dev). The lockfile
@@ -124,7 +124,7 @@ import ...` / `from etl import paths` resolves cleanly and you can unit-test sta
 uv sync
 uv run python -c "from etl import paths, models, config; print(paths.ROOT, paths.raw_path(1994).name)"
 # → …/etl films-1994.json
-uv run ruff check && uv run ty check
+uv run ruff check && uv run basedpyright
 ```
 
 If `paths.ROOT` doesn't point at the `etl/` directory, your `parents[2]` index is wrong for where you
