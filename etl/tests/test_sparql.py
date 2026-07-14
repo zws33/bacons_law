@@ -14,17 +14,15 @@ import pytest
 from etl.config import BuildConfig
 from etl.sparql import (
     SparqlError,
-    _Binding,
     _flatten,
     _qid_from_uri,
+    _Row,
     _SparqlResponse,
     query,
 )
 
 
-def _binding(
-    film: str, actor: str, film_links: int, actor_links: int
-) -> dict[str, _Binding]:
+def _binding(film: str, actor: str, film_links: int, actor_links: int) -> _Row:
     """One SPARQL result binding in WDQS JSON shape."""
     return {
         "film": {"type": "uri", "value": f"http://www.wikidata.org/entity/{film}"},
@@ -36,7 +34,7 @@ def _binding(
     }
 
 
-def _payload(*bindings: dict[str, _Binding]) -> _SparqlResponse:
+def _payload(*bindings: _Row) -> _SparqlResponse:
     return {"results": {"bindings": list(bindings)}}
 
 
@@ -155,6 +153,24 @@ def test_query_wraps_non_json_body(monkeypatch):
         lambda **kw: _FakeResponse(json_exc=ValueError("no JSON")),
     )
     with pytest.raises(SparqlError, match="non-JSON body"):
+        query("SELECT ...", BuildConfig())
+
+
+def test_query_wraps_malformed_shape_missing_key(monkeypatch):
+    # A binding missing a required variable -> KeyError in _flatten -> SparqlError.
+    bad = {"results": {"bindings": [{"film": {"value": "http://www.wikidata.org/entity/Q1"}}]}}
+    monkeypatch.setattr(httpx2, "post", lambda **kw: _FakeResponse(bad))
+    with pytest.raises(SparqlError, match="unexpected WDQS response shape"):
+        query("SELECT ...", BuildConfig())
+
+
+def test_query_wraps_non_numeric_sitelinks(monkeypatch):
+    # A sitelinks count that isn't an int -> ValueError in _flatten -> SparqlError,
+    # and it must NOT be mislabeled as a non-JSON body (the body parsed fine).
+    binding = _binding("Q1", "Q10", 100, 50)
+    binding["filmSitelinks"] = {"type": "literal", "value": "not-a-number"}
+    monkeypatch.setattr(httpx2, "post", lambda **kw: _FakeResponse(_payload(binding)))
+    with pytest.raises(SparqlError, match="unexpected WDQS response shape"):
         query("SELECT ...", BuildConfig())
 
 

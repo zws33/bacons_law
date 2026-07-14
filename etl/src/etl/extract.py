@@ -5,6 +5,7 @@ from pathlib import Path
 
 from etl import sparql
 from etl.config import BuildConfig
+from etl.models import CachePayload
 from etl.paths import RAW_DIR, raw_path
 
 FILM = "Q11424"
@@ -61,7 +62,7 @@ def extract(cfg: BuildConfig) -> None:
             continue
 
         rows = sparql.query(render_query(year, cfg), cfg)  # raises on timeout → let it, then rerun
-        payload = {
+        payload: CachePayload = {
             "year": year,
             "fetched_at": datetime.now(UTC).isoformat(),
             "endpoint": cfg.endpoint,
@@ -75,7 +76,7 @@ def extract(cfg: BuildConfig) -> None:
         time.sleep(1)  # be a good citizen; don't burst WDQS
 
 
-def _write_atomic(path: Path, payload: dict) -> None:
+def _write_atomic(path: Path, payload: CachePayload) -> None:
     """Write to a temp sibling then rename; an interrupted run never leaves a half-written cache."""
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload))
