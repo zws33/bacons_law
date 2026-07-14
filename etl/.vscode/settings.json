@@ -1,18 +1,17 @@
 {
-  // Pin the interpreter to the uv-managed venv. Also stops the Python
-  // Environments extension's resolution race that spawned `.venv` as a dir
-  // (the EACCES in the Ruff logs).
+  // Pin the interpreter to the uv-managed venv.
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
 
   // Disable Pylance as the language server so basedpyright is the sole
-  // typechecker + IntelliSense provider. Prevents duplicate diagnostics,
-  // hovers, and completions from two engines fighting.
+  // typechecker + IntelliSense provider.
   "python.languageServer": "None",
 
   // Use the basedpyright/ruff installed in the venv (basedpyright 1.39.9,
-  // ruff 0.15.20) instead of each extension's bundled copy — so the editor
-  // matches `uv run basedpyright` / `uv run ruff` exactly.
+  // ruff 0.15.20) instead of each extension's bundled copy
   "basedpyright.importStrategy": "fromEnvironment",
   "ruff.importStrategy": "fromEnvironment",
-  "python.analysis.typeCheckingMode": "off"
+  "python.analysis.typeCheckingMode": "off",
+  "python.testing.pytestArgs": ["tests"],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
 }
