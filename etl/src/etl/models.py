@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import TypedDict
 
+from pydantic import BaseModel, model_validator
+
 
 @dataclass(frozen=True)
 class Actor:
@@ -37,7 +39,7 @@ class WikidataRow(TypedDict):
     actor_sitelinks: int
 
 
-class CachePayload(TypedDict):
+class CachePayload(BaseModel):
     """Payload structure for cached raw data."""
 
     year: int
@@ -47,3 +49,9 @@ class CachePayload(TypedDict):
     require_enwiki: bool
     row_count: int
     rows: list[WikidataRow]
+
+    @model_validator(mode="after")
+    def _row_count_matches(self):
+        if self.row_count != len(self.rows):
+            raise ValueError(f"row_count {self.row_count} != {len(self.rows)}")
+        return self
