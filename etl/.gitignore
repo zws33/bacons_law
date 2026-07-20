@@ -1,0 +1,10 @@
+# ETL local caches — the graph is rebuilt from source, never committed
+/data/
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ty_cache/

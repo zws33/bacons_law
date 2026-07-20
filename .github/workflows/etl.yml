@@ -1,0 +1,50 @@
+name: etl
+
+# Scoped to etl/ by path filter: the repo root is stack-agnostic and each component owns
+# its toolchain, so a Kotlin change must not run the Python suite (and vice versa when
+# kotlin/ gets a workflow of its own).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "etl/**"
+      - ".github/workflows/etl.yml"
+  pull_request:
+    paths:
+      - "etl/**"
+      - ".github/workflows/etl.yml"
+
+defaults:
+  run:
+    working-directory: etl
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: etl/uv.lock
+
+      # --frozen: fail if uv.lock is stale rather than silently resolving something
+      # different from what was committed. The lockfile is part of the reproducibility
+      # claim this pipeline is built on.
+      - name: Install
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      - name: Typecheck
+        run: uv run basedpyright
+
+      # The suite is network-free (httpx2.post is faked end to end), so this is safe to
+      # run on every PR and must never reach Wikidata from CI.
+      - name: Test
+        run: uv run pytest

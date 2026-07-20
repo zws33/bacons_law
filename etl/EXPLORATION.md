@@ -13,7 +13,7 @@ Before designing the extract stage we needed to answer five decision-driving que
 real data, not assumptions:
 
 | Decision | Question | Answered in |
-|----------|----------|-------------|
+| ---------- | ---------- | ------------- |
 | Catalog threshold | Where do we cut for ~50–100k "notable" films? | §3 |
 | Format / scale | Does the graph fit in RAM (does scale even matter)? | §3 |
 | Min-cast floor | Is the cast data usable, or thin? | §3 |
@@ -75,7 +75,7 @@ are exactly the queries that won't scale interactively.
 ### Notability distribution — all films (`P31 = Q11424`)
 
 | sitelinks | films in band | **cumulative ≥** |
-|-----------|--------------:|-----------------:|
+| ----------- | -------------- | ----------------- |
 | 1 | 146,212 | 346,587 |
 | 2–4 | 132,797 | 200,375 |
 | 5–9 | 42,795 | **67,578** |
@@ -89,7 +89,7 @@ to 200k (mostly obscure); ≥10 trims to ~25k (leaner, harder game).
 ### Cast completeness — films ≥5 sitelinks
 
 | cast size | films |
-|-----------|------:|
+| ----------- | ------ |
 | 0 (no `P161`) | ~6,400 (= 67,578 − 61,221) |
 | 1–2 | 10,111 |
 | 3–9 | 26,934 |

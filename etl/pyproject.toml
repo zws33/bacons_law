@@ -1,0 +1,38 @@
+[project]
+name = "etl"
+version = "0.1.0"
+description = "Offline batch pipeline: builds the versioned actor↔movie graph artifact from CC0 Wikidata."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "httpx2>=2.5.0",
+    "pydantic>=2.13.4",
+]
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.9",
+    "pytest>=9.1.1",
+    "ruff>=0.15.20",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.24,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# pyflakes, pycodestyle, isort, pyupgrade, bugbear, simplify
+select = ["F", "E", "I", "UP", "B", "SIM"]
+
+[tool.basedpyright]
+pythonVersion = "3.14"
+include = ["src", "tests"]
+exclude = ["**/fixtures/**"]
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
