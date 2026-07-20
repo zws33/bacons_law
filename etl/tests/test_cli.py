@@ -156,7 +156,9 @@ def test_emit_defaults_to_v1_without_force(
 
 def test_no_subcommand_is_an_error(monkeypatch: pytest.MonkeyPatch):
     with pytest.raises(SystemExit) as exc:
-        run(monkeypatch, )
+        run(
+            monkeypatch,
+        )
     assert exc.value.code == 2  # argparse usage error
 
 
@@ -200,9 +202,7 @@ def test_emit_before_transform_exits_with_an_instruction(
     assert "run the transform stage first" in str(exc.value.code)
 
 
-def test_version_guard_surfaces_as_exit_not_traceback(
-    tree: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_version_guard_surfaces_as_exit_not_traceback(tree: Path, monkeypatch: pytest.MonkeyPatch):
     """emit's ValueError must reach the user as a message, not a stack trace."""
     transform._write_edges([Edge(movie="Q1", movie_label="F", actor="Q10", actor_label="A")])
     emit.emit(BuildConfig(cast_cap=5), "v1")

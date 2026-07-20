@@ -4,6 +4,8 @@ These fire at construction rather than three stages later, because zero edges fr
 range is indistinguishable from a legitimately empty catalog by the time emit sees it.
 """
 
+from collections.abc import Callable
+
 import pytest
 
 from etl.config import BuildConfig
@@ -26,17 +28,19 @@ def test_single_year_range_is_allowed():
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "match"),
+    ("build", "match"),
     [
-        ({"cast_cap": 0}, "cast_cap"),
-        ({"cast_cap": -1}, "cast_cap"),
-        ({"min_cast": 0}, "min_cast"),
-        ({"min_sitelinks": -1}, "min_sitelinks"),
+        (lambda: BuildConfig(cast_cap=0), "cast_cap"),
+        (lambda: BuildConfig(cast_cap=-1), "cast_cap"),
+        (lambda: BuildConfig(min_cast=0), "min_cast"),
+        (lambda: BuildConfig(min_sitelinks=-1), "min_sitelinks"),
     ],
 )
-def test_nonsense_dials_are_rejected(kwargs: dict[str, int], match: str):
+def test_nonsense_dials_are_rejected(build: Callable[[], BuildConfig], match: str):
+    """Factories rather than a **kwargs dict: splatting dict[str, int] into a dataclass
+    with bool and str fields is untypeable, and these must stay checkable."""
     with pytest.raises(ValueError, match=match):
-        BuildConfig(**kwargs)
+        build()
 
 
 def test_cap_below_min_cast_is_permitted():
