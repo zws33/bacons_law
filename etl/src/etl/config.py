@@ -11,3 +11,16 @@ class BuildConfig:
     endpoint: str = "https://query.wikidata.org/sparql"
     year_from: int = 1900
     year_to: int = 2026
+
+    def __post_init__(self) -> None:
+        # Fail at construction, not with an empty artifact three stages later. An inverted
+        # year range or a zero cap yields zero edges, which is indistinguishable from a
+        # successful build of nothing unless we reject it here.
+        if self.year_from > self.year_to:
+            raise ValueError(f"year_from {self.year_from} > year_to {self.year_to}")
+        if self.cast_cap < 1:
+            raise ValueError(f"cast_cap must be >= 1, got {self.cast_cap}")
+        if self.min_cast < 1:
+            raise ValueError(f"min_cast must be >= 1, got {self.min_cast}")
+        if self.min_sitelinks < 0:
+            raise ValueError(f"min_sitelinks must be >= 0, got {self.min_sitelinks}")
