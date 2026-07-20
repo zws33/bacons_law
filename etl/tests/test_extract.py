@@ -72,9 +72,7 @@ def test_render_query_templated_from_config():
 
 
 def test_render_query_omits_enwiki_block_when_disabled():
-    assert "en.wikipedia.org" not in extract.render_query(
-        1994, BuildConfig(require_enwiki=False)
-    )
+    assert "en.wikipedia.org" not in extract.render_query(1994, BuildConfig(require_enwiki=False))
 
 
 def test_render_query_excludes_documentary_and_tv_film():
@@ -146,9 +144,7 @@ def test_extract_fetches_and_wraps_rows(raw_dir: Path, monkeypatch: pytest.Monke
 
 
 def test_extract_skips_valid_cached_year(raw_dir: Path, monkeypatch: pytest.MonkeyPatch):
-    _write_cache(
-        raw_dir / "films-1994.json", min_sitelinks=5, require_enwiki=True, rows=[_row()]
-    )
+    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, require_enwiki=True, rows=[_row()])
 
     def boom(q: str, cfg: BuildConfig):
         raise AssertionError("network query should not run for a valid cache")
@@ -157,12 +153,8 @@ def test_extract_skips_valid_cached_year(raw_dir: Path, monkeypatch: pytest.Monk
     extract.extract(BuildConfig(year_from=1994, year_to=1994))  # min_sitelinks=5 default
 
 
-def test_extract_refetches_when_config_changes(
-    raw_dir: Path, monkeypatch: pytest.MonkeyPatch
-):
-    _write_cache(
-        raw_dir / "films-1994.json", min_sitelinks=5, require_enwiki=True, rows=[_row()]
-    )
+def test_extract_refetches_when_config_changes(raw_dir: Path, monkeypatch: pytest.MonkeyPatch):
+    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, require_enwiki=True, rows=[_row()])
     called = False
 
     def fake_query(q: str, cfg: BuildConfig):
