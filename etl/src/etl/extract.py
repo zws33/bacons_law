@@ -54,8 +54,9 @@ def _cache_is_valid(cfg: BuildConfig, year: int) -> bool:
     )
 
 
-def extract(cfg: BuildConfig) -> None:
+def extract(cfg: BuildConfig) -> int:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
+    writes_count = 0
     for year in range(cfg.year_from, cfg.year_to + 1):
         path = raw_path(year)
         if _cache_is_valid(cfg, year):
@@ -74,4 +75,6 @@ def extract(cfg: BuildConfig) -> None:
         )
         write_atomic(path, payload.model_dump_json())
         print(f"fetched {year}: {len(rows)} rows")
+        writes_count += 1
         time.sleep(1)  # be a good citizen; don't burst WDQS
+    return writes_count
