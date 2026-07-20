@@ -1,12 +1,13 @@
 import time
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 from pydantic import ValidationError
 
 from etl import sparql
 from etl.config import BuildConfig
 from etl.io import read_json_or_none, write_atomic
-from etl.models import CachePayload
+from etl.models import CacheHeader, CachePayload
 from etl.paths import RAW_DIR, raw_path
 
 FILM = "Q11424"
@@ -43,7 +44,10 @@ def _cache_is_valid(cfg: BuildConfig, year: int) -> bool:
     if not path.exists():
         return False
     try:
-        data = CachePayload.model_validate(read_json_or_none(path))
+        # CacheHeader, not CachePayload: this runs for every year on every build, and
+        # validating the rows here would re-check the entire raw corpus just to answer
+        # "is this partition still current?".
+        data = CacheHeader.model_validate(read_json_or_none(path))
     except ValidationError:
         return False
 
@@ -54,13 +58,21 @@ def _cache_is_valid(cfg: BuildConfig, year: int) -> bool:
     )
 
 
-def extract(cfg: BuildConfig) -> int:
+class ExtractStats(NamedTuple):
+    """`cached == total` is the reproducibility claim: a re-run made no network calls."""
+
+    fetched: int
+    cached: int
+
+
+def extract(cfg: BuildConfig) -> ExtractStats:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     writes_count = 0
+    cached_count = 0
     for year in range(cfg.year_from, cfg.year_to + 1):
         path = raw_path(year)
         if _cache_is_valid(cfg, year):
-            print(f"skip {year} (cached)")
+            cached_count += 1
             continue
 
         rows = sparql.query(render_query(year, cfg), cfg)
@@ -77,4 +89,4 @@ def extract(cfg: BuildConfig) -> int:
         print(f"fetched {year}: {len(rows)} rows")
         writes_count += 1
         time.sleep(1)  # be a good citizen; don't burst WDQS
-    return writes_count
+    return ExtractStats(fetched=writes_count, cached=cached_count)

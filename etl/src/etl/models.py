@@ -77,8 +77,14 @@ class WikidataRow(TypedDict):
     actor_sitelinks: int
 
 
-class CachePayload(BaseModel):
-    """Payload structure for cached raw data."""
+class CacheHeader(BaseModel):
+    """Everything about a cached partition EXCEPT its rows.
+
+    Validating the rows means running WikidataRow over ~600k dicts; the two callers that
+    only need provenance or the config fingerprint (extract._cache_is_valid,
+    emit._query_date_range) run on every build and don't care about row contents. Pydantic
+    ignores extra keys by default, so this validates a full payload dict and drops `rows`.
+    """
 
     year: int
     fetched_at: str
@@ -86,6 +92,11 @@ class CachePayload(BaseModel):
     min_sitelinks: int
     require_enwiki: bool
     row_count: int
+
+
+class CachePayload(CacheHeader):
+    """A cached partition, rows included. The full-fidelity read transform uses."""
+
     rows: list[WikidataRow]
 
     @model_validator(mode="after")
