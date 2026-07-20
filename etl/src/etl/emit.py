@@ -12,18 +12,20 @@ from pathlib import Path
 import etl.paths as paths
 from etl.config import BuildConfig
 from etl.io import read_json_or_none, read_jsonl, write_atomic
-from etl.models import Edge, Manifest, QueryDateRange
+from etl.models import Edge, Manifest, ManifestConfig, QueryDateRange
 
 SCHEMA_VERSION = 1
 
 type AdjacencyGraph = tuple[dict[str, set[str]], dict[str, set[str]]]
 
 
-def emit(config: BuildConfig, version: str) -> Path:
+def emit(config: BuildConfig, version: str, force: bool = False) -> Path:
     """Build the versioned artifact from the interim edge list. Returns its directory."""
     edges = _load_edges()
     if not edges:
         raise ValueError(f"{paths.edges_path()} has no edges; run transform first")
+
+    _check_version_is_free(config, version, force)
 
     movies_to_actors, actors_to_movies = _build_adjacency(edges)
     graph = {
@@ -37,14 +39,7 @@ def emit(config: BuildConfig, version: str) -> Path:
         "source": "wikidata",
         "query_date": _query_date_range(),
         "generated_at": datetime.now(UTC).isoformat(),
-        "config": {
-            "min_sitelinks": config.min_sitelinks,
-            "min_cast": config.min_cast,
-            "cast_cap": config.cast_cap,
-            "require_enwiki": config.require_enwiki,
-            "year_from": config.year_from,
-            "year_to": config.year_to,
-        },
+        "config": _manifest_config(config),
         "counts": {
             "n_movies": len(movies_to_actors),
             "n_actors": len(actors_to_movies),
@@ -59,10 +54,49 @@ def emit(config: BuildConfig, version: str) -> Path:
     return out
 
 
+def _manifest_config(config: BuildConfig) -> ManifestConfig:
+    return {
+        "min_sitelinks": config.min_sitelinks,
+        "min_cast": config.min_cast,
+        "cast_cap": config.cast_cap,
+        "require_enwiki": config.require_enwiki,
+        "year_from": config.year_from,
+        "year_to": config.year_to,
+    }
+
+
+def _check_version_is_free(config: BuildConfig, version: str, force: bool) -> None:
+    """A version is an immutable identity, not a filename.
+
+    Re-emitting the same config over itself is the reproducibility check and must stay
+    free. Re-emitting DIFFERENT dials into an existing version silently rewrites what a
+    server may already have loaded, and breaks the premise that a manifest describes its
+    graph — a re-tuned build is a new v2 beside v1. Refuse unless told otherwise.
+    """
+    existing = read_json_or_none(paths.graph_version_dir(version) / "manifest.json")
+    if force or not isinstance(existing, dict):
+        return
+
+    previous = existing.get("config")
+    current = _manifest_config(config)
+    if previous != current:
+        changed = sorted(
+            k for k in current if not isinstance(previous, dict) or previous.get(k) != current[k]
+        )
+        raise ValueError(
+            f"graph/{version} was built with different config ({', '.join(changed)} differ); "
+            f"emit a new version or pass force=True to overwrite"
+        )
+
+
 def _load_edges() -> list[Edge]:
     path = paths.edges_path()
     try:
         return [Edge(**r) for r in read_jsonl(path)]
+    except FileNotFoundError as e:
+        # Now that emit is independently invokable, running it before transform is an
+        # ordinary mistake and deserves an instruction, not a traceback.
+        raise ValueError(f"{path} does not exist; run the transform stage first") from e
     except TypeError as e:
         raise ValueError(f"Failed to load edges from {path}: {e}") from e
 
@@ -98,6 +132,9 @@ def _sorted_adjacency(adj: dict[str, set[str]]) -> dict[str, list[str]]:
 
 def _query_date_range() -> QueryDateRange:
     """Min/max fetched_at across the raw cache (D6). A pull can span days; record the span."""
+    # Duck-typed on purpose: provenance needs only fetched_at. Validating the full header
+    # here would drop a partition written by an older extract from the recorded span
+    # instead of reporting it.
     stamps: list[str] = []
     for path in sorted(paths.RAW_DIR.glob("films-*.json")):
         header = read_json_or_none(path)

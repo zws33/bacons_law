@@ -158,9 +158,7 @@ def test_build_entities_covers_every_node():
 
 def test_sorted_adjacency_sorts_values():
     """Sets have no order; sorting on write is what makes the artifact reproducible."""
-    assert emit._sorted_adjacency({"Q1": {"Q30", "Q10", "Q20"}}) == {
-        "Q1": ["Q10", "Q20", "Q30"]
-    }
+    assert emit._sorted_adjacency({"Q1": {"Q30", "Q10", "Q20"}}) == {"Q1": ["Q10", "Q20", "Q30"]}
 
 
 # --- _query_date_range ------------------------------------------------------------
@@ -292,9 +290,7 @@ def test_emit_graph_json_round_trips_to_the_same_edge_set(tree: Path):
 
     graph = json.loads((out / "graph.json").read_text())
     rebuilt = {
-        (movie, actor)
-        for movie, cast in graph["movies_to_actors"].items()
-        for actor in cast
+        (movie, actor) for movie, cast in graph["movies_to_actors"].items() for actor in cast
     }
     assert rebuilt == {(e.movie, e.actor) for e in edges}
 
@@ -318,3 +314,51 @@ def test_edge_dataclass_field_names_match_the_written_json(tree: Path):
     _write_edges([_edge("Q1", "Q10")])
     written = json.loads(paths.edges_path().read_text())
     assert set(written) == {f.name for f in dataclasses.fields(Edge)}
+
+
+# --- the version guard --------------------------------------------------------------
+
+
+def test_reemitting_identical_config_is_allowed(tree: Path):
+    """The reproducibility check re-runs the same build over itself; that must stay free."""
+    _write_edges([_edge("Q1", "Q10")])
+    emit.emit(BuildConfig(), "v1")
+    out = emit.emit(BuildConfig(), "v1")
+    assert json.loads((out / "graph.json").read_text())["movies_to_actors"] == {"Q1": ["Q10"]}
+
+
+def test_reemitting_different_config_into_same_version_is_refused(tree: Path):
+    """A version is an identity, not a filename: re-tuned dials belong in a new version."""
+    _write_edges([_edge("Q1", "Q10")])
+    emit.emit(BuildConfig(cast_cap=5), "v1")
+
+    with pytest.raises(ValueError, match="cast_cap"):
+        emit.emit(BuildConfig(cast_cap=9), "v1")
+
+    # the original artifact is untouched
+    manifest = json.loads((paths.graph_version_dir("v1") / "manifest.json").read_text())
+    assert manifest["config"]["cast_cap"] == 5
+
+
+def test_force_overwrites_a_differently_configured_version(tree: Path):
+    _write_edges([_edge("Q1", "Q10")])
+    emit.emit(BuildConfig(cast_cap=5), "v1")
+    out = emit.emit(BuildConfig(cast_cap=9), "v1", force=True)
+    assert json.loads((out / "manifest.json").read_text())["config"]["cast_cap"] == 9
+
+
+def test_guard_ignores_a_missing_or_junk_manifest(tree: Path):
+    """No manifest (or an unreadable one) means nothing to contradict — emit proceeds."""
+    out_dir = paths.graph_version_dir("v1")
+    out_dir.mkdir(parents=True)
+    (out_dir / "manifest.json").write_text("{ half-written")
+
+    _write_edges([_edge("Q1", "Q10")])
+    assert emit.emit(BuildConfig(), "v1").exists()
+
+
+def test_emit_without_a_transform_run_names_the_missing_stage(tree: Path):
+    """`etl emit` on a fresh clone is a plausible mistake once stages are separately
+    invokable — it must instruct, not raise FileNotFoundError."""
+    with pytest.raises(ValueError, match="run the transform stage first"):
+        emit.emit(BuildConfig(), "v1")
