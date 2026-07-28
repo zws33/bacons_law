@@ -88,9 +88,7 @@ def main() -> None:
     common.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     common.add_argument("-q", "--quiet", action="store_true", help="only warnings and errors")
 
-    build = sub.add_parser(
-        "build", parents=[common], help="extract → transform → resolve → emit"
-    )
+    build = sub.add_parser("build", parents=[common], help="extract → transform → resolve → emit")
     _add_config_args(build)
     _add_output_args(build)
 
