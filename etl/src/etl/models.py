@@ -1,36 +1,15 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TypedDict
 
 from pydantic import BaseModel, model_validator
 
 
 @dataclass(frozen=True)
-class Actor:
-    qid: str
-    label: str
-    sitelinks: int
-
-
-@dataclass
-class Film:
-    qid: str
-    label: str
-    sitelinks: int
-    # actor_qid -> Actor. A dict so duplicate rows across year partitions collapse for free.
-    cast: dict[str, Actor] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
 class Edge:
     movie: str
-    movie_label: str
     actor: str
-    actor_label: str
 
 
-# Span of the raw pull. A partitioned pull can run over several days, so provenance is a
-# range, not an instant; both None only when the raw cache is empty. Functional TypedDict
-# syntax because "from" is a reserved word and can't be a class-body field name.
 QueryDateRange = TypedDict("QueryDateRange", {"from": str | None, "to": str | None})
 
 
@@ -70,10 +49,8 @@ class WikidataRow(TypedDict):
     """One flattened film-actor row as fetched from WDQS and cached as JSON."""
 
     film: str
-    film_label: str
     film_sitelinks: int
     actor: str
-    actor_label: str
     actor_sitelinks: int
 
 

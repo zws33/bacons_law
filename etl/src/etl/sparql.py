@@ -17,10 +17,8 @@ class SparqlError(RuntimeError):
 
 class _Row(TypedDict):
     film: dict[str, str]
-    filmLabel: dict[str, str]
     filmSitelinks: dict[str, str]
     actor: dict[str, str]
-    actorLabel: dict[str, str]
     actorSitelinks: dict[str, str]
 
 
@@ -64,10 +62,8 @@ def _flatten(payload: _SparqlResponse) -> list[WikidataRow]:
         return [
             WikidataRow(
                 film=_qid_from_uri(b["film"]["value"]),
-                film_label=b["filmLabel"]["value"],
                 film_sitelinks=int(b["filmSitelinks"]["value"]),
                 actor=_qid_from_uri(b["actor"]["value"]),
-                actor_label=b["actorLabel"]["value"],
                 actor_sitelinks=int(b["actorSitelinks"]["value"]),
             )
             for b in payload["results"]["bindings"]

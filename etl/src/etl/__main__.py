@@ -1,16 +1,19 @@
-"""CLI for the three-stage graph build.
+"""CLI for the four-stage graph build.
 
-Each stage is exposed on its own because the disk seam is the point: extract is slow and
-rate-limited, transform and emit are pure and fast. Tuning the cap should cost a
-`transform && emit`, never a re-pull. `build` is the from-scratch path that runs all three.
+Each stage is exposed on its own because the disk seam is the point: extract and resolve are
+slow and network-bound, transform and emit are pure and fast. Tuning the cap should cost a
+`transform && emit`, never a re-pull. `build` is the from-scratch path that runs all four.
 """
 
 import argparse
+import logging
+import sys
 from dataclasses import replace
 
 from etl.config import BuildConfig
 from etl.emit import emit
 from etl.extract import extract
+from etl.resolve_labels import resolve_labels
 from etl.transform import transform
 
 
@@ -57,14 +60,19 @@ def _run_extract(config: BuildConfig) -> None:
     print(f"extract: {stats.fetched} fetched, {stats.cached} cached")
 
 
-def _run_transform(config: BuildConfig) -> int:
-    edges_count = transform(config)
-    print(f"transform: {edges_count} edges")
-    if edges_count == 0:
-        # A build that produced nothing is a failed build, not a quiet success — callers
-        # chaining on exit status must be able to tell the difference.
+def _run_transform(config: BuildConfig) -> None:  # return is discarded in main(), so None is honest
+    stats = transform(config)
+    print(
+        f"transform: {stats.edges} edges · {stats.movies} movies · "
+        f"{stats.actors} actors · {stats.movies + stats.actors} distinct QIDs"
+    )
+    if stats.edges == 0:
         raise SystemExit("no edges were generated; check the year range and filters")
-    return edges_count
+
+
+def _run_resolve_labels(config: BuildConfig) -> None:
+    stats = resolve_labels(config)
+    print(f"resolve_labels: {stats.n_labels} labels resolved")
 
 
 def _run_emit(config: BuildConfig, args: argparse.Namespace) -> None:
@@ -73,24 +81,48 @@ def _run_emit(config: BuildConfig, args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+
     parser = argparse.ArgumentParser(prog="etl")
     sub = parser.add_subparsers(dest="command", required=True)
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("-v", "--verbose", action="store_true", help="debug logging")
+    common.add_argument("-q", "--quiet", action="store_true", help="only warnings and errors")
 
-    build = sub.add_parser("build", help="extract → transform → emit")
+    build = sub.add_parser(
+        "build", parents=[common], help="extract → transform → resolve → emit"
+    )
     _add_config_args(build)
     _add_output_args(build)
 
-    extract_cmd = sub.add_parser("extract", help="stage 1 only — SPARQL → data/raw/")
+    extract_cmd = sub.add_parser(
+        "extract", parents=[common], help="stage 1 only — SPARQL → data/raw/"
+    )
     _add_config_args(extract_cmd)
 
-    transform_cmd = sub.add_parser("transform", help="stage 2 only — data/raw/ → edges.jsonl")
+    transform_cmd = sub.add_parser(
+        "transform", parents=[common], help="stage 2 only — data/raw/ → edges.jsonl"
+    )
     _add_config_args(transform_cmd)
 
-    emit_cmd = sub.add_parser("emit", help="stage 3 only — edges.jsonl → graph/<version>/")
+    resolve_cmd = sub.add_parser(
+        "resolve", parents=[common], help="stage 2.5 only — edges.jsonl → labels.json"
+    )
+    _add_config_args(resolve_cmd)
+
+    emit_cmd = sub.add_parser(
+        "emit", parents=[common], help="stage 3 only — edges.jsonl → graph/<version>/"
+    )
     _add_config_args(emit_cmd)
     _add_output_args(emit_cmd)
 
     args = parser.parse_args()
+    level = logging.INFO
+    if args.verbose:
+        level = logging.DEBUG
+    if args.quiet:
+        level = logging.WARNING
+    logging.basicConfig(level=level, format="%(message)s", stream=sys.stderr)
+
     try:
         config = _config_from_args(args)
     except ValueError as e:
@@ -101,11 +133,14 @@ def main() -> None:
             _run_extract(config)
         elif args.command == "transform":
             _run_transform(config)
+        elif args.command == "resolve":
+            _run_resolve_labels(config)
         elif args.command == "emit":
             _run_emit(config, args)
         else:
             _run_extract(config)
             _run_transform(config)
+            _run_resolve_labels(config)
             _run_emit(config, args)
     except ValueError as e:
         raise SystemExit(str(e)) from e

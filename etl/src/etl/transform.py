@@ -1,18 +1,28 @@
+from collections import defaultdict
 from dataclasses import asdict
+from typing import NamedTuple
 
 from pydantic import ValidationError
 
 import etl.paths as paths
 from etl.config import BuildConfig
 from etl.io import read_json, write_jsonl
-from etl.models import Actor, CachePayload, Edge, Film, WikidataRow
+from etl.models import CachePayload, Edge, WikidataRow
 
 
-def transform(cfg: BuildConfig) -> int:
+class TransformStats(NamedTuple):
+    edges: int
+    movies: int
+    actors: int
+
+
+def transform(cfg: BuildConfig) -> TransformStats:
     rows = _load_rows()
     edges = _build_edge_list(rows=rows, min_cast=cfg.min_cast, cast_cap=cfg.cast_cap)
     _write_edges(edges)
-    return len(edges)
+    movies = {e.movie for e in edges}
+    actors = {e.actor for e in edges}
+    return TransformStats(len(edges), len(movies), len(actors))
 
 
 def _write_edges(edges: list[Edge]) -> None:
@@ -31,47 +41,22 @@ def _load_rows() -> list[WikidataRow]:
     return rows
 
 
-def _cap_cast(cast: dict[str, Actor], cap: int) -> list[Actor]:
-    # sitelinks desc; ties broken by numeric QID asc (Q9 before Q10) so the cut is
-    # deterministic and matches intuition rather than lexicographic string order.
-    return sorted(cast.values(), key=lambda a: (-a.sitelinks, int(a.qid[1:])))[:cap]
+def _cap_cast(cast: dict[str, int], cap: int):
+    return sorted(cast.items(), key=lambda actor: (-actor[1], int(actor[0][1:])))[:cap]
 
 
 def _build_edge_list(rows: list[WikidataRow], min_cast: int, cast_cap: int) -> list[Edge]:
     """Transform a list of WikidataRow objects into a list of Edge objects."""
 
-    films: dict[str, Film] = {}
+    cast_by_film: dict[str, dict[str, int]] = defaultdict(dict)
     for row in rows:
-        if row["film"] not in films:
-            films[row["film"]] = Film(
-                qid=row["film"], label=row["film_label"], sitelinks=row["film_sitelinks"]
-            )
-        films[row["film"]].cast.setdefault(
-            row["actor"],
-            Actor(
-                qid=row["actor"],
-                label=row["actor_label"],
-                sitelinks=row["actor_sitelinks"],
-            ),
-        )
-    # min_cast gates on the FULL cast (a source-data quality filter); cast_cap below
-    # then limits the emitted degree per film. The two knobs are independent, so a film
-    # can pass this gate yet emit fewer than min_cast edges when cast_cap < min_cast.
-    final: dict[str, Film] = {
-        key: film for key, film in films.items() if len(film.cast) >= min_cast
-    }
+        cast_by_film[row["film"]][row["actor"]] = row["actor_sitelinks"]
 
     edges: list[Edge] = []
-    for film in final.values():
-        capped_cast_list = _cap_cast(cast=film.cast, cap=cast_cap)
-        for actor in capped_cast_list:
-            edges.append(
-                Edge(
-                    movie=film.qid,
-                    movie_label=film.label,
-                    actor=actor.qid,
-                    actor_label=actor.label,
-                )
-            )
+    for film, cast in cast_by_film.items():
+        if len(cast) < min_cast:
+            continue
+        for actor in _cap_cast(cast, cast_cap):
+            edges.append(Edge(movie=film, actor=actor[0]))
     edges.sort(key=lambda e: (e.movie, e.actor))
     return edges

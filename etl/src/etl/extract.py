@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import UTC, datetime
 from typing import NamedTuple
@@ -14,6 +15,8 @@ FILM = "Q11424"
 DOCUMENTARY = "Q93204"
 TV_FILM = "Q506240"
 
+logger = logging.getLogger(__name__)
+
 
 def render_query(year: int, config: BuildConfig) -> str:
     """Fully templated from config (D2): min_sitelinks, the enwiki block, and the year."""
@@ -23,7 +26,7 @@ def render_query(year: int, config: BuildConfig) -> str:
         else ""
     )
     return f"""
-    SELECT ?film ?filmLabel ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE {{
+    SELECT ?film ?filmSitelinks ?actor ?actorSitelinks WHERE {{
         ?film wdt:P31 wd:{FILM} ;
                 wikibase:sitelinks ?filmSitelinks ;
                 wdt:P577 ?date ;
@@ -35,7 +38,6 @@ def render_query(year: int, config: BuildConfig) -> str:
         FILTER NOT EXISTS {{ ?film wdt:P31 wd:{DOCUMENTARY} }}
         FILTER NOT EXISTS {{ ?film wdt:P31 wd:{TV_FILM} }}
         {enwiki_block}
-        SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
     }}"""
 
 
@@ -69,13 +71,27 @@ def extract(cfg: BuildConfig) -> ExtractStats:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     writes_count = 0
     cached_count = 0
-    for year in range(cfg.year_from, cfg.year_to + 1):
+
+    total = cfg.year_to - cfg.year_from + 1
+    for i, year in enumerate(range(cfg.year_from, cfg.year_to + 1), start=1):
         path = raw_path(year)
         if _cache_is_valid(cfg, year):
+            logger.info("[%d/%d] %d cached", i, total, year)
             cached_count += 1
             continue
 
+        logger.info("[%d/%d] fetching %d...", i, total, year)
+        start = time.perf_counter()
         rows = sparql.query(render_query(year, cfg), cfg)
+        logger.info(
+            "[%d/%d] %d: fetched %d rows in %.1f s",
+            i,
+            total,
+            year,
+            len(rows),
+            time.perf_counter() - start,
+        )
+
         payload = CachePayload(
             year=year,
             fetched_at=datetime.now(UTC).isoformat(),
@@ -86,7 +102,6 @@ def extract(cfg: BuildConfig) -> ExtractStats:
             rows=rows,
         )
         write_atomic(path, payload.model_dump_json())
-        print(f"fetched {year}: {len(rows)} rows")
         writes_count += 1
         time.sleep(1)  # be a good citizen; don't burst WDQS
     return ExtractStats(fetched=writes_count, cached=cached_count)
