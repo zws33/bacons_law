@@ -1,8 +1,8 @@
-"""CLI for the four-stage graph build.
+"""CLI for the three-stage graph build.
 
-Each stage is exposed on its own because the disk seam is the point: extract and resolve are
+Each stage is exposed on its own because the disk seam is the point: extract is
 slow and network-bound, transform and emit are pure and fast. Tuning the cap should cost a
-`transform && emit`, never a re-pull. `build` is the from-scratch path that runs all four.
+`transform && emit`, never a re-pull. `build` is the from-scratch path that runs all three.
 """
 
 import argparse
@@ -13,7 +13,6 @@ from dataclasses import replace
 from etl.config import BuildConfig
 from etl.emit import emit
 from etl.extract import extract
-from etl.resolve_labels import resolve_labels
 from etl.transform import transform
 
 
@@ -70,11 +69,6 @@ def _run_transform(config: BuildConfig) -> None:  # return is discarded in main(
         raise SystemExit("no edges were generated; check the year range and filters")
 
 
-def _run_resolve_labels(config: BuildConfig) -> None:
-    stats = resolve_labels(config)
-    print(f"resolve_labels: {stats.n_labels} labels resolved")
-
-
 def _run_emit(config: BuildConfig, args: argparse.Namespace) -> None:
     out = emit(config, args.out_version, force=args.force)
     print(f"emit: {out}")
@@ -88,7 +82,7 @@ def main() -> None:
     common.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     common.add_argument("-q", "--quiet", action="store_true", help="only warnings and errors")
 
-    build = sub.add_parser("build", parents=[common], help="extract → transform → resolve → emit")
+    build = sub.add_parser("build", parents=[common], help="extract → transform → emit")
     _add_config_args(build)
     _add_output_args(build)
 
@@ -101,11 +95,6 @@ def main() -> None:
         "transform", parents=[common], help="stage 2 only — data/raw/ → edges.jsonl"
     )
     _add_config_args(transform_cmd)
-
-    resolve_cmd = sub.add_parser(
-        "resolve", parents=[common], help="stage 2.5 only — edges.jsonl → labels.json"
-    )
-    _add_config_args(resolve_cmd)
 
     emit_cmd = sub.add_parser(
         "emit", parents=[common], help="stage 3 only — edges.jsonl → graph/<version>/"
@@ -131,14 +120,11 @@ def main() -> None:
             _run_extract(config)
         elif args.command == "transform":
             _run_transform(config)
-        elif args.command == "resolve":
-            _run_resolve_labels(config)
         elif args.command == "emit":
             _run_emit(config, args)
         else:
             _run_extract(config)
             _run_transform(config)
-            _run_resolve_labels(config)
             _run_emit(config, args)
     except ValueError as e:
         raise SystemExit(str(e)) from e

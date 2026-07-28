@@ -24,6 +24,7 @@ from etl import emit, paths, transform
 from etl.config import BuildConfig
 from etl.extract import ExtractStats
 from etl.models import Edge
+from etl.transform import TransformStats
 
 # --- fixtures / helpers -----------------------------------------------------------
 
@@ -63,7 +64,7 @@ def stages(monkeypatch: pytest.MonkeyPatch) -> dict[str, Recorder]:
     """Replace all three stages. __main__ from-imports them, so patch its namespace."""
     recorders = {
         "extract": Recorder(ExtractStats(fetched=0, cached=1)),
-        "transform": Recorder(1),  # 1 edge — a non-empty build
+        "transform": Recorder(TransformStats(edges=1, movies=1, actors=1)),  # a non-empty build
         "emit": Recorder(Path("graph/v1")),
     }
     for name, rec in recorders.items():
@@ -185,7 +186,7 @@ def test_zero_edge_build_exits_nonzero(
 ):
     """The failure this CLI used to report as success. A build that produced nothing
     must be distinguishable by exit status, and must not go on to emit."""
-    monkeypatch.setattr(cli, "transform", Recorder(0))
+    monkeypatch.setattr(cli, "transform", Recorder(TransformStats(edges=0, movies=0, actors=0)))
     with pytest.raises(SystemExit) as exc:
         run(monkeypatch, "build")
     assert exc.value.code != 0
