@@ -26,7 +26,7 @@ def render_query(year: int, config: BuildConfig) -> str:
         else ""
     )
     return f"""
-    SELECT ?film ?filmLabel ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE {{
+    SELECT ?film ?filmSitelinks ?actor ?actorSitelinks WHERE {{
         ?film wdt:P31 wd:{FILM} ;
                 wikibase:sitelinks ?filmSitelinks ;
                 wdt:P577 ?date ;
@@ -38,7 +38,6 @@ def render_query(year: int, config: BuildConfig) -> str:
         FILTER NOT EXISTS {{ ?film wdt:P31 wd:{DOCUMENTARY} }}
         FILTER NOT EXISTS {{ ?film wdt:P31 wd:{TV_FILM} }}
         {enwiki_block}
-        SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
     }}"""
 
 

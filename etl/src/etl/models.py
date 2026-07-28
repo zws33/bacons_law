@@ -5,18 +5,9 @@ from pydantic import BaseModel, model_validator
 
 
 @dataclass(frozen=True)
-class Actor:
-    qid: str
-    label: str
-    sitelinks: int
-
-
-@dataclass(frozen=True)
 class Edge:
     movie: str
-    movie_label: str
     actor: str
-    actor_label: str
 
 
 QueryDateRange = TypedDict("QueryDateRange", {"from": str | None, "to": str | None})
@@ -58,10 +49,8 @@ class WikidataRow(TypedDict):
     """One flattened film-actor row as fetched from WDQS and cached as JSON."""
 
     film: str
-    film_label: str
     film_sitelinks: int
     actor: str
-    actor_label: str
     actor_sitelinks: int
 
 

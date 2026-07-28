@@ -7,7 +7,7 @@ from pydantic import ValidationError
 import etl.paths as paths
 from etl.config import BuildConfig
 from etl.io import read_json, write_jsonl
-from etl.models import Actor, CachePayload, Edge, WikidataRow
+from etl.models import CachePayload, Edge, WikidataRow
 
 
 class TransformStats(NamedTuple):
@@ -41,34 +41,22 @@ def _load_rows() -> list[WikidataRow]:
     return rows
 
 
-def _cap_cast(cast: dict[str, Actor], cap: int) -> list[Actor]:
-    return sorted(cast.values(), key=lambda a: (-a.sitelinks, int(a.qid[1:])))[:cap]
+def _cap_cast(cast: dict[str, int], cap: int):
+    return sorted(cast.items(), key=lambda actor: (-actor[1], int(actor[0][1:])))[:cap]
 
 
 def _build_edge_list(rows: list[WikidataRow], min_cast: int, cast_cap: int) -> list[Edge]:
     """Transform a list of WikidataRow objects into a list of Edge objects."""
 
-    film_labels: dict[str, str] = {}
-    cast_by_film: dict[str, dict[str, Actor]] = defaultdict(dict)
+    cast_by_film: dict[str, dict[str, int]] = defaultdict(dict)
     for row in rows:
-        film_labels.setdefault(row["film"], row["film_label"])
-        qid = row["actor"]
-        cast_by_film[row["film"]].setdefault(
-            qid, Actor(qid=qid, label=row["actor_label"], sitelinks=row["actor_sitelinks"])
-        )
+        cast_by_film[row["film"]][row["actor"]] = row["actor_sitelinks"]
 
     edges: list[Edge] = []
     for film, cast in cast_by_film.items():
         if len(cast) < min_cast:
             continue
         for actor in _cap_cast(cast, cast_cap):
-            edges.append(
-                Edge(
-                    movie=film,
-                    movie_label=film_labels[film],
-                    actor=actor.qid,
-                    actor_label=actor.label,
-                )
-            )
+            edges.append(Edge(movie=film, actor=actor[0]))
     edges.sort(key=lambda e: (e.movie, e.actor))
     return edges
