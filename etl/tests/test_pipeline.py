@@ -20,7 +20,7 @@ from typing import Any
 import httpx2
 import pytest
 
-from etl import emit, extract, paths, transform
+from etl import emit, extract, paths, resolve_labels, transform
 from etl.config import BuildConfig
 
 # --- the fake catalog -------------------------------------------------------------
@@ -48,16 +48,52 @@ CATALOG: dict[int, list[tuple[str, str, int, str, str, int]]] = {
 
 def _binding(row: tuple[str, str, int, str, str, int]) -> dict[str, dict[str, str]]:
     """One WDQS result binding: entities are URIs and counts are strings, exactly as the
-    live endpoint returns them — that's what sparql._flatten has to unpick."""
-    film, film_label, film_sitelinks, actor, actor_label, actor_sitelinks = row
+    live endpoint returns them — that's what sparql._flatten has to unpick.
+    Labels are NOT included: the SPARQL query no longer fetches them (doing so caused
+    timeouts); they are resolved separately via the wbgetentities API."""
+    film, _film_label, film_sitelinks, actor, _actor_label, actor_sitelinks = row
     return {
         "film": {"value": f"http://www.wikidata.org/entity/{film}"},
-        "filmLabel": {"value": film_label},
         "filmSitelinks": {"value": str(film_sitelinks)},
         "actor": {"value": f"http://www.wikidata.org/entity/{actor}"},
-        "actorLabel": {"value": actor_label},
         "actorSitelinks": {"value": str(actor_sitelinks)},
     }
+
+
+class _FakeWBResponse:
+    status_code = 200
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, Any]:
+        return self._payload
+
+
+class FakeWBEntities:
+    """Stands in for the Wikidata wbgetentities API, serving labels from CATALOG."""
+
+    def __init__(self) -> None:
+        self._labels: dict[str, str] = {}
+        for rows in CATALOG.values():
+            for film, film_label, _, actor, actor_label, _ in rows:
+                self._labels[film] = film_label
+                self._labels[actor] = actor_label
+
+    def get(self, _url: str, *, params: dict[str, Any], **_kwargs: Any) -> _FakeWBResponse:
+        ids = params["ids"].split("|")
+        entities: dict[str, Any] = {}
+        for qid in ids:
+            label = self._labels.get(qid, qid)
+            entities[qid] = {
+                "type": "item",
+                "id": qid,
+                "labels": {"en": {"language": "en", "value": label}},
+            }
+        return _FakeWBResponse({"entities": entities})
 
 
 class _FakeResponse:
@@ -99,6 +135,14 @@ def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(time, "sleep", lambda _: None)
 
 
+@pytest.fixture(autouse=True)
+def wbapi(monkeypatch: pytest.MonkeyPatch) -> FakeWBEntities:
+    """Patch httpx2.get so resolve_labels never hits the real Wikidata API."""
+    fake = FakeWBEntities()
+    monkeypatch.setattr(httpx2, "get", fake.get)
+    return fake
+
+
 @pytest.fixture
 def wdqs(monkeypatch: pytest.MonkeyPatch) -> FakeWDQS:
     fake = FakeWDQS()
@@ -110,11 +154,14 @@ def wdqs(monkeypatch: pytest.MonkeyPatch) -> FakeWDQS:
 def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     raw = tmp_path / "raw"
     interim = tmp_path / "interim"
+    data = tmp_path / "data"
     raw.mkdir()
     interim.mkdir()
+    data.mkdir()
     monkeypatch.setattr(paths, "RAW_DIR", raw)
     monkeypatch.setattr(paths, "INTERIM_DIR", interim)
     monkeypatch.setattr(paths, "GRAPH_DIR", tmp_path / "graph")
+    monkeypatch.setattr(paths, "DATA_DIR", data)
     # extract from-imports RAW_DIR, so it needs patching independently of paths.RAW_DIR.
     monkeypatch.setattr(extract, "RAW_DIR", raw)
     return tmp_path
@@ -142,6 +189,7 @@ def _build(cfg: BuildConfig, version: str = "v1") -> Path:
     """The whole pipeline, in the order the orchestrator will run it."""
     extract.extract(cfg)
     transform.transform(cfg)
+    resolve_labels.resolve_labels(cfg)
     return emit.emit(cfg, version)
 
 

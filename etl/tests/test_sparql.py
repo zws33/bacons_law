@@ -26,10 +26,8 @@ def _binding(film: str, actor: str, film_links: int, actor_links: int) -> _Row:
     """One SPARQL result binding in WDQS JSON shape."""
     return {
         "film": {"type": "uri", "value": f"http://www.wikidata.org/entity/{film}"},
-        "filmLabel": {"type": "literal", "value": f"label-{film}"},
         "filmSitelinks": {"type": "literal", "value": str(film_links)},
         "actor": {"type": "uri", "value": f"http://www.wikidata.org/entity/{actor}"},
-        "actorLabel": {"type": "literal", "value": f"label-{actor}"},
         "actorSitelinks": {"type": "literal", "value": str(actor_links)},
     }
 
@@ -68,15 +66,13 @@ def test_qid_from_uri_extracts_last_segment():
     assert _qid_from_uri("http://www.wikidata.org/entity/Q11424") == "Q11424"
 
 
-def test_flatten_maps_all_six_fields():
+def test_flatten_maps_all_four_fields():
     rows = _flatten(_payload(_binding("Q1", "Q10", film_links=100, actor_links=50)))
     assert rows == [
         {
             "film": "Q1",
-            "film_label": "label-Q1",
             "film_sitelinks": 100,
             "actor": "Q10",
-            "actor_label": "label-Q10",
             "actor_sitelinks": 50,
         }
     ]
