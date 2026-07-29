@@ -34,10 +34,8 @@ def raw_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _row(film: str = "Q1", actor: str = "Q10") -> dict[str, str | int]:
     return {
         "film": film,
-        "film_label": f"label-{film}",
         "film_sitelinks": 100,
         "actor": actor,
-        "actor_label": f"label-{actor}",
         "actor_sitelinks": 50,
     }
 

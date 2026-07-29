@@ -28,10 +28,11 @@ def emit(config: BuildConfig, version: str, force: bool = False) -> Path:
     _check_version_is_free(config, version, force)
 
     movies_to_actors, actors_to_movies = _build_adjacency(edges)
+    labels = _load_labels()
     graph = {
         "movies_to_actors": _sorted_adjacency(movies_to_actors),
         "actors_to_movies": _sorted_adjacency(actors_to_movies),
-        "entities": _build_entities(edges),
+        "entities": _build_entities(edges, labels),
     }
     manifest: Manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -66,13 +67,8 @@ def _manifest_config(config: BuildConfig) -> ManifestConfig:
 
 
 def _check_version_is_free(config: BuildConfig, version: str, force: bool) -> None:
-    """A version is an immutable identity, not a filename.
+    """A version is an immutable identity, not a filename."""
 
-    Re-emitting the same config over itself is the reproducibility check and must stay
-    free. Re-emitting DIFFERENT dials into an existing version silently rewrites what a
-    server may already have loaded, and breaks the premise that a manifest describes its
-    graph — a re-tuned build is a new v2 beside v1. Refuse unless told otherwise.
-    """
     existing = read_json_or_none(paths.graph_version_dir(version) / "manifest.json")
     if force or not isinstance(existing, dict):
         return
@@ -94,11 +90,17 @@ def _load_edges() -> list[Edge]:
     try:
         return [Edge(**r) for r in read_jsonl(path)]
     except FileNotFoundError as e:
-        # Now that emit is independently invokable, running it before transform is an
-        # ordinary mistake and deserves an instruction, not a traceback.
         raise ValueError(f"{path} does not exist; run the transform stage first") from e
     except TypeError as e:
         raise ValueError(f"Failed to load edges from {path}: {e}") from e
+
+
+def _load_labels() -> dict[str, str | None]:
+    path = paths.labels_path()
+    labels = read_json_or_none(path)
+    if labels is None:
+        raise ValueError(f"{path} does not exist; run the resolve_labels stage first")
+    return labels
 
 
 def _build_adjacency(edges: list[Edge]) -> AdjacencyGraph:
@@ -115,12 +117,12 @@ def _build_adjacency(edges: list[Edge]) -> AdjacencyGraph:
     return movies_to_actors, actors_to_movies
 
 
-def _build_entities(edges: list[Edge]) -> dict[str, dict[str, str]]:
+def _build_entities(edges: list[Edge], labels: dict[str, str | None]) -> dict[str, dict[str, str]]:
     """qid → {label, type}: the typeahead index Phase 4 search resolves names against."""
     entities: dict[str, dict[str, str]] = {}
     for e in edges:
-        entities[e.movie] = {"label": e.movie_label, "type": "movie"}
-        entities[e.actor] = {"label": e.actor_label, "type": "actor"}
+        entities[e.movie] = {"label": labels[e.movie] or e.movie, "type": "movie"}
+        entities[e.actor] = {"label": labels[e.actor] or e.actor, "type": "actor"}
     return entities
 
 

@@ -8,7 +8,7 @@ Two seams are tested here:
 All tests are deterministic and network-free.
 """
 
-from etl.models import Actor, WikidataRow
+from etl.models import WikidataRow
 from etl.transform import _build_edge_list, _cap_cast
 
 # --- fixtures / helpers -----------------------------------------------------------
@@ -16,19 +16,15 @@ from etl.transform import _build_edge_list, _cap_cast
 
 def _row(
     film: str = "Q1",
-    film_label: str = "Film One",
     film_sitelinks: int = 100,
     actor: str = "Q10",
-    actor_label: str = "Actor Ten",
     actor_sitelinks: int = 50,
 ) -> WikidataRow:
     """Factory for a single WikidataRow."""
     return WikidataRow(
         film=film,
-        film_label=film_label,
         film_sitelinks=film_sitelinks,
         actor=actor,
-        actor_label=actor_label,
         actor_sitelinks=actor_sitelinks,
     )
 
@@ -43,57 +39,57 @@ def test_cap_cast_empty_dict():
 
 def test_cap_cast_single_actor():
     """Single actor is returned as-is."""
-    cast = {"Q10": Actor(qid="Q10", label="Actor Ten", sitelinks=50)}
+    cast = {"Q10": 50}
     result = _cap_cast(cast, cap=5)
-    assert result == [Actor(qid="Q10", label="Actor Ten", sitelinks=50)]
+    assert result == [("Q10", 50)]
 
 
 def test_cap_cast_sorts_by_sitelinks_desc():
     """Actors are sorted by sitelinks descending."""
     cast = {
-        "Q1": Actor(qid="Q1", label="A", sitelinks=10),
-        "Q2": Actor(qid="Q2", label="B", sitelinks=100),
-        "Q3": Actor(qid="Q3", label="C", sitelinks=50),
+        "Q1": 10,
+        "Q2": 100,
+        "Q3": 50,
     }
     result = _cap_cast(cast, cap=10)
-    assert [a.qid for a in result] == ["Q2", "Q3", "Q1"]
+    assert [a[0] for a in result] == ["Q2", "Q3", "Q1"]
 
 
 def test_cap_cast_ties_broken_by_qid_asc():
     """When sitelinks are equal, sort by qid ascending."""
     cast = {
-        "Q3": Actor(qid="Q3", label="C", sitelinks=50),
-        "Q1": Actor(qid="Q1", label="A", sitelinks=50),
-        "Q2": Actor(qid="Q2", label="B", sitelinks=50),
+        "Q3": 50,
+        "Q1": 50,
+        "Q2": 50,
     }
     result = _cap_cast(cast, cap=10)
-    assert [a.qid for a in result] == ["Q1", "Q2", "Q3"]
+    assert [a[0] for a in result] == ["Q1", "Q2", "Q3"]
 
 
 def test_cap_cast_ties_broken_by_numeric_qid_not_lexicographic():
     """Equal sitelinks: QIDs sort numerically (Q9 before Q10), not as strings."""
     cast = {
-        "Q10": Actor(qid="Q10", label="A", sitelinks=50),
-        "Q9": Actor(qid="Q9", label="B", sitelinks=50),
-        "Q100": Actor(qid="Q100", label="C", sitelinks=50),
+        "Q10": 50,
+        "Q9": 50,
+        "Q100": 50,
     }
     result = _cap_cast(cast, cap=10)
-    assert [a.qid for a in result] == ["Q9", "Q10", "Q100"]
+    assert [a[0] for a in result] == ["Q9", "Q10", "Q100"]
 
 
 def test_cap_cast_respects_cap():
     """Only top N actors by sitelinks are returned."""
-    cast = {f"Q{i}": Actor(qid=f"Q{i}", label=f"Actor {i}", sitelinks=100 - i) for i in range(10)}
+    cast = {f"Q{i}": 100 - i for i in range(10)}
     result = _cap_cast(cast, cap=3)
     assert len(result) == 3
-    assert [a.qid for a in result] == ["Q0", "Q1", "Q2"]
+    assert [a[0] for a in result] == ["Q0", "Q1", "Q2"]
 
 
 def test_cap_cast_cap_larger_than_cast():
     """If cap is larger than cast size, all actors are returned."""
     cast = {
-        "Q1": Actor(qid="Q1", label="A", sitelinks=50),
-        "Q2": Actor(qid="Q2", label="B", sitelinks=25),
+        "Q1": 50,
+        "Q2": 25,
     }
     result = _cap_cast(cast, cap=10)
     assert len(result) == 2
@@ -101,7 +97,7 @@ def test_cap_cast_cap_larger_than_cast():
 
 def test_cap_cast_cap_zero():
     """Cap of zero returns empty list."""
-    cast = {"Q1": Actor(qid="Q1", label="A", sitelinks=50)}
+    cast = {"Q1": 50}
     assert _cap_cast(cast, cap=0) == []
 
 
@@ -125,17 +121,15 @@ def test_transform_single_row_meets_min_cast():
     result = _build_edge_list(rows, min_cast=1, cast_cap=10)
     assert len(result) == 1
     assert result[0].movie == "Q1"
-    assert result[0].movie_label == "Film One"
     assert result[0].actor == "Q10"
-    assert result[0].actor_label == "Actor Ten"
 
 
 def test_transform_multiple_rows_same_film():
     """Multiple rows for the same film are collapsed into one Film with combined cast."""
     rows = [
-        _row(film="Q1", actor="Q10", actor_label="Actor Ten"),
-        _row(film="Q1", actor="Q20", actor_label="Actor Twenty"),
-        _row(film="Q1", actor="Q30", actor_label="Actor Thirty"),
+        _row(film="Q1", actor="Q10"),
+        _row(film="Q1", actor="Q20"),
+        _row(film="Q1", actor="Q30"),
     ]
     result = _build_edge_list(rows, min_cast=2, cast_cap=10)
     assert len(result) == 3  # 3 edges for one film with 3 actors
@@ -198,22 +192,8 @@ def test_transform_edges_sorted_by_movie_then_actor():
     ]
 
 
-def test_transform_preserves_film_label():
-    """Film labels are preserved from input rows."""
-    rows = [_row(film="Q1", film_label="The Matrix", actor="Q10")]
-    result = _build_edge_list(rows, min_cast=1, cast_cap=10)
-    assert result[0].movie_label == "The Matrix"
-
-
-def test_transform_preserves_actor_label():
-    """Actor labels are preserved from input rows."""
-    rows = [_row(actor="Q10", actor_label="Keanu Reeves")]
-    result = _build_edge_list(rows, min_cast=1, cast_cap=10)
-    assert result[0].actor_label == "Keanu Reeves"
-
-
 def test_transform_duplicate_rows_same_film_same_actor():
-    """Duplicate rows for the same film+actor are deduplicated."""
+    """Duplicate rows for the same film+actor are deduplicated (last sitelinks wins)."""
     rows = [
         _row(film="Q1", actor="Q10"),
         _row(film="Q1", actor="Q10"),  # duplicate
@@ -223,19 +203,6 @@ def test_transform_duplicate_rows_same_film_same_actor():
     assert len(result) == 2
     actor_qids = {e.actor for e in result}
     assert actor_qids == {"Q10", "Q20"}
-
-
-def test_transform_duplicate_rows_different_actor_labels():
-    """If duplicate actor rows have different labels, the first one wins (setdefault)."""
-    rows = [
-        _row(film="Q1", actor="Q10", actor_label="First Name"),
-        _row(film="Q1", actor="Q10", actor_label="Second Name"),
-    ]
-    result = _build_edge_list(rows, min_cast=1, cast_cap=10)
-    # setdefault() only sets if key doesn't exist, so first label is kept
-    assert len(result) == 1
-    assert result[0].actor == "Q10"
-    assert result[0].actor_label == "First Name"
 
 
 def test_transform_mixed_min_cast_filtering():

@@ -13,6 +13,7 @@ Two groups:
     instruction, never a traceback. Callers chain on exit status.
 """
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,8 @@ from etl import emit, paths, transform
 from etl.config import BuildConfig
 from etl.extract import ExtractStats
 from etl.models import Edge
+from etl.resolve_labels import ResolveLabelsStats
+from etl.transform import TransformStats
 
 # --- fixtures / helpers -----------------------------------------------------------
 
@@ -33,11 +36,14 @@ def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect the data/graph trees so no test touches the real ones."""
     raw = tmp_path / "raw"
     interim = tmp_path / "interim"
+    data = tmp_path / "data"
     raw.mkdir()
     interim.mkdir()
+    data.mkdir()
     monkeypatch.setattr(paths, "RAW_DIR", raw)
     monkeypatch.setattr(paths, "INTERIM_DIR", interim)
     monkeypatch.setattr(paths, "GRAPH_DIR", tmp_path / "graph")
+    monkeypatch.setattr(paths, "DATA_DIR", data)
     return tmp_path
 
 
@@ -60,10 +66,11 @@ class Recorder:
 
 @pytest.fixture
 def stages(monkeypatch: pytest.MonkeyPatch) -> dict[str, Recorder]:
-    """Replace all three stages. __main__ from-imports them, so patch its namespace."""
+    """Replace all four stages. __main__ from-imports them, so patch its namespace."""
     recorders = {
         "extract": Recorder(ExtractStats(fetched=0, cached=1)),
-        "transform": Recorder(1),  # 1 edge — a non-empty build
+        "transform": Recorder(TransformStats(edges=1, movies=1, actors=1)),  # a non-empty build
+        "resolve_labels": Recorder(ResolveLabelsStats(n_labels=5)),
         "emit": Recorder(Path("graph/v1")),
     }
     for name, rec in recorders.items():
@@ -76,6 +83,15 @@ def run(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
     cli.main()
 
 
+def _write_labels(edges: list[Edge]) -> None:
+    """Write a labels.json derived from the edge list so emit._load_labels() succeeds."""
+    labels: dict[str, str] = {}
+    for e in edges:
+        labels[e.movie] = f"Film {e.movie}"
+        labels[e.actor] = f"Actor {e.actor}"
+    paths.labels_path().write_text(json.dumps(labels))
+
+
 # --- dispatch ---------------------------------------------------------------------
 
 
@@ -84,8 +100,9 @@ def run(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
     [
         ("extract", {"extract"}),
         ("transform", {"transform"}),
+        ("resolve", {"resolve_labels"}),
         ("emit", {"emit"}),
-        ("build", {"extract", "transform", "emit"}),
+        ("build", {"extract", "transform", "resolve_labels", "emit"}),
     ],
 )
 def test_subcommand_runs_only_its_own_stages(
@@ -109,7 +126,7 @@ def test_build_runs_stages_in_pipeline_order(
         monkeypatch.setattr(cli, name, record)
 
     run(monkeypatch, "build")
-    assert order == ["extract", "transform", "emit"]
+    assert order == ["extract", "transform", "resolve_labels", "emit"]
 
 
 # --- argument translation (the bug that got away) ---------------------------------
@@ -185,7 +202,7 @@ def test_zero_edge_build_exits_nonzero(
 ):
     """The failure this CLI used to report as success. A build that produced nothing
     must be distinguishable by exit status, and must not go on to emit."""
-    monkeypatch.setattr(cli, "transform", Recorder(0))
+    monkeypatch.setattr(cli, "transform", Recorder(TransformStats(edges=0, movies=0, actors=0)))
     with pytest.raises(SystemExit) as exc:
         run(monkeypatch, "build")
     assert exc.value.code != 0
@@ -204,7 +221,9 @@ def test_emit_before_transform_exits_with_an_instruction(
 
 def test_version_guard_surfaces_as_exit_not_traceback(tree: Path, monkeypatch: pytest.MonkeyPatch):
     """emit's ValueError must reach the user as a message, not a stack trace."""
-    transform._write_edges([Edge(movie="Q1", movie_label="F", actor="Q10", actor_label="A")])
+    edges = [Edge(movie="Q1", actor="Q10")]
+    transform._write_edges(edges)
+    _write_labels(edges)
     emit.emit(BuildConfig(cast_cap=5), "v1")
 
     with pytest.raises(SystemExit) as exc:
@@ -220,7 +239,9 @@ def test_version_guard_surfaces_as_exit_not_traceback(tree: Path, monkeypatch: p
 
 def test_emit_writes_the_artifact_the_cli_named(tree: Path, monkeypatch: pytest.MonkeyPatch):
     """The path printed/returned is the path written — no hand-built duplicate."""
-    transform._write_edges([Edge(movie="Q1", movie_label="F", actor="Q10", actor_label="A")])
+    edges = [Edge(movie="Q1", actor="Q10")]
+    transform._write_edges(edges)
+    _write_labels(edges)
     run(monkeypatch, "emit", "--out-version", "v9")
 
     out = paths.graph_version_dir("v9")

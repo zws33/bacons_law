@@ -37,27 +37,36 @@ def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """
     raw = tmp_path / "raw"
     interim = tmp_path / "interim"
+    data = tmp_path / "data"
     raw.mkdir()
     interim.mkdir()
+    data.mkdir()
     monkeypatch.setattr(paths, "RAW_DIR", raw)
     monkeypatch.setattr(paths, "INTERIM_DIR", interim)
     monkeypatch.setattr(paths, "GRAPH_DIR", tmp_path / "graph")
+    monkeypatch.setattr(paths, "DATA_DIR", data)
     return tmp_path
 
 
 def _edge(movie: str = "Q1", actor: str = "Q10") -> Edge:
-    return Edge(
-        movie=movie,
-        movie_label=f"Film {movie}",
-        actor=actor,
-        actor_label=f"Actor {actor}",
-    )
+    return Edge(movie=movie, actor=actor)
+
+
+def _write_labels(edges: list[Edge]) -> None:
+    """Write a labels.json derived from the edge list so emit._load_labels() succeeds."""
+    labels: dict[str, str] = {}
+    for e in edges:
+        labels[e.movie] = f"Film {e.movie}"
+        labels[e.actor] = f"Actor {e.actor}"
+    paths.labels_path().write_text(json.dumps(labels))
 
 
 def _write_edges(edges: list[Edge]) -> None:
     """Write edges.jsonl the way transform actually writes it (not a hand-rolled copy),
-    so these tests break if the two stages ever disagree on the format."""
+    so these tests break if the two stages ever disagree on the format.
+    Also writes labels.json so emit() can load labels."""
     transform._write_edges(edges)
+    _write_labels(edges)
 
 
 def _write_raw(path: Path, fetched_at: str) -> None:
@@ -88,7 +97,7 @@ def test_load_edges_unknown_field_raises_value_error_naming_the_file(tree: Path)
 
 
 def test_load_edges_missing_field_raises_value_error(tree: Path):
-    paths.edges_path().write_text(json.dumps({"movie": "Q1", "actor": "Q10"}))
+    paths.edges_path().write_text(json.dumps({"movie": "Q1"}))  # missing "actor"
     with pytest.raises(ValueError, match="Failed to load edges from"):
         emit._load_edges()
 
@@ -139,7 +148,9 @@ def test_build_adjacency_empty_edges():
 
 
 def test_build_entities_labels_and_types_both_sides():
-    entities = emit._build_entities([_edge("Q1", "Q10")])
+    edges = [_edge("Q1", "Q10")]
+    labels: dict[str, str | None] = {"Q1": "Film Q1", "Q10": "Actor Q10"}
+    entities = emit._build_entities(edges, labels)
     assert entities == {
         "Q1": {"label": "Film Q1", "type": "movie"},
         "Q10": {"label": "Actor Q10", "type": "actor"},
@@ -149,8 +160,10 @@ def test_build_entities_labels_and_types_both_sides():
 def test_build_entities_covers_every_node():
     edges = [_edge("Q1", "Q10"), _edge("Q1", "Q11"), _edge("Q2", "Q10")]
     movies, actors = emit._build_adjacency(edges)
-    entities = emit._build_entities(edges)
-    assert set(entities) == set(movies) | set(actors)
+    all_qids = set(movies) | set(actors)
+    labels: dict[str, str | None] = {qid: f"Label {qid}" for qid in all_qids}
+    entities = emit._build_entities(edges, labels)
+    assert set(entities) == all_qids
 
 
 # --- _sorted_adjacency ------------------------------------------------------------
