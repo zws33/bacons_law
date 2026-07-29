@@ -1,4 +1,4 @@
-"""Stage 3 — data/interim/edges.jsonl → graph/<version>/.
+"""Stage 3 — data/interim/edges.jsonl → data/graph/<version>/.
 
 No network and no gameplay policy: every filtering decision (min_cast, cast_cap) already
 fired in transform. This stage only inverts, indexes, and serializes.

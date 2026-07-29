@@ -108,7 +108,7 @@ def main() -> None:
     _add_config_args(resolve_cmd)
 
     emit_cmd = sub.add_parser(
-        "emit", parents=[common], help="stage 3 only — edges.jsonl → graph/<version>/"
+        "emit", parents=[common], help="stage 3 only — edges.jsonl → data/graph/<version>/"
     )
     _add_config_args(emit_cmd)
     _add_output_args(emit_cmd)

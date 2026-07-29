@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
 INTERIM_DIR = DATA_DIR / "interim"
-GRAPH_DIR = ROOT / "graph"
+GRAPH_DIR = DATA_DIR / "graph"
 
 
 def raw_path(year: int) -> Path:
