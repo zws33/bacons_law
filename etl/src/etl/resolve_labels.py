@@ -15,6 +15,7 @@ from etl.models import Edge
 logger = logging.getLogger(__name__)
 
 API_URL = "https://www.wikidata.org/w/api.php"
+CHECKPOINT_EVERY = 50
 
 
 class Label(BaseModel):
@@ -46,6 +47,10 @@ class ResolveLabelsStats(NamedTuple):
     n_labels: int
 
 
+def _write_labels(labels: dict[str, str | None]) -> None:
+    write_json(paths.labels_path(), dict(sorted(labels.items())))
+
+
 def resolve_labels(cfg: BuildConfig) -> ResolveLabelsStats:
     edges = _load_edges()
     movies = {e.movie for e in edges}
@@ -55,7 +60,6 @@ def resolve_labels(cfg: BuildConfig) -> ResolveLabelsStats:
     missing_qids = all_qids - existing.keys()
 
     labels: dict[str, str | None] = dict(existing)
-    labels.update({qid: None for qid in missing_qids})
 
     logger.info("Fetching labels for %d QIDs", len(missing_qids))
 
@@ -83,11 +87,17 @@ def resolve_labels(cfg: BuildConfig) -> ResolveLabelsStats:
         resp.raise_for_status()
         data = WBEntitiesResponse.model_validate(resp.json())
 
+        labels.update({qid: None for qid in batch})
         for entity in data.entities.values():
             label = entity.labels.get("en")
             if label is not None:
                 labels[entity.id] = label.value
 
-    # sorted so the cache is byte-reproducible across runs (set iteration order varies).
-    write_json(paths.labels_path(), dict(sorted(labels.items())))
+        if (i + 1) % CHECKPOINT_EVERY == 0:
+            _write_labels(labels)
+            logger.info(
+                "checkpoint: %d/%d QIDs written", len(labels) - len(existing), len(missing_qids)
+            )
+
+    _write_labels(labels)
     return ResolveLabelsStats(n_labels=sum(v is not None for v in labels.values()))

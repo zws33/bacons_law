@@ -12,6 +12,7 @@ tmp dir, so nothing hits the network or the real data/ tree.
 """
 
 import json
+import logging
 import time
 from pathlib import Path
 
@@ -179,3 +180,26 @@ def test_extract_refetches_stale_bare_list_without_crashing(
     data = json.loads((raw_dir / "films-1994.json").read_text())
     assert isinstance(data, dict)
     assert data["rows"] == [_row("Q9", "Q90")]
+
+
+def test_extract_skips_failed_year_and_reports(
+    raw_dir: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    # One year's WDQS query fails (SparqlError — what sparql.query actually raises);
+    # the other years must still be fetched, and the run must exit non-zero listing it.
+    def fake_query(q: str, cfg: BuildConfig):
+        if "YEAR(?date) = 1995" in q:
+            raise sparql.SparqlError("WDQS request failed: 504")
+        return [_row("Q1", "Q10")]
+
+    monkeypatch.setattr(sparql, "query", fake_query)
+    with caplog.at_level(logging.WARNING), pytest.raises(SystemExit) as exc:
+        extract.extract(BuildConfig(year_from=1994, year_to=1996))
+
+    assert "1995" in str(exc.value)
+    assert (raw_dir / "films-1994.json").exists()
+    assert (raw_dir / "films-1996.json").exists()
+    assert not (raw_dir / "films-1995.json").exists()  # the failed year was skipped, not written
+    assert any(
+        "1995" in r.getMessage() and "failed" in r.getMessage().lower() for r in caplog.records
+    )
