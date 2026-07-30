@@ -73,6 +73,7 @@ def extract(cfg: BuildConfig) -> ExtractStats:
     cached_count = 0
 
     total = cfg.year_to - cfg.year_from + 1
+    failed_years: list[int] = []
     for i, year in enumerate(range(cfg.year_from, cfg.year_to + 1), start=1):
         path = raw_path(year)
         if _cache_is_valid(cfg, year):
@@ -82,7 +83,13 @@ def extract(cfg: BuildConfig) -> ExtractStats:
 
         logger.info("[%d/%d] fetching %d...", i, total, year)
         start = time.perf_counter()
-        rows = sparql.query(render_query(year, cfg), cfg)
+        try:
+            rows = sparql.query(render_query(year, cfg), cfg)
+        except sparql.SparqlError as e:
+            logger.warning("[%d/%d] %d failed: %s", i, total, year, e)
+            failed_years.append(year)
+            continue
+
         logger.info(
             "[%d/%d] %d: fetched %d rows in %.1f s",
             i,
@@ -104,4 +111,6 @@ def extract(cfg: BuildConfig) -> ExtractStats:
         write_atomic(path, payload.model_dump_json())
         writes_count += 1
         time.sleep(1)  # be a good citizen; don't burst WDQS
+    if failed_years:
+        raise SystemExit(f"Failed to fetch {len(failed_years)} years: {failed_years}. ")
     return ExtractStats(fetched=writes_count, cached=cached_count)
