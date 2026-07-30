@@ -166,9 +166,7 @@ def test_resolve_resume_skips_attempted_including_nulls(
 # --- checkpointing ----------------------------------------------------------
 
 
-def test_resolve_checkpoint_contains_attempted_only(
-    tree: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_resolve_checkpoint_contains_attempted_only(tree: Path, monkeypatch: pytest.MonkeyPatch):
     # 30 edges -> 60 distinct QIDs -> two batches of [50, 10]. With CHECKPOINT_EVERY=1
     # a checkpoint fires after batch 1; it must contain exactly batch 1's 50 QIDs and
     # none of batch 2's. Seeding all missing QIDs up front (the bug) would write all 60.
