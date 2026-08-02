@@ -4,7 +4,8 @@
 > it by hand. It gives instructions, the reasoning behind each decision, and illustrative snippets for
 > the fiddly parts (SPARQL text, HTTP etiquette, dict-of-sets indexing) — but you write the function
 > bodies. Concepts are explained inline where they first matter. Not a spec to copy; a map to build
-> from. Pairs with [EXPLORATION.md](./EXPLORATION.md) (the source characterization) and the repo docs.
+> from. Pairs with [EXPLORATION.md](./EXPLORATION.md) (the source characterization) and
+> [QLEVER_MIGRATION_PLAN.md](./QLEVER_MIGRATION_PLAN.md) (the current endpoint migration).
 
 ---
 
@@ -28,14 +29,20 @@ design:
   policy, not size.
 - **Sitelink count is language-agnostic** → anchor on **enwiki ∩ ≥N sitelinks ∩ ≥3 cast** for an
   English audience.
-- **Only truthy `wdt:` queries scale** under WDQS's hard 60s wall; `p:`/`pq:` (statement/qualifier)
-  queries time out. We stay on the fast path and **partition by release year**, caching raw results to
-  disk so the transform stage never re-hits Wikidata.
+- **Stay on truthy `wdt:`.** `p:`/`pq:` (reified statements/qualifiers) would only buy billing order,
+  which is unusable anyway. We **partition by release year** and cache raw results to disk so the
+  transform stage never re-hits the endpoint.
+
+> **Endpoint note.** This guide was written against WDQS, whose hard ~60s wall drove several
+> decisions. WDQS could not serve the full 1900–2026 range at any decomposition, so the pipeline
+> targets **QLever** (`https://qlever.dev/api/wikidata`), a third-party index over the same CC0 data.
+> Year partitioning survives as a *choice* — resumable cache, small responses — not a necessity. See
+> [QLEVER_MIGRATION_PLAN.md](./QLEVER_MIGRATION_PLAN.md).
 
 **Scope decision (assumption):** artifact = **graph + typeahead entity index**. The labels needed for
-typeahead ride along on the same query via the label service, so pulling them now is nearly free and
-satisfies Phase 1's "done when." If you'd rather defer search, drop the `entities` map from Stage 3 and
-the label columns from Stage 1 — nothing else changes.
+typeahead ride along on the same query, so pulling them now is nearly free and satisfies Phase 1's
+"done when." If you'd rather defer search, drop the `entities` map from Stage 3 and the label columns
+from Stage 1 — nothing else changes.
 
 ---
 
@@ -75,7 +82,7 @@ to disk so the transform stage never re-hits Wikidata").
 
 Goal: a self-contained `etl/` project that a fresh clone can build from scratch.
 
-1. **`uv` for env + deps.** `uv init` in `etl/`, then `uv add httpx` (runtime) and
+1. **`uv` for env + deps.** `uv init` in `etl/`, then `uv add httpx2 pydantic` (runtime) and
    `uv add --dev pytest ruff` (dev). `uv` gives you a locked, reproducible environment without the
    virtualenv ceremony — *reproducibility* is a first-class goal here, and the lockfile is part of it.
 2. **`ruff` for lint + format.** Configure in `pyproject.toml`; 4-space indent is already set by the
@@ -95,7 +102,7 @@ Goal: a self-contained `etl/` project that a fresh clone can build from scratch.
      tests/
        test_transform.py
        fixtures/…
-     data/              # gitignored: raw/ and interim/ caches
+     data/              # gitignored: raw/ and interim/ caches, and graph/ artifacts
    ```
 4. **`config.py` as the single source of tunable truth.** The threshold and cap are *gameplay dials*
    (CASE_STUDY §3), so make them parameters, not magic numbers scattered in code. A frozen dataclass is
@@ -108,7 +115,7 @@ Goal: a self-contained `etl/` project that a fresh clone can build from scratch.
        cast_cap: int = 15          # top-N by ACTOR sitelink count (not billing order)
        require_enwiki: bool = True # English-audience recognizability anchor
        user_agent: str = "bacons-law-etl/0.1 (zach.smith33@gmail.com)"
-       endpoint: str = "https://query.wikidata.org/sparql"
+       endpoint: str = "https://qlever.dev/api/wikidata"
    ```
    Every one of these appears later in the artifact manifest — that's how a build becomes *reproducible
    and self-describing*.
@@ -121,10 +128,15 @@ Goal: pull the denormalized edge rows once, politely, and cache them per year.
 
 ### The query (illustrative — adapt from EXPLORATION §6)
 
-Stay entirely on **truthy `wdt:`** (the one materialized hop; fast) — never `p:`/`pq:` (reified
-statements; time out). One query per release-year partition:
+Stay entirely on **truthy `wdt:`** (the one materialized hop). One query per release-year partition:
 
 ```sparql
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+PREFIX wikibase: <http://wikiba.se/ontology#>
+PREFIX schema: <http://schema.org/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
 SELECT ?film ?filmLabel ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE {
   ?film wdt:P31 wd:Q11424 ;               # instance of: film
         wikibase:sitelinks ?filmSitelinks ;
@@ -140,51 +152,65 @@ SELECT ?film ?filmLabel ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE 
   # enwiki anchor (recognizability): require an English Wikipedia article
   ?article schema:about ?film ; schema:isPartOf <https://en.wikipedia.org/> .
 
-  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+  OPTIONAL { ?film  rdfs:label ?filmLabel  . FILTER(LANG(?filmLabel)  = "en") }
+  OPTIONAL { ?actor rdfs:label ?actorLabel . FILTER(LANG(?actorLabel) = "en") }
 }
 ```
 
 **Why each piece:**
+- **The `PREFIX` block is mandatory.** WDQS injects these silently; QLever has no defaults and rejects
+  the query without them. Keeping them explicit also keeps the query readable on any endpoint.
 - `wikibase:sitelinks` is a *materialized* count (ontology-level), so filtering/pulling it is cheap —
   this is what lets us both filter on notability *and* rank cast by actor notability without a second
   query.
-- `FILTER(YEAR(?date) = …)` is the **partition key**. WDQS has a hard ~60s server timeout; a single
-  pull of the whole catalog with cast blows past it. Slicing by year bounds each query to tens of
-  thousands of edges — comfortably under the wall — and makes the pull **resumable** (see below).
+- `FILTER(YEAR(?date) = …)` is the **partition key**. It originally existed to fit under WDQS's ~60s
+  wall. QLever has no such wall — the full range returns in seconds — so partitioning is now kept for
+  two other reasons: the pull stays **resumable** per year, and each response stays small enough for
+  non-streaming JSON parsing.
 - `FILTER NOT EXISTS` for `Q93204`/`Q506240` enforces the **movies-only** project constraint at the
   source (AGENTS "What to Avoid"). EXPLORATION flagged this as unmeasured — expect to eyeball a sample.
-- The **enwiki anchor** + `SERVICE wikibase:label` give recognizable titles *and* the labels the
-  typeahead index needs, in one shot.
+- **`OPTIONAL`, not `SERVICE wikibase:label`.** The label service is a Wikibase extension QLever
+  doesn't implement. `OPTIONAL` matters twice over: an entity with no English label must still produce
+  its edge, and the two joins were measured to add **zero** rows at full scale.
 
 ### The client and the loop
 
-- **Etiquette is not optional** (`sparql.py`): a descriptive `User-Agent` with contact info is
-  **required** — generic/absent agents are blocked outright. Set `Accept:
-  application/sparql-results+json`. Use a client-side timeout just under WDQS's server limit
-  (`httpx.get(..., timeout=58)`) so *you* fail cleanly instead of eating an opaque upstream 500.
+- **Etiquette** (`sparql.py`): send a descriptive `User-Agent` with contact info. WDQS blocks generic
+  agents outright; QLever doesn't, but it's a small academic service and identifying yourself is how an
+  operator reaches you if a pull misbehaves. Set `Accept: application/sparql-results+json`.
+- **The unbound-label trap.** In `application/sparql-results+json`, an unbound `OPTIONAL` variable is
+  **omitted from the binding object entirely** — not present-and-null. So `b["actorLabel"]["value"]`
+  raises `KeyError` on the first entity without an English label. Use `.get()` and fall back to the
+  QID, which restores the guarantee `SERVICE wikibase:label` used to provide. It will essentially
+  always be an actor: films must clear the sitelinks floor *and* have an English Wikipedia article,
+  which all but guarantees an English label; actors have neither constraint.
 - **Resumability = skip-if-cached.** Iterate years; before each request check whether
-  `data/raw/films-<year>.json` already exists and skip if so. This makes an interrupted pull safe to
-  re-run (idempotent), and means a threshold change that widens the catalog only fetches the *new*
-  slices. Illustrative:
+  `data/raw/films-<year>.json` already exists and is still valid for the current config, and skip if
+  so. This makes an interrupted pull safe to re-run (idempotent), and means a threshold change that
+  widens the catalog only fetches the *new* slices. Illustrative:
 
   ```python
   for year in range(cfg.year_from, cfg.year_to + 1):
       path = raw_dir / f"films-{year}.json"
       if path.exists():
           continue
-      rows = sparql.query(render_query(year, cfg))   # raises on timeout → let it, then rerun
+      rows = sparql.query(render_query(year, cfg))
       path.write_text(json.dumps(rows))
       time.sleep(1)                                    # be a good citizen; don't burst
-
   ```
-- **Fallback if a year still times out** (prolific modern years): sub-partition — split that year by a
-  second axis (e.g. two sitelink bands, or half-years). Keep the partition key in the filename so the
-  cache stays coherent.
+
+  The cache key must include the config fields baked into the query (`min_sitelinks`,
+  `require_enwiki`, `endpoint`) — otherwise a dial change silently reuses stale partitions. Changing
+  the endpoint correctly invalidates every partition.
+- **A failing year is not fatal.** Log it, skip it, and report the failed years with a non-zero exit;
+  the cache makes a re-run retry only those. On QLever a timeout is a signal something else is
+  wrong — these queries return in seconds.
 
 **Concept — why cache the *raw* rows, not the cleaned graph:** the raw pull is your expensive,
-non-reproducible-on-demand resource (Wikidata changes daily; the endpoint is shared). Freezing it to
-disk makes every downstream run deterministic *and* offline. The date of this pull becomes provenance
-you record in the manifest.
+non-reproducible-on-demand resource. The index drifts ~0.008%/day, so two pulls days apart legitimately
+differ. Freezing rows to disk is what makes reproducibility meaningful: **the same raw cache must
+produce the same artifact**, which is a property you control, unlike "the same query returns the same
+rows," which you don't.
 
 ---
 
@@ -256,9 +282,10 @@ artifact. Also pure.
 5. **Write a versioned directory with a manifest.** This is what makes it an *artifact* rather than a
    dump:
    ```
-   graph/v1/
+   data/graph/v1/
      manifest.json   # schema_version, source="wikidata", query_date, config params, counts
-     graph.json      # { "movies": {qid: [actorQid,…]}, "actors": {qid: [movieQid,…]},
+     graph.json      # { "movies_to_actors": {qid: [actorQid,…]},
+                     #   "actors_to_movies": {qid: [movieQid,…]},
                      #   "entities": {qid: {"label","type"}} }
    ```
    The manifest records the **exact parameters** (`min_sitelinks`, `min_cast`, `cast_cap`, enwiki flag)
@@ -293,14 +320,17 @@ Run with `uv run pytest`. Lint/format with `uv run ruff check` / `uv run ruff fo
 ROADMAP: *"a documented offline run produces a loadable, versioned artifact from scratch."* Concretely:
 
 1. From a clean `etl/`, `uv sync`, then `uv run python -m etl build` (with default config) completes:
-   pulls raw slices → writes `data/raw/*.json` → `data/interim/edges.jsonl` → `graph/v1/`.
-2. `graph/v1/manifest.json` exists and its `n_movies` lands in the ~50k ballpark and `n_edges` in the
-   hundreds of thousands (EXPLORATION sanity numbers: ~51k usable films, ~593k raw edges pre-cap).
+   pulls raw slices → writes `data/raw/*.json` → `data/interim/edges.jsonl` → `data/graph/v1/`.
+2. `data/graph/v1/manifest.json` exists and its counts are in the right ballpark. Measured against the
+   live endpoint for the full 1900–2026 range at `min_sitelinks=5`: **1,228,492 raw rows** (P577 is
+   multi-valued, so a film emits one row per release date), collapsing to **~680k distinct edges**
+   pre-cap across **~68k films**. EXPLORATION independently predicted ~68k films at this threshold —
+   two methods, same answer.
 3. **Symmetry + load check** (write a 15-line throwaway script): load `graph.json`, assert every
    `movie→actor` edge has its inverse, and spot-check a known chain by QID — e.g. *Inception* (`Q25188`)
    contains DiCaprio (`Q38111`), and DiCaprio's films contain *Titanic* (`Q44578`). This proves the
    O(1) lookup the server will do is correct against real data.
-4. Re-run the pipeline; confirm the raw cache is reused (no new network calls) and `graph/v1` is
+4. Re-run the pipeline; confirm the raw cache is reused (no new network calls) and `data/graph/v1` is
    byte-identical — proving reproducibility.
 5. `uv run pytest` green; `uv run ruff check` clean.
 
@@ -323,8 +353,11 @@ ROADMAP: *"a documented offline run produces a loadable, versioned artifact from
 
 ## Deliberately out of scope (defer)
 
-- **Wikidata dumps path** — SPARQL-partitioned pull is enough at this scale (EXPLORATION §5); dumps buy
-  completeness/reproducibility at a size cost. Revisit only if the endpoint becomes a bottleneck.
+- **Wikidata dumps path** — originally deferred pending "the endpoint becoming a bottleneck." It did:
+  WDQS could not serve the full range at any decomposition. The resolution was a **faster endpoint**
+  (QLever), not a dump pipeline — one query, labels included, seconds. Dumps remain the documented
+  floor if QLever becomes unavailable, since there is no other route to a complete graph; the cost is
+  a ~150GB download and a streaming parser. See QLEVER_MIGRATION_PLAN.md §6.
 - **The MediaWiki Action API entity-detail fetch** — only needed if you later want per-entity fields the
   SPARQL rows don't carry. Not required for the graph.
 - **`P1545` as a real signal** — ~8% coverage; at most a rare tiebreaker, and we already tiebreak on QID.
