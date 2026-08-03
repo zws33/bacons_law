@@ -15,22 +15,15 @@ SELECT ?film ?filmLabel ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE 
 }
 ```
 
-`SERVICE wikibase:label` blew the WDQS 60-second wall on a *single year*. `5736262` removed it and
-built the `resolve` stage — `wbgetentities` batching, `labels.json`, presence-based resume — to
-compensate, and `889b718` added checkpointing so that stage could survive an 80-minute run.
-
-That was the right response to the constraint, and it wasn't enough. Without labels a single year
-completed in ~30s, but the full 1900–2026 pull still hit timeouts. **WDQS could not serve this
-volume at any decomposition** — not with labels inline, not with labels split out, not partitioned
-by year. That is the failure that opened this investigation.
+That one `SERVICE` line blew the WDQS 60-second wall. `5736262` removed it and built the `resolve`
+stage — `wbgetentities` batching, `labels.json`, presence-based resume — to compensate, and
+`889b718` then added checkpointing to make that stage survive an 80-minute run.
 
 **The 60-second wall is a WDQS operational policy, not a property of SPARQL or of Wikidata.** QLever
-answers the whole range *with* labels in 4.3 seconds. It is not that the workaround was wrong; it is
-that the constraint forcing it is gone, and so is the larger constraint the workaround never
-addressed.
+answers the same query with labels in 4.3 seconds. So the entire label-resolution branch was a
+workaround for one line, and this migration deletes it rather than fixing it.
 
-The target shape is therefore `6af796e` — the last version where labels came from the query. This is
-a restoration, not a redesign.
+The target shape is `6af796e`. This is a restoration, not a redesign.
 
 ### 1.1 What the spike measured
 
@@ -150,20 +143,13 @@ It will complete without this on a machine with room. It is a should-fix, not a 
 QLever is a third-party, best-effort service with no SLA; WDQS is the official Wikimedia endpoint.
 You are trading slow-and-rate-limited for fast-and-unguaranteed.
 
-Be honest about how much of a dependency this is. **WDQS is not a fallback** — §1 is the whole point:
-it could not serve this volume with labels, without labels, or partitioned. Falling back to it means
-a partial build of recent years, not a full one. The query staying portable is worth something for
-spot-checking and for a reduced range, but it does not get you an artifact.
-
-1. **The dump pipeline is the real floor.** More work, depends on nothing but the dumps, and it is
-   the only alternative that produces a complete graph. Keep the design note; you now know you don't
-   need it *today*.
-2. **Back up `data/raw/` off this laptop** the moment the full pull lands. This matters more than it
-   would if WDQS were a viable fallback: `data/` is gitignored, and a raw cache you already hold is
-   the difference between a QLever outage being an inconvenience and being a rebuild from a 150GB
-   dump. The artifact under `data/graph/<version>/` is worth backing up for the same reason.
-3. **The query stays portable.** Explicit prefixes mean it runs on WDQS apart from the label joins.
-   Useful for verification against the official endpoint, not for production builds.
+1. **The query stays portable.** Explicit prefixes mean it runs on WDQS unchanged apart from the
+   label joins. Keeping year partitioning means falling back is a config change, not a rewrite.
+   Note the fallback is to the *pre-label* query — WDQS still can't do labels inline.
+2. **The dump pipeline remains the floor.** More work, depends on nothing but the dumps. You now
+   know you don't need it.
+3. **Back up `data/raw/` off this laptop** once the full pull lands. `data/` is gitignored and
+   regenerating it depends on a service you don't control.
 
 Worth an ADR — it changes the data-acquisition path, which `AGENTS.md` states as load-bearing fact.
 **ADR 014** in `docs/DECISIONS.md`.
@@ -193,21 +179,18 @@ Contained to `extract.py` and `sparql.py`. Do it when the loop annoys you.
 
 ## 9. Docs
 
+- **`docs/01-extract.md`** — never updated when `5736262` removed labels, so it still documents the
+  labels-in-query design and becomes *correct again* after this migration. Only the query section
+  needs touching: `SERVICE wikibase:label` → `OPTIONAL rdfs:label`, plus the `PREFIX` block and the
+  endpoint. Same for `IMPLEMENTATION_GUIDE.md`'s "labels carried on the edges" line, which is
+  accurate for the target shape.
 - **`etl/AGENTS.md`** — the endpoint, and qualify the ~60s wall as WDQS-specific rather than inherent
-  to SPARQL. The three-stage pipeline description is correct again once `resolve` is gone. Its "Docs"
-  section still points at `docs/00–04` and `docs/README.md`, which no longer exist — that block needs
-  rewriting or removing.
-- **`IMPLEMENTATION_GUIDE.md`** — its "labels carried on the edges" line (~249) was written for the
-  `6af796e` shape and is accurate again after this migration. Check the rest for references to the
-  deleted `docs/` tree.
-- **`.opencode/prompts/tutor.md`** — instructs against opening `etl/docs/00-*.md … 04-*.md` as answer
-  keys. Those files are gone; the instruction is now dead.
-- **`docs/DECISIONS.md`** — ADR 014, per §6. Frame it as "accept a third-party dependency because the
-  official endpoint cannot serve this workload," not "swap endpoints" — §1 and §6 are the substance.
+  to SPARQL. The three-stage pipeline description is correct again once `resolve` is gone.
+- **`docs/DECISIONS.md`** — ADR 014, per §6.
 - **`EXPLORATION.md`** — no change; its characterization held and the spike corroborated it.
-- **Already deleted:** `SCALE_READINESS_PLAN.md` (§2 protected a stage that no longer exists; §3
-  shipped in `889b718`), `LOGGING_PLAN.md` (shipped in `5736262`), and the whole `etl/docs/` tree of
-  staged reference implementations. Git history holds them.
+- **Deleted:** `SCALE_READINESS_PLAN.md` (§2 protected a stage that no longer exists; §3 shipped in
+  `889b718`) and `LOGGING_PLAN.md` (shipped in `5736262`). Both were "plan to implement against"
+  documents whose work is done; git history holds them.
 
 ## 10. Sequencing
 
