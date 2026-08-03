@@ -27,20 +27,6 @@ The repo root is intentionally **stack-agnostic** — it holds shared docs and m
 implementation/component is a **self-contained project in its own top-level directory** with its own
 toolchain. Adding a new (polyglot) experiment is *adding a directory*, not restructuring the root.
 
-```
-bacons-law/               # stack-agnostic root — shared docs + meta only
-├── docs/                 # shared knowledge: case study, engine spec, decisions; docs/python/ archive
-├── kotlin/               # self-contained Gradle project — the Kotlin implementation
-│   ├── core/             # Pure Kotlin/JVM — game engine + shared domain types. Zero platform deps. REUSED.
-│   ├── backend/          # Ktor service. TODAY: TMDB proxy (prior phase). TARGET: graph-backed game
-│   │                     #   server — loads the graph in-process, durable game store (Postgres), HTTP +
-│   │                     #   WS move adapters, Redis presence/cache, O(1) validation.
-│   └── app/              # Android/Compose client. Secondary; modernized into a multi-device client later.
-├── etl/                  # Python (planned, Phase 1) — offline batch pipeline. Pulls Wikidata (CC0),
-│                         #   caps cast depth, emits the versioned graph artifact. Separate toolchain.
-└── <future>/            # new experiments / components are new top-level dirs; the root stays neutral
-```
-
 Gradle commands run from `kotlin/` (that's where `settings.gradle.kts` and the wrapper live). Gradle
 module notation (`:core`, `:backend`, `:app`) is unchanged — it's relative to the `kotlin/` project.
 
@@ -70,12 +56,6 @@ Compose UI. Built for the old pass-the-phone model; will be modernized into a th
 that renders server-pushed state (or replaced by a new web client — decided at Phase 4). It depends on
 `:core` and never holds data-source credentials.
 
-#### Android notes
-
-For Android-specific tasks, prefer Google's `android` CLI if on PATH (`android version || android --help`)
-for SDK install/update, emulator/device workflows, project discovery, and official docs. Use Gradle for
-normal builds/tests. If `android` is not installed, say so and fall back to the Gradle + Android SDK flow.
-
 ---
 
 ## Environment Setup
@@ -85,23 +65,14 @@ offline. Do not reintroduce a per-turn movie-API dependency.
 
 - **ETL (Phase 1+):** runs offline; its Wikidata access needs no secret. Output is a versioned graph
   artifact consumed by the server.
-- **Server:** needs `DATABASE_URL` (Postgres — authoritative game state) and `REDIS_URL` (presence,
-  pub/sub broadcast, hot-game cache). In production these are injected via `fly secrets`; locally,
-  export them in the environment.
+- **Server:** needs `DATABASE_URL` and `REDIS_URL` — see
+  [kotlin/backend/CLAUDE.md](kotlin/backend/CLAUDE.md).
 
 ---
 
 ## Build & Test Commands
 
 Gradle commands run from `kotlin/`; the ETL runs from `etl/`. No build tooling runs from the repo root.
-
-| Task | Command |
-|------|------|
-| Run `:core` unit tests | `cd kotlin && ./gradlew :core:test` |
-| Run all JVM unit tests | `cd kotlin && ./gradlew test` |
-| Build everything | `cd kotlin && ./gradlew build` |
-| Run the server (when built) | `cd kotlin && ./gradlew :backend:run` |
-| ETL (planned) | `uv run …` from `etl/` (separate toolchain) |
 
 `:core:test` is the fast feedback loop for game logic.
 
@@ -121,11 +92,10 @@ colocated on Fly. See [ROADMAP.md](ROADMAP.md) Phase 5.
 
 ## Code Conventions
 
-- **Indent:** per-language via `.editorconfig` (Kotlin/XML 2 spaces, Python 4).
 - **Commits:** Conventional commit format — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`.
 - **Kotlin style:** follow existing style; prefer pure functions and immutable data in `:core`.
 - **Build versions:** declared in `gradle/libs.versions.toml`. Don't hardcode version strings.
-- **Python (etl/):** `ruff` + `uv`; keep it self-contained and offline.
+- **Python (etl/):** keep it self-contained and offline.
 
 ---
 
