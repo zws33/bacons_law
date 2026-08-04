@@ -96,11 +96,6 @@ def main() -> None:
     )
     _add_config_args(transform_cmd)
 
-    resolve_cmd = sub.add_parser(
-        "resolve", parents=[common], help="stage 2.5 only — edges.jsonl → labels.json"
-    )
-    _add_config_args(resolve_cmd)
-
     emit_cmd = sub.add_parser(
         "emit", parents=[common], help="stage 3 only — edges.jsonl → data/graph/<version>/"
     )
@@ -127,10 +122,15 @@ def main() -> None:
             _run_transform(config)
         elif args.command == "emit":
             _run_emit(config, args)
-        else:
+        elif args.command == "build":
             _run_extract(config)
             _run_transform(config)
             _run_emit(config, args)
+        else:
+            # Unreachable via argparse (subparsers are required, so it rejects an unknown
+            # name with exit 2). It exists because `build` used to be the bare `else`: a
+            # subparser registered without a branch here silently ran a full build instead.
+            raise SystemExit(f"unknown command: {args.command}")
     except ValueError as e:
         raise SystemExit(str(e)) from e
 

@@ -1,5 +1,4 @@
 import json
-from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -18,11 +17,6 @@ def write_atomic(path: Path, text: str) -> None:
 
 
 # --- JSON conveniences (generic serialization, the lingua franca) ---
-def write_json(path: Path, obj: object) -> None:
-    """json.dumps(obj) → write_atomic. The common write path for extract/emit."""
-    write_atomic(path, json.dumps(obj))
-
-
 def read_json(path: Path) -> Any:
     """Parse a required JSON file. Raises on missing/corrupt — caller wants it to exist."""
     with open(path) as f:
@@ -39,12 +33,8 @@ def read_json_or_none(path: Path) -> Any | None:
 
 
 # --- JSONL framing (newline-delimited json is generic mechanism, not schema) ---
-def write_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> None:
-    """Serialize each record to one line, atomic. Caller supplies dicts; framing lives here."""
-    lines = [json.dumps(record) for record in records]
-    write_atomic(path, "\n".join(lines))
-
-
+# The writer lives in transform._write_edges, not here: it streams an Iterable[Edge] so a
+# full-range build never materializes every edge, which a path taking a list cannot do.
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     """Parse a JSONL file into dicts. dict→domain conversion is the caller's job."""
     records = []
