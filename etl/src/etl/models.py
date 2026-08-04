@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from pydantic import BaseModel, model_validator
 
@@ -23,8 +23,22 @@ class Film:
 class Edge:
     movie: str
     movie_label: str
+    movie_year: int
     actor: str
     actor_label: str
+
+
+class Entity(TypedDict):
+    """One node of the typeahead index Phase 4 search resolves names against.
+
+    `year` is ABSENT for actors rather than null — a person has no release year, and
+    omitting it keeps a null off every actor entry in the artifact. Read it back as a
+    nullable Int loader-side.
+    """
+
+    label: str
+    type: str
+    year: NotRequired[int]
 
 
 QueryDateRange = TypedDict("QueryDateRange", {"from": str | None, "to": str | None})

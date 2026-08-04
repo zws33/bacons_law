@@ -1,10 +1,11 @@
 """Tests for the transform stage (etl.transform) — pure functions only.
 
-Three seams are tested here:
+Four seams are tested here:
   * build_edge_list — the main entry point that filters films by min_cast,
-    caps each film's cast, and emits sorted Edge objects.
+    caps each film's cast, and emits sorted Edge objects stamped with the partition year.
   * _cap_cast — the cast capping helper that sorts by sitelinks (desc) then numeric qid (asc).
   * _load_rows — partition order, which decides the interim file's line order.
+  * _edges — cross-partition film dedupe, which decides which year a film ends up with.
 
 All tests are deterministic and network-free.
 """
@@ -18,7 +19,7 @@ import etl.paths as paths
 from etl import extract
 from etl.config import BuildConfig
 from etl.models import Actor, WikidataRow
-from etl.transform import _build_edge_list, _cap_cast, _load_rows
+from etl.transform import _build_edge_list, _cap_cast, _Counter, _edges, _load_rows
 
 # --- fixtures / helpers -----------------------------------------------------------
 
@@ -103,19 +104,19 @@ def test_cap_cast_cap_zero():
 
 def test_transform_empty_rows():
     """Empty input yields empty edges."""
-    assert _build_edge_list([], min_cast=1, cast_cap=10) == []
+    assert _build_edge_list([], year=1994, min_cast=1, cast_cap=10) == []
 
 
 def test_transform_single_row_below_min_cast():
     """Film with cast below min_cast is filtered out."""
     rows = [_row()]
-    assert _build_edge_list(rows, min_cast=2, cast_cap=10) == []
+    assert _build_edge_list(rows, year=1994, min_cast=2, cast_cap=10) == []
 
 
 def test_transform_single_row_meets_min_cast():
     """Film with cast exactly at min_cast is included."""
     rows = [_row()]
-    result = _build_edge_list(rows, min_cast=1, cast_cap=10)
+    result = _build_edge_list(rows, year=1994, min_cast=1, cast_cap=10)
     assert len(result) == 1
     assert result[0].movie == "Q1"
     assert result[0].actor == "Q10"
@@ -128,7 +129,7 @@ def test_transform_multiple_rows_same_film():
         _row(film="Q1", actor="Q20"),
         _row(film="Q1", actor="Q30"),
     ]
-    result = _build_edge_list(rows, min_cast=2, cast_cap=10)
+    result = _build_edge_list(rows, year=1994, min_cast=2, cast_cap=10)
     assert len(result) == 3  # 3 edges for one film with 3 actors
     film_qids = {e.movie for e in result}
     assert film_qids == {"Q1"}
@@ -143,7 +144,7 @@ def test_transform_multiple_films():
         _row(film="Q2", actor="Q20"),
         _row(film="Q2", actor="Q21"),
     ]
-    result = _build_edge_list(rows, min_cast=1, cast_cap=10)
+    result = _build_edge_list(rows, year=1994, min_cast=1, cast_cap=10)
     assert len(result) == 3
     film_qids = {e.movie for e in result}
     assert film_qids == {"Q1", "Q2"}
@@ -156,7 +157,7 @@ def test_transform_filters_film_below_min_cast():
         _row(film="Q2", actor="Q20"),
         _row(film="Q2", actor="Q21"),  # film Q2 has 2 actors
     ]
-    result = _build_edge_list(rows, min_cast=2, cast_cap=10)
+    result = _build_edge_list(rows, year=1994, min_cast=2, cast_cap=10)
     assert len(result) == 2
     assert all(e.movie == "Q2" for e in result)
 
@@ -164,7 +165,7 @@ def test_transform_filters_film_below_min_cast():
 def test_transform_applies_cast_cap():
     """Each film's cast is capped at cast_cap."""
     rows = [_row(film="Q1", actor=f"Q{i}", actor_sitelinks=100 - i) for i in range(10)]
-    result = _build_edge_list(rows, min_cast=1, cast_cap=3)
+    result = _build_edge_list(rows, year=1994, min_cast=1, cast_cap=3)
     assert len(result) == 3
     actor_qids = [e.actor for e in result]
     # Sorted by sitelinks desc, so Q0 (100), Q1 (99), Q2 (98) should be first
@@ -179,7 +180,7 @@ def test_transform_edges_sorted_by_movie_then_actor():
         _row(film="Q2", actor="Q20"),
         _row(film="Q1", actor="Q10"),
     ]
-    result = _build_edge_list(rows, min_cast=1, cast_cap=10)
+    result = _build_edge_list(rows, year=1994, min_cast=1, cast_cap=10)
     movie_actor_pairs = [(e.movie, e.actor) for e in result]
     assert movie_actor_pairs == [
         ("Q1", "Q10"),
@@ -196,7 +197,7 @@ def test_transform_duplicate_rows_same_film_same_actor():
         _row(film="Q1", actor="Q10"),  # duplicate
         _row(film="Q1", actor="Q20"),
     ]
-    result = _build_edge_list(rows, min_cast=1, cast_cap=10)
+    result = _build_edge_list(rows, year=1994, min_cast=1, cast_cap=10)
     assert len(result) == 2
     actor_qids = {e.actor for e in result}
     assert actor_qids == {"Q10", "Q20"}
@@ -215,7 +216,7 @@ def test_transform_mixed_min_cast_filtering():
         _row(film="Q3", actor="Q30"),
         _row(film="Q3", actor="Q31"),
     ]
-    result = _build_edge_list(rows, min_cast=2, cast_cap=10)
+    result = _build_edge_list(rows, year=1994, min_cast=2, cast_cap=10)
     film_qids = {e.movie for e in result}
     assert film_qids == {"Q1", "Q3"}
     assert len(result) == 5  # 3 from Q1 + 2 from Q3
@@ -231,7 +232,7 @@ def test_transform_with_cast_cap_and_min_cast():
         # Q2: 1 actor, below min_cast=2 -> excluded
         _row(film="Q2", actor="Q20"),
     ]
-    result = _build_edge_list(rows, min_cast=2, cast_cap=3)
+    result = _build_edge_list(rows, year=1994, min_cast=2, cast_cap=3)
     assert len(result) == 3
     assert all(e.movie == "Q1" for e in result)
     actor_qids = [e.actor for e in result]
@@ -245,7 +246,7 @@ def test_transform_cast_cap_below_min_cast():
     the gate and the degree cap are independent knobs.
     """
     rows = [_row(film="Q1", actor=f"Q{i}", actor_sitelinks=100 - i) for i in range(4)]
-    result = _build_edge_list(rows, min_cast=4, cast_cap=2)
+    result = _build_edge_list(rows, year=1994, min_cast=4, cast_cap=2)
     assert len(result) == 2
     assert [e.actor for e in result] == ["Q0", "Q1"]
 
@@ -280,13 +281,83 @@ def _write_partition(raw: Path, year: int, rows: list[WikidataRow]) -> None:
 def test_load_rows_yields_partitions_oldest_first(raw_dir: Path):
     """Path.glob yields in os.scandir order, which is filesystem-dependent. Sorting makes
     the interim file's line order reproducible across machines, and over films-YYYY.json
-    lexicographic order is chronological."""
+    lexicographic order is chronological — which is also what makes _edges' first-seen-wins
+    dedupe resolve to the earliest release year."""
     _write_partition(raw_dir, 2016, [_row(film="Q3")])
     _write_partition(raw_dir, 1994, [_row(film="Q1")])
     _write_partition(raw_dir, 2005, [_row(film="Q2")])
 
-    assert [rows[0]["film"] for rows in _load_rows()] == ["Q1", "Q2", "Q3"]
+    assert [p.rows[0]["film"] for p in _load_rows()] == ["Q1", "Q2", "Q3"]
+
+
+def test_load_rows_yields_the_partition_year(raw_dir: Path):
+    """The year is why the whole payload is yielded rather than just its rows: it is the
+    film's publication year, guaranteed by the query's YEAR(?date) filter."""
+    _write_partition(raw_dir, 2016, [_row(film="Q3")])
+    _write_partition(raw_dir, 1994, [_row(film="Q1")])
+
+    assert [p.year for p in _load_rows()] == [1994, 2016]
 
 
 def test_load_rows_empty_dir_yields_nothing(raw_dir: Path):
     assert list(_load_rows()) == []
+
+
+# --- the year on the edge -------------------------------------------------------
+
+
+def test_build_edge_list_stamps_the_partition_year_on_every_edge():
+    rows = [_row(film="Q1", actor="Q10"), _row(film="Q1", actor="Q11")]
+    result = _build_edge_list(rows, year=1999, min_cast=1, cast_cap=10)
+    assert [e.movie_year for e in result] == [1999, 1999]
+
+
+# --- _edges: cross-partition dedupe ---------------------------------------------
+
+
+def test_edges_emits_a_cross_partition_film_once_at_its_earliest_year(raw_dir: Path):
+    """P577 is multi-valued, so a festival premiere and a wide release put the same film in
+    two partitions. It must be emitted once, and at the earlier year — otherwise emit's
+    last-write-wins entities loop would hand it whichever partition iterated last."""
+    cast = [_row(film="Q1", actor="Q10"), _row(film="Q1", actor="Q11")]
+    _write_partition(raw_dir, 2015, cast)
+    _write_partition(raw_dir, 2016, cast)  # same film, same cast, later partition
+
+    edges = list(_edges(min_cast=1, cast_cap=10, counter=_Counter()))
+    assert [(e.movie, e.actor, e.movie_year) for e in edges] == [
+        ("Q1", "Q10", 2015),
+        ("Q1", "Q11", 2015),
+    ]
+
+
+def test_edges_counts_the_deduped_film_once(raw_dir: Path):
+    """TransformStats must describe the graph, not the interim line count — the CLI prints
+    it right beside emit's n_edges."""
+    rows = [_row(film="Q1", actor="Q10")]
+    _write_partition(raw_dir, 2015, rows)
+    _write_partition(raw_dir, 2016, rows)
+
+    counter = _Counter()
+    _ = list(_edges(min_cast=1, cast_cap=10, counter=counter))
+    assert (counter.edges, len(counter.movies), len(counter.actors)) == (1, 1, 1)
+
+
+def test_edges_keeps_distinct_films_from_different_partitions(raw_dir: Path):
+    """The dedupe is keyed on the film QID, so it must not swallow a different film that
+    happens to share a partition with a repeat."""
+    _write_partition(raw_dir, 2015, [_row(film="Q1", actor="Q10")])
+    _write_partition(raw_dir, 2016, [_row(film="Q1", actor="Q10"), _row(film="Q2", actor="Q20")])
+
+    edges = list(_edges(min_cast=1, cast_cap=10, counter=_Counter()))
+    assert [(e.movie, e.movie_year) for e in edges] == [("Q1", 2015), ("Q2", 2016)]
+
+
+def test_edges_does_not_resurrect_a_film_the_min_cast_gate_dropped(raw_dir: Path):
+    """A film below min_cast joins `seen` anyway: its cast comes from wdt:P161 and is
+    date-independent, so the repeat partition carries the same rows and the same verdict.
+    Re-testing it would be wasted work, and emitting it would contradict the first pass."""
+    rows = [_row(film="Q1", actor="Q10")]  # 1 cast member, below min_cast=2
+    _write_partition(raw_dir, 2015, rows)
+    _write_partition(raw_dir, 2016, rows)
+
+    assert list(_edges(min_cast=2, cast_cap=10, counter=_Counter())) == []

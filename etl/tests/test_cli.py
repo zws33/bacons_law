@@ -84,6 +84,7 @@ def _edge(movie: str = "Q1", actor: str = "Q10") -> Edge:
     return Edge(
         movie=movie,
         movie_label=f"Film {movie}",
+        movie_year=1994,
         actor=actor,
         actor_label=f"Actor {actor}",
     )
@@ -165,6 +166,19 @@ def test_emit_defaults_to_v1_without_force(
 
 
 # --- exit status ------------------------------------------------------------------
+
+
+def test_retired_resolve_subcommand_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, stages: dict[str, Recorder]
+):
+    """`resolve` outlived the label stage it drove. It was still registered but had no
+    dispatch branch, so it fell through to the bare `else` — which was the *build* chain:
+    102 network queries, then an AttributeError on the --out-version it never declared.
+    Rejected by argparse now, and the fall-through raises instead of building."""
+    with pytest.raises(SystemExit) as exc:
+        run(monkeypatch, "resolve")
+    assert exc.value.code == 2  # argparse usage error, before any stage runs
+    assert not any(rec.calls for rec in stages.values())
 
 
 def test_no_subcommand_is_an_error(monkeypatch: pytest.MonkeyPatch):

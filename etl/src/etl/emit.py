@@ -12,9 +12,10 @@ from pathlib import Path
 import etl.paths as paths
 from etl.config import BuildConfig
 from etl.io import read_json_or_none, read_jsonl, write_atomic
-from etl.models import Edge, Manifest, ManifestConfig, QueryDateRange
+from etl.models import Edge, Entity, Manifest, ManifestConfig, QueryDateRange
 
-SCHEMA_VERSION = 1
+# 2: entities carry a release year on movie entries (typeahead disambiguation).
+SCHEMA_VERSION = 2
 
 type AdjacencyGraph = tuple[dict[str, set[str]], dict[str, set[str]]]
 
@@ -112,11 +113,20 @@ def _build_adjacency(edges: list[Edge]) -> AdjacencyGraph:
     return movies_to_actors, actors_to_movies
 
 
-def _build_entities(edges: list[Edge]) -> dict[str, dict[str, str]]:
-    """qid → {label, type}: the typeahead index Phase 4 search resolves names against."""
-    entities: dict[str, dict[str, str]] = {}
+def _build_entities(edges: list[Edge]) -> dict[str, Entity]:
+    """qid → Entity: the typeahead index Phase 4 search resolves names against.
+
+    Movies carry `year` so a client can render "The Mummy (1999)" and let the player pick
+    which one they meant — English titles are not unique, and the QID is not something a
+    player can type. Actors have no year and get no key.
+
+    Assignment is last-write-wins, which is only safe because transform emits each film from
+    exactly one partition; without that dedupe a film in two years would take whichever
+    iterated last.
+    """
+    entities: dict[str, Entity] = {}
     for e in edges:
-        entities[e.movie] = {"label": e.movie_label, "type": "movie"}
+        entities[e.movie] = {"label": e.movie_label, "type": "movie", "year": e.movie_year}
         entities[e.actor] = {"label": e.actor_label, "type": "actor"}
     return entities
 

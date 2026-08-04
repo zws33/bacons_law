@@ -345,14 +345,12 @@ them. Unlabeled **actors** are expected and fine (no anchor applies to them); th
    `_cache_is_valid`, `_load_rows`, and half of `test_pipeline` to save one-time runtime on a pipeline
    that runs once, and losing resume on a 102-query pull.
 
-2. **Deduplicate `edges.jsonl` across partitions** — now an optimization, not a correctness issue.
-   P577 is multi-valued, so a film with release dates in two years lands in both partitions and writes
-   its edges twice (407 films / 4,282 lines in the 3-year sample, ~17%). `graph.json` was never
-   affected — `_build_adjacency` dedupes via sets — and `manifest.n_edges` now counts distinct pairs,
-   so the artifact is correct either way. What remains is the wasted disk and `emit`'s peak memory.
-   Fix by tracking seen film QIDs in `transform._edges` and skipping a film on second sighting; the
-   cast comes from `wdt:P161` and is date-independent, so repeat partitions carry identical rows.
-   `_load_rows` now sorts, so first-seen-wins means earliest release year wins, deterministically.
+2. ~~**Deduplicate `edges.jsonl` across partitions.**~~ **Done** — landed with the year disambiguator,
+   which promoted it from optimization to prerequisite: once an edge carries a year, a film in two
+   partitions would take whichever one `emit._build_entities` wrote last. `transform._edges` now
+   tracks seen film QIDs and skips a film on second sighting, so first-seen-wins over the sorted glob
+   gives the earliest release year. Collects the original benefits too (~17% off the interim file and
+   `emit`'s peak memory, and `TransformStats.edges` now matches `manifest.n_edges`).
 
 3. **Incremental update path.** The graph won't be rebuilt after the initial run, but there's currently
    no "fetch year N+1 and merge into an existing artifact" command — `build` always re-emits from the
