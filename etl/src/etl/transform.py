@@ -57,7 +57,11 @@ def _write_edges(edges: Iterable[Edge]) -> None:
 
 
 def _load_rows():
-    for path in paths.RAW_DIR.glob("films-*.json"):
+    # sorted(), because Path.glob yields in os.scandir order — filesystem-dependent, not
+    # lexicographic. Over films-YYYY.json, sorting is chronological, so partitions arrive
+    # oldest first and edges.jsonl is reproducible across machines. emit._query_date_range
+    # already sorts this same glob.
+    for path in sorted(paths.RAW_DIR.glob("films-*.json")):
         try:
             data = CachePayload.model_validate(read_json(path))
         except ValidationError as e:

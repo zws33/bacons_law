@@ -1,15 +1,24 @@
 """Tests for the transform stage (etl.transform) — pure functions only.
 
-Two seams are tested here:
+Three seams are tested here:
   * build_edge_list — the main entry point that filters films by min_cast,
     caps each film's cast, and emits sorted Edge objects.
   * _cap_cast — the cast capping helper that sorts by sitelinks (desc) then numeric qid (asc).
+  * _load_rows — partition order, which decides the interim file's line order.
 
 All tests are deterministic and network-free.
 """
 
+import json
+from pathlib import Path
+
+import pytest
+
+import etl.paths as paths
+from etl import extract
+from etl.config import BuildConfig
 from etl.models import Actor, WikidataRow
-from etl.transform import _build_edge_list, _cap_cast
+from etl.transform import _build_edge_list, _cap_cast, _load_rows
 
 # --- fixtures / helpers -----------------------------------------------------------
 
@@ -239,3 +248,45 @@ def test_transform_cast_cap_below_min_cast():
     result = _build_edge_list(rows, min_cast=4, cast_cap=2)
     assert len(result) == 2
     assert [e.actor for e in result] == ["Q0", "Q1"]
+
+
+# --- _load_rows -----------------------------------------------------------------
+
+
+@pytest.fixture
+def raw_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    monkeypatch.setattr(paths, "RAW_DIR", raw)
+    return raw
+
+
+def _write_partition(raw: Path, year: int, rows: list[WikidataRow]) -> None:
+    (raw / f"films-{year}.json").write_text(
+        json.dumps(
+            {
+                "year": year,
+                "fetched_at": "2020-01-01T00:00:00+00:00",
+                "endpoint": BuildConfig().endpoint,
+                "min_sitelinks": 5,
+                "query_version": extract.QUERY_VERSION,
+                "row_count": len(rows),
+                "rows": rows,
+            }
+        )
+    )
+
+
+def test_load_rows_yields_partitions_oldest_first(raw_dir: Path):
+    """Path.glob yields in os.scandir order, which is filesystem-dependent. Sorting makes
+    the interim file's line order reproducible across machines, and over films-YYYY.json
+    lexicographic order is chronological."""
+    _write_partition(raw_dir, 2016, [_row(film="Q3")])
+    _write_partition(raw_dir, 1994, [_row(film="Q1")])
+    _write_partition(raw_dir, 2005, [_row(film="Q2")])
+
+    assert [rows[0]["film"] for rows in _load_rows()] == ["Q1", "Q2", "Q3"]
+
+
+def test_load_rows_empty_dir_yields_nothing(raw_dir: Path):
+    assert list(_load_rows()) == []

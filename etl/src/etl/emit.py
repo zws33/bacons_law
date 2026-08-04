@@ -40,10 +40,15 @@ def emit(config: BuildConfig, version: str, force: bool = False) -> Path:
         "query_date": _query_date_range(),
         "generated_at": datetime.now(UTC).isoformat(),
         "config": _manifest_config(config),
+        # All three describe the ARTIFACT, so all three are deduplicated. n_edges was
+        # len(edges) — the interim file's line count, which is larger whenever a film
+        # appears in more than one year partition (P577 is multi-valued, so a festival
+        # premiere and a wide release land in different years). Summing the adjacency
+        # sets counts distinct pairs and cannot drift from the graph beside it.
         "counts": {
             "n_movies": len(movies_to_actors),
             "n_actors": len(actors_to_movies),
-            "n_edges": len(edges),
+            "n_edges": sum(len(cast) for cast in movies_to_actors.values()),
         },
     }
 

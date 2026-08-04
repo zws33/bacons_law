@@ -243,6 +243,20 @@ def test_emit_manifest_records_config_and_counts(tree: Path):
     assert manifest["counts"] == {"n_movies": 2, "n_actors": 2, "n_edges": 3}
 
 
+def test_emit_counts_distinct_edges_not_interim_lines(tree: Path):
+    """A film in two year partitions writes its edges twice (P577 is multi-valued), so the
+    interim line count overstates the graph. All three counters describe the artifact."""
+    _write_edges([_edge("Q1", "Q10"), _edge("Q1", "Q10"), _edge("Q1", "Q11")])
+    out = emit.emit(BuildConfig(), "v1")
+
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["counts"] == {"n_movies": 1, "n_actors": 2, "n_edges": 2}
+
+    graph = json.loads((out / "graph.json").read_text())
+    pairs = {(m, a) for m, cast in graph["movies_to_actors"].items() for a in cast}
+    assert manifest["counts"]["n_edges"] == len(pairs)
+
+
 def test_emit_manifest_carries_query_date_from_raw_cache(tree: Path):
     _write_raw(paths.RAW_DIR / "films-1994.json", "2026-07-18T00:00:00+00:00")
     _write_edges([_edge("Q1", "Q10")])
