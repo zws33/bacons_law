@@ -13,7 +13,6 @@ Two groups:
     instruction, never a traceback. Callers chain on exit status.
 """
 
-import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -25,7 +24,6 @@ from etl import emit, paths, transform
 from etl.config import BuildConfig
 from etl.extract import ExtractStats
 from etl.models import Edge
-from etl.resolve_labels import ResolveLabelsStats
 from etl.transform import TransformStats
 
 # --- fixtures / helpers -----------------------------------------------------------
@@ -66,11 +64,10 @@ class Recorder:
 
 @pytest.fixture
 def stages(monkeypatch: pytest.MonkeyPatch) -> dict[str, Recorder]:
-    """Replace all four stages. __main__ from-imports them, so patch its namespace."""
+    """Replace all three stages. __main__ from-imports them, so patch its namespace."""
     recorders = {
         "extract": Recorder(ExtractStats(fetched=0, cached=1)),
         "transform": Recorder(TransformStats(edges=1, movies=1, actors=1)),  # a non-empty build
-        "resolve_labels": Recorder(ResolveLabelsStats(n_labels=5)),
         "emit": Recorder(Path("graph/v1")),
     }
     for name, rec in recorders.items():
@@ -83,13 +80,13 @@ def run(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
     cli.main()
 
 
-def _write_labels(edges: list[Edge]) -> None:
-    """Write a labels.json derived from the edge list so emit._load_labels() succeeds."""
-    labels: dict[str, str] = {}
-    for e in edges:
-        labels[e.movie] = f"Film {e.movie}"
-        labels[e.actor] = f"Actor {e.actor}"
-    paths.labels_path().write_text(json.dumps(labels))
+def _edge(movie: str = "Q1", actor: str = "Q10") -> Edge:
+    return Edge(
+        movie=movie,
+        movie_label=f"Film {movie}",
+        actor=actor,
+        actor_label=f"Actor {actor}",
+    )
 
 
 # --- dispatch ---------------------------------------------------------------------
@@ -100,9 +97,8 @@ def _write_labels(edges: list[Edge]) -> None:
     [
         ("extract", {"extract"}),
         ("transform", {"transform"}),
-        ("resolve", {"resolve_labels"}),
         ("emit", {"emit"}),
-        ("build", {"extract", "transform", "resolve_labels", "emit"}),
+        ("build", {"extract", "transform", "emit"}),
     ],
 )
 def test_subcommand_runs_only_its_own_stages(
@@ -126,7 +122,7 @@ def test_build_runs_stages_in_pipeline_order(
         monkeypatch.setattr(cli, name, record)
 
     run(monkeypatch, "build")
-    assert order == ["extract", "transform", "resolve_labels", "emit"]
+    assert order == ["extract", "transform", "emit"]
 
 
 # --- argument translation (the bug that got away) ---------------------------------
@@ -221,9 +217,7 @@ def test_emit_before_transform_exits_with_an_instruction(
 
 def test_version_guard_surfaces_as_exit_not_traceback(tree: Path, monkeypatch: pytest.MonkeyPatch):
     """emit's ValueError must reach the user as a message, not a stack trace."""
-    edges = [Edge(movie="Q1", actor="Q10")]
-    transform._write_edges(edges)
-    _write_labels(edges)
+    transform._write_edges([_edge()])
     emit.emit(BuildConfig(cast_cap=5), "v1")
 
     with pytest.raises(SystemExit) as exc:
@@ -239,9 +233,7 @@ def test_version_guard_surfaces_as_exit_not_traceback(tree: Path, monkeypatch: p
 
 def test_emit_writes_the_artifact_the_cli_named(tree: Path, monkeypatch: pytest.MonkeyPatch):
     """The path printed/returned is the path written — no hand-built duplicate."""
-    edges = [Edge(movie="Q1", actor="Q10")]
-    transform._write_edges(edges)
-    _write_labels(edges)
+    transform._write_edges([_edge()])
     run(monkeypatch, "emit", "--out-version", "v9")
 
     out = paths.graph_version_dir("v9")

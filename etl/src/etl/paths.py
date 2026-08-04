@@ -18,7 +18,3 @@ def edges_path() -> Path:
 
 def graph_version_dir(version: str) -> Path:
     return GRAPH_DIR / version
-
-
-def labels_path() -> Path:
-    return DATA_DIR / "labels.json"

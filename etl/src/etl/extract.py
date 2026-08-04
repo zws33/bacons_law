@@ -19,26 +19,32 @@ logger = logging.getLogger(__name__)
 
 
 def render_query(year: int, config: BuildConfig) -> str:
-    """Fully templated from config (D2): min_sitelinks, the enwiki block, and the year."""
-    enwiki_block = (
-        "?article schema:about ?film ; schema:isPartOf <https://en.wikipedia.org/> ."
-        if config.require_enwiki
-        else ""
-    )
     return f"""
-    SELECT ?film ?filmSitelinks ?actor ?actorSitelinks WHERE {{
-        ?film wdt:P31 wd:{FILM} ;
-                wikibase:sitelinks ?filmSitelinks ;
-                wdt:P577 ?date ;
-                wdt:P161 ?actor .
-        ?actor wikibase:sitelinks ?actorSitelinks .
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+PREFIX wikibase: <http://wikiba.se/ontology#>
+PREFIX schema: <http://schema.org/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
-        FILTER(?filmSitelinks >= {config.min_sitelinks})
-        FILTER(YEAR(?date) = {year})
-        FILTER NOT EXISTS {{ ?film wdt:P31 wd:{DOCUMENTARY} }}
-        FILTER NOT EXISTS {{ ?film wdt:P31 wd:{TV_FILM} }}
-        {enwiki_block}
-    }}"""
+SELECT ?film ?filmLabel ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE {{
+  ?film wdt:P31 wd:{FILM} ;               # instance of: film
+        wikibase:sitelinks ?filmSitelinks ;
+        wdt:P577 ?date ;                   # publication date → partition key
+        wdt:P161 ?actor .                  # cast member (the edge)
+  ?actor wikibase:sitelinks ?actorSitelinks .
+
+  FILTER(?filmSitelinks >= {config.min_sitelinks})
+  FILTER(YEAR(?date) = {year})               # ← the partition; substitute per run
+  FILTER NOT EXISTS {{ ?film wdt:P31 wd:{DOCUMENTARY} }}  # exclude documentary
+  FILTER NOT EXISTS {{ ?film wdt:P31 wd:{TV_FILM} }}  # exclude TV film
+
+  # enwiki anchor (recognizability): require an English Wikipedia article
+  ?article schema:about ?film ; schema:isPartOf <https://en.wikipedia.org/> .
+
+  OPTIONAL {{ ?film  rdfs:label ?filmLabel  . FILTER(LANG(?filmLabel)  = "en") }}
+  OPTIONAL {{ ?actor rdfs:label ?actorLabel . FILTER(LANG(?actorLabel) = "en") }}
+}}
+"""
 
 
 def _cache_is_valid(cfg: BuildConfig, year: int) -> bool:
@@ -46,23 +52,14 @@ def _cache_is_valid(cfg: BuildConfig, year: int) -> bool:
     if not path.exists():
         return False
     try:
-        # CacheHeader, not CachePayload: this runs for every year on every build, and
-        # validating the rows here would re-check the entire raw corpus just to answer
-        # "is this partition still current?".
         data = CacheHeader.model_validate(read_json_or_none(path))
     except ValidationError:
         return False
 
-    return (
-        data.require_enwiki == cfg.require_enwiki
-        and data.min_sitelinks == cfg.min_sitelinks
-        and data.endpoint == cfg.endpoint
-    )
+    return data.min_sitelinks == cfg.min_sitelinks and data.endpoint == cfg.endpoint
 
 
 class ExtractStats(NamedTuple):
-    """`cached == total` is the reproducibility claim: a re-run made no network calls."""
-
     fetched: int
     cached: int
 
@@ -104,7 +101,6 @@ def extract(cfg: BuildConfig) -> ExtractStats:
             fetched_at=datetime.now(UTC).isoformat(),
             endpoint=cfg.endpoint,
             min_sitelinks=cfg.min_sitelinks,
-            require_enwiki=cfg.require_enwiki,
             row_count=len(rows),
             rows=rows,
         )
