@@ -6,10 +6,6 @@ versioned graph artifact the server loads at boot, and is **never** in the reque
 `AGENTS.md` still applies; this file adds the ETL-specific focus so a session here doesn't have to
 reason about the whole backend.)
 
-> **Migration in flight.** The code on disk still has a four-stage pipeline with a separate
-> `resolve_labels` stage and a WDQS endpoint. The target is three stages against QLever with labels
-> in the query — see **`QLEVER_MIGRATION_PLAN.md`**. Where this file describes the target, it says so.
-
 ## Build & test (run from `etl/`)
 
 - `uv sync` — install locked deps
@@ -34,8 +30,8 @@ re-pull.
 
 - **Source is CC0 Wikidata over SPARQL. No TMDB, no API key.** The endpoint is **QLever**
   (`https://qlever.dev/api/wikidata`), a third-party index over the same CC0 data — not the official
-  WDQS. That choice is forced: WDQS could not serve the full 1900–2026 range at any decomposition
-  (measured — see `QLEVER_MIGRATION_PLAN.md` §1). QLever returns it, with labels, in seconds.
+  WDQS. That choice is forced: WDQS could not serve the full 1900–2026 range at any decomposition —
+  a single year with labels exceeded its 60s wall (measured). QLever serves a labelled year in ~7s.
 - **QLever requires explicit `PREFIX` declarations.** WDQS injects `wd:`, `wdt:`, `wikibase:`, and
   `schema:` silently; QLever has no defaults and rejects the query without them. This is the most
   likely cause of a confusing first failure.
@@ -47,9 +43,9 @@ re-pull.
   only buy qualifiers we've already established are unusable (below).
 - **Billing order (`P1545`) is ~8% populated → unusable.** Rank each film's cast by the **actor's own
   sitelink count** and take top-N (`cast_cap`). This lever is gameplay + policy, not a size hack.
-- **Filter = enwiki ∩ ≥`min_sitelinks` ∩ ≥`min_cast` cast.** `min_sitelinks` / `require_enwiki` are
-  applied at **extract** time (baked into the raw cache); `min_cast` / `cast_cap` are **transform**-time
-  dials you retune often.
+- **Filter = enwiki ∩ ≥`min_sitelinks` ∩ ≥`min_cast` cast.** The enwiki anchor is unconditional in the
+  query and `min_sitelinks` is applied at **extract** time (baked into the raw cache); `min_cast` /
+  `cast_cap` are **transform**-time dials you retune often.
 - **Artifact keys are Wikidata QIDs (strings).** The engine's `castIds: Set<Int>` contract is a
   *loader-side* (Phase 2, Kotlin) concern — do **not** pre-map QIDs to ints here.
 - **Determinism is a requirement:** stable sort (`key=(-sitelinks, qid)`) + sorted serialization → a
@@ -79,11 +75,13 @@ outage being an inconvenience and being a rebuild from dumps.
 
 ## Docs — open the right one, only when you need it (context hygiene)
 
-- **`QLEVER_MIGRATION_PLAN.md`** — the current work: what changes, in what order, and why. Start here.
-- **`IMPLEMENTATION_GUIDE.md`** — the "why" + the map. Primary reference for building by hand.
+- **`REPAIR_PLAN.md`** — the in-flight work: finishing the QLever migration and running the first full
+  build. Start here while it exists; delete it once the graph is built.
 - **`EXPLORATION.md`** — the Wikidata source characterization (the numbers behind the decisions).
   Still accurate; the spike independently corroborated its ~68k-films-at-`min_sitelinks=5` figure.
 - Config contract: `src/etl/config.py`.
 
-The staged reference implementations (`docs/00–04`) and their README were deleted — they documented a
-pipeline shape that is being restored to its `6af796e` form. Git history holds them.
+`IMPLEMENTATION_GUIDE.md` and `QLEVER_MIGRATION_PLAN.md` were deleted once the migration they described
+landed — a build-it-by-hand guide and a migration plan both go stale the moment the code catches up.
+The facts worth keeping from them are inlined above. Git history holds the rest, as it does for the
+staged reference implementations (`docs/00–04`) removed earlier.
