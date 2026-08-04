@@ -30,18 +30,25 @@ from etl.config import BuildConfig
 #   * Q1 has 3 cast members -> trimmed to 2 by cast_cap=2, keeping the top sitelinks
 #   * Q10/Q11 appear in films in DIFFERENT years -> the actor->movies inversion has to
 #     span year partitions, which is the whole reason extract partitions at all.
+#   * Q5 appears in BOTH years, identical cast -> a film with a festival premiere in one
+#     year and a wide release in the next. P577 is multi-valued, so the live query really
+#     does return it twice; transform must emit it once, at the earlier year.
 CATALOG: dict[int, list[tuple[str, str, int, str, str, int]]] = {
     1994: [
         ("Q1", "Pulp Fiction", 150, "Q10", "John Travolta", 100),
         ("Q1", "Pulp Fiction", 150, "Q11", "Samuel L. Jackson", 90),
         ("Q1", "Pulp Fiction", 150, "Q12", "Uma Thurman", 80),
         ("Q2", "Clerks", 60, "Q20", "Brian O'Halloran", 10),
+        ("Q5", "Festival Darling", 40, "Q50", "A Lead", 30),
+        ("Q5", "Festival Darling", 40, "Q51", "B Lead", 20),
     ],
     1995: [
         ("Q3", "Heat", 120, "Q30", "Robert De Niro", 200),
         ("Q3", "Heat", 120, "Q31", "Al Pacino", 190),
         ("Q4", "Get Shorty", 70, "Q10", "John Travolta", 100),
         ("Q4", "Get Shorty", 70, "Q11", "Samuel L. Jackson", 90),
+        ("Q5", "Festival Darling", 40, "Q50", "A Lead", 30),
+        ("Q5", "Festival Darling", 40, "Q51", "B Lead", 20),
     ],
 }
 
@@ -162,6 +169,7 @@ def test_pipeline_produces_expected_graph(tree: Path, wdqs: FakeWDQS):
         "Q1": ["Q10", "Q11"],
         "Q3": ["Q30", "Q31"],
         "Q4": ["Q10", "Q11"],
+        "Q5": ["Q50", "Q51"],
     }
     # The inversion spans year partitions: Q10 played in a 1994 and a 1995 film.
     assert graph["actors_to_movies"] == {
@@ -169,6 +177,8 @@ def test_pipeline_produces_expected_graph(tree: Path, wdqs: FakeWDQS):
         "Q11": ["Q1", "Q4"],
         "Q30": ["Q3"],
         "Q31": ["Q3"],
+        "Q50": ["Q5"],
+        "Q51": ["Q5"],
     }
 
 
@@ -185,17 +195,42 @@ def test_pipeline_graph_is_symmetric(tree: Path, wdqs: FakeWDQS):
 def test_pipeline_entities_carry_labels_from_wikidata(tree: Path, wdqs: FakeWDQS):
     """Labels survive the full trip: SPARQL response -> raw cache -> edges -> index."""
     graph = json.loads((_build(_cfg()) / "graph.json").read_text())
-    assert graph["entities"]["Q1"] == {"label": "Pulp Fiction", "type": "movie"}
+    assert graph["entities"]["Q1"] == {"label": "Pulp Fiction", "type": "movie", "year": 1994}
     assert graph["entities"]["Q30"] == {"label": "Robert De Niro", "type": "actor"}
     assert "Q2" not in graph["entities"]  # dropped film leaves no orphan entity
 
 
+def test_pipeline_entities_carry_the_partition_year_as_the_release_year(tree: Path, wdqs: FakeWDQS):
+    """The typeahead disambiguator, end to end: the year comes from the partition the film
+    was fetched in, never from a second query."""
+    graph = json.loads((_build(_cfg()) / "graph.json").read_text())
+    assert graph["entities"]["Q1"]["year"] == 1994
+    assert graph["entities"]["Q3"]["year"] == 1995
+
+
+def test_pipeline_cross_partition_film_takes_its_earliest_year(tree: Path, wdqs: FakeWDQS):
+    """Q5 is returned by both the 1994 and the 1995 query. It must appear once, dated to the
+    premiere — otherwise the year a player sees depends on partition iteration order."""
+    graph = json.loads((_build(_cfg()) / "graph.json").read_text())
+    assert graph["entities"]["Q5"] == {"label": "Festival Darling", "type": "movie", "year": 1994}
+    assert graph["movies_to_actors"]["Q5"] == ["Q50", "Q51"]
+
+
 def test_pipeline_manifest_describes_the_build(tree: Path, wdqs: FakeWDQS):
     manifest = json.loads((_build(_cfg()) / "manifest.json").read_text())
-    assert manifest["counts"] == {"n_movies": 3, "n_actors": 4, "n_edges": 6}
+    assert manifest["counts"] == {"n_movies": 4, "n_actors": 6, "n_edges": 8}
     assert manifest["config"]["min_cast"] == 2
     assert manifest["config"]["cast_cap"] == 2
     assert manifest["query_date"]["from"] is not None
+
+
+def test_pipeline_interim_line_count_matches_the_emitted_edge_count(tree: Path, wdqs: FakeWDQS):
+    """Deduping films across partitions is what makes transform's reported edge count and
+    emit's n_edges the same number. They sit next to each other in the CLI's output."""
+    out = _build(_cfg())
+    lines = [ln for ln in paths.edges_path().read_text().splitlines() if ln.strip()]
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert len(lines) == manifest["counts"]["n_edges"]
 
 
 def test_pipeline_sends_contact_user_agent(tree: Path, wdqs: FakeWDQS):

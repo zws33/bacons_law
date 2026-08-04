@@ -84,6 +84,7 @@ def _edge(movie: str = "Q1", actor: str = "Q10") -> Edge:
     return Edge(
         movie=movie,
         movie_label=f"Film {movie}",
+        movie_year=1994,
         actor=actor,
         actor_label=f"Actor {actor}",
     )

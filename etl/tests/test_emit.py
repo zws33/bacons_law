@@ -48,12 +48,13 @@ def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _edge(movie: str = "Q1", actor: str = "Q10") -> Edge:
+def _edge(movie: str = "Q1", actor: str = "Q10", year: int = 1994) -> Edge:
     """Positional order is (movie, actor) — every call site below relies on it. Labels are
     derived so they stay distinguishable per QID without another argument at each site."""
     return Edge(
         movie=movie,
         movie_label=f"Film {movie}",
+        movie_year=year,
         actor=actor,
         actor_label=f"Actor {actor}",
     )
@@ -145,11 +146,27 @@ def test_build_adjacency_empty_edges():
 
 def test_build_entities_labels_and_types_both_sides():
     """Labels ride on the edge now — they come off the extract query, not a side file."""
-    entities = emit._build_entities([_edge("Q1", "Q10")])
+    entities = emit._build_entities([_edge("Q1", "Q10", year=1994)])
     assert entities == {
-        "Q1": {"label": "Film Q1", "type": "movie"},
+        "Q1": {"label": "Film Q1", "type": "movie", "year": 1994},
         "Q10": {"label": "Actor Q10", "type": "actor"},
     }
+
+
+def test_build_entities_omits_year_on_actors(tree: Path):
+    """Absent, not null: a person has no release year, and omitting the key keeps a null off
+    every actor entry in the artifact."""
+    entities = emit._build_entities([_edge("Q1", "Q10")])
+    assert "year" not in entities["Q10"]
+    assert "year" in entities["Q1"]
+
+
+def test_build_entities_carries_each_movies_own_year():
+    """The disambiguator only works if the year tracks the film, not the batch — two films
+    sharing a title is exactly the case this exists for."""
+    entities = emit._build_entities([_edge("Q1", "Q10", year=1999), _edge("Q2", "Q10", year=2017)])
+    assert entities["Q1"].get("year") == 1999
+    assert entities["Q2"].get("year") == 2017
 
 
 def test_build_entities_covers_every_node():
@@ -220,6 +237,16 @@ def test_emit_graph_has_all_three_maps(tree: Path):
     assert graph["movies_to_actors"] == {"Q1": ["Q10"], "Q2": ["Q10"]}
     assert graph["actors_to_movies"] == {"Q10": ["Q1", "Q2"]}
     assert graph["entities"]["Q10"] == {"label": "Actor Q10", "type": "actor"}
+
+
+def test_emit_serializes_the_year_as_a_json_number(tree: Path):
+    """The typeahead payload: a client renders "Film Q1 (1999)" straight off this. int, not
+    a string — the loader reads it as a nullable Int."""
+    _write_edges([_edge("Q1", "Q10", year=1999)])
+    out = emit.emit(BuildConfig(), "v1")
+
+    graph = json.loads((out / "graph.json").read_text())
+    assert graph["entities"]["Q1"] == {"label": "Film Q1", "type": "movie", "year": 1999}
 
 
 def test_emit_manifest_records_config_and_counts(tree: Path):

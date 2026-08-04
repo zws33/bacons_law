@@ -48,6 +48,14 @@ re-pull.
   `cast_cap` are **transform**-time dials you retune often.
 - **Artifact keys are Wikidata QIDs (strings).** The engine's `castIds: Set<Int>` contract is a
   *loader-side* (Phase 2, Kotlin) concern — do **not** pre-map QIDs to ints here.
+- **A movie's release year comes from its partition, not a second query.** `FILTER(YEAR(?date) = N)`
+  means the partition key *is* a publication year of every film in the file, so `entities` gets its
+  year from `CachePayload.year` for free. Don't add `?date` to the SELECT to get it. Movies carry
+  `year`; actors have no such key (absent, not null).
+- **A film can legitimately appear in two partitions** — `P577` is multi-valued, so a festival
+  premiere and a wide release fall in different years. `transform` emits each film from the **first**
+  partition it appears in; since `_load_rows` sorts, that is the earliest release year. Don't "fix"
+  this by taking the latest, and don't remove the dedupe — the year would become order-dependent.
 - **Determinism is a requirement:** stable sort (`key=(-sitelinks, qid)`) + sorted serialization → a
   byte-reproducible, diffable artifact. Precisely: **the same raw cache must produce the same
   artifact.** It is not "the same query produces the same bytes" — the live index drifts ~0.008%/day,
