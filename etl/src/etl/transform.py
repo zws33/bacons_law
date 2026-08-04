@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterable, Iterator
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from typing import NamedTuple
 
 from pydantic import ValidationError
@@ -17,23 +17,27 @@ class TransformStats(NamedTuple):
     actors: int
 
 
+@dataclass
+class _Counter:
+    edges: int = 0
+    movies: set[str] = field(default_factory=set)
+    actors: set[str] = field(default_factory=set)
+
+
 def transform(cfg: BuildConfig) -> TransformStats:
-    edge_count = 0
-    movies: set[str] = set()
-    actors: set[str] = set()
+    counter = _Counter()
+    _write_edges(_edges(cfg.min_cast, cfg.cast_cap, counter))
+    return TransformStats(counter.edges, len(counter.movies), len(counter.actors))
 
-    def _edges() -> Iterator[Edge]:
-        """Stream partition by partition; a full-range build never holds every edge at once."""
-        nonlocal edge_count
-        for rows in _load_rows():
-            for e in _build_edge_list(rows=rows, min_cast=cfg.min_cast, cast_cap=cfg.cast_cap):
-                edge_count += 1
-                movies.add(e.movie)
-                actors.add(e.actor)
-                yield e
 
-    _write_edges(_edges())
-    return TransformStats(edge_count, len(movies), len(actors))
+def _edges(min_cast: int, cast_cap: int, counter: _Counter) -> Iterator[Edge]:
+    """Stream partition by partition; a full-range build never holds every edge at once."""
+    for rows in _load_rows():
+        for e in _build_edge_list(rows=rows, min_cast=min_cast, cast_cap=cast_cap):
+            counter.edges += 1
+            counter.movies.add(e.movie)
+            counter.actors.add(e.actor)
+            yield e
 
 
 def _write_edges(edges: Iterable[Edge]) -> None:
