@@ -53,32 +53,40 @@ bacons-law/
 │   ├── core/      #   Pure Kotlin game engine — state machine, validation, turn management
 │   ├── backend/   #   Ktor server — graph-backed session server (being rebuilt from a proxy)
 │   └── app/       #   Android/Compose client (secondary)
-├── etl/           # Python — offline Wikidata graph build
-└── ROADMAP.md     # Phased development plan
+└── etl/           # Python — offline Wikidata graph build
 ```
 
 ## Status
 
-The architecture above is the committed direction (see [docs/DECISIONS.md](docs/DECISIONS.md),
-ADRs 008–013). Current work is **Phase 1 — the Python ETL**. The `:core` engine is reused as-is;
-`:backend` is being rebuilt from a TMDB proxy into the graph-backed session server
-(correspondence-first, then real-time). Two prior efforts are preserved as reference: the
-Kotlin/Compose Android client and a Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag
-`python-fastapi-showcase`). See [ROADMAP.md](ROADMAP.md) for phase and status.
+**The ETL is the settled part** — a working pipeline that builds the graph artifact the game engine
+validates moves against. It is the only fixed contract in the repo.
+
+Everything else is provisional. The engine, server, and client, the persistence and session design
+sketched above, and the choice of language and framework will all be reevaluated in a planning
+session; the Kotlin modules in this tree are where that work currently stands, not a commitment.
+[docs/DECISIONS.md](docs/DECISIONS.md) (ADRs 008–013) records the reasoning that got the project
+here — read it for the *why*, which holds, rather than as a set of commitments.
+
+Two prior efforts are preserved as reference, not maintained: the Kotlin/Compose Android client and a
+Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag `python-fastapi-showcase`).
 
 ## Setup
 
 No API keys are required — the actor↔movie data comes from CC0 Wikidata, built offline by the ETL.
 
-- Game logic: `./gradlew :core:test`
-- (Server and ETL setup are documented as those phases land — see [ROADMAP.md](ROADMAP.md).)
+- Game logic: `./gradlew :core:test` (from `kotlin/`)
+- ETL: see [etl/README.md](etl/README.md)
 
 ## Documentation
 
-- [Engine Spec](docs/GAME_SPEC_V2.md) — authoritative rules and state machine
+- [Decision Log](docs/DECISIONS.md) — key technical and product decisions with rationale; the
+  authority on the current direction
 - [Case Study](docs/CASE_STUDY.md) — the system-design reasoning behind this architecture
-- [Decision Log](docs/DECISIONS.md) — key technical and product decisions with rationale
-- [Roadmap](ROADMAP.md) — phased development plan
+- [ETL](etl/README.md) — the offline graph build
+- [Agents Guide](AGENTS.md) — repository layout, conventions, and architecture boundaries
+
+The engine's rules live in the code (`kotlin/core/.../GameEngine.kt` and its tests); the phased
+roadmap was retired pending a fresh planning pass.
 
 ## Data & License
 

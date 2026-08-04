@@ -1,8 +1,9 @@
 # Repair Plan — get the pipeline to a working state
 
 **Status:** Phases 0–2 are **done** (branch `fix/etl-pipeline-repair`, PR #14). Only **Phase 3**, the
-full build, is outstanding. Delete this file once the graph exists and the project moves to its own
-Phase 2 (the Kotlin loader) — not to be confused with this document's Phase 2 below.
+full build, is outstanding. The phase numbers below are this document's own, not project phases —
+the project's phased roadmap has been retired. Delete this file once the graph exists; the
+verification script in §3.3 should move to `README.md` at that point rather than die with it.
 
 The completed phases are kept for the reasoning, not as instructions; the code has moved past them.
 
@@ -337,23 +338,8 @@ them. Unlabeled **actors** are expected and fine (no anchor applies to them); th
 
 ---
 
-## TODOs — deliberately deferred, not forgotten
+## TODOs
 
-1. **Drop year partitioning.** `data/spike/films-all.rq` documents that QLever returns the full range in
-   one query with no 60s wall. Collapsing to a single pull would delete the per-year cache, the
-   failed-year accounting, and the resume logic. Not worth doing now — it would mean rewriting
-   `_cache_is_valid`, `_load_rows`, and half of `test_pipeline` to save one-time runtime on a pipeline
-   that runs once, and losing resume on a 102-query pull.
-
-2. ~~**Deduplicate `edges.jsonl` across partitions.**~~ **Done** — landed with the year disambiguator,
-   which promoted it from optimization to prerequisite: once an edge carries a year, a film in two
-   partitions would take whichever one `emit._build_entities` wrote last. `transform._edges` now
-   tracks seen film QIDs and skips a film on second sighting, so first-seen-wins over the sorted glob
-   gives the earliest release year. Collects the original benefits too (~17% off the interim file and
-   `emit`'s peak memory, and `TransformStats.edges` now matches `manifest.n_edges`).
-
-3. **Incremental update path.** The graph won't be rebuilt after the initial run, but there's currently
-   no "fetch year N+1 and merge into an existing artifact" command — `build` always re-emits from the
-   full raw cache. That's fine and cheap (transform+emit are pure and fast over cached raw files), so
-   the update cadence is: re-run `extract` for the new year, then `build`. Worth designing properly
-   before the first refresh.
+Moved to [README.md](README.md) ("Known follow-ons") so they outlive this file: collapsing year
+partitioning, and the incremental update path. Deduplicating `edges.jsonl` across partitions is
+**done** — it landed with the year disambiguator, which promoted it from optimization to prerequisite.
