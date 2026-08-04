@@ -12,7 +12,7 @@ import sys
 
 from etl.config import BuildConfig
 from etl.extract import render_query
-from etl.paths import RAW_DIR, raw_path
+from etl.paths import RAW_DIR
 from etl.sparql import SparqlError, query
 
 log = logging.getLogger("etl.smoke")
@@ -20,12 +20,7 @@ log = logging.getLogger("etl.smoke")
 
 def run(year: int) -> None:
     config = BuildConfig()
-    log.info(
-        "querying WDQS: year=%d min_sitelinks=%d enwiki=%s",
-        year,
-        config.min_sitelinks,
-        config.require_enwiki,
-    )
+    log.info("querying: year=%d min_sitelinks=%d", year, config.min_sitelinks)
 
     try:
         rows = query(render_query(year, config), config)
@@ -38,7 +33,7 @@ def run(year: int) -> None:
         log.info("sample: %s", r)
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
-    path = raw_path(year)
+    path = RAW_DIR / f"smoke-{year}.json"
     _ = path.write_text(json.dumps(rows))
     log.info("wrote %d rows to %s", len(rows), path)
 

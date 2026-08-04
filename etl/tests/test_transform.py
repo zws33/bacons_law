@@ -1,15 +1,24 @@
 """Tests for the transform stage (etl.transform) — pure functions only.
 
-Two seams are tested here:
+Three seams are tested here:
   * build_edge_list — the main entry point that filters films by min_cast,
     caps each film's cast, and emits sorted Edge objects.
   * _cap_cast — the cast capping helper that sorts by sitelinks (desc) then numeric qid (asc).
+  * _load_rows — partition order, which decides the interim file's line order.
 
 All tests are deterministic and network-free.
 """
 
-from etl.models import WikidataRow
-from etl.transform import _build_edge_list, _cap_cast
+import json
+from pathlib import Path
+
+import pytest
+
+import etl.paths as paths
+from etl import extract
+from etl.config import BuildConfig
+from etl.models import Actor, WikidataRow
+from etl.transform import _build_edge_list, _cap_cast, _load_rows
 
 # --- fixtures / helpers -----------------------------------------------------------
 
@@ -19,14 +28,25 @@ def _row(
     film_sitelinks: int = 100,
     actor: str = "Q10",
     actor_sitelinks: int = 50,
+    film_label: str = "",
+    actor_label: str = "",
 ) -> WikidataRow:
-    """Factory for a single WikidataRow."""
+    """Factory for a single WikidataRow. Labels default to the QID — the same fallback
+    sparql._flatten applies for an unbound OPTIONAL — so the edge assertions below stay
+    about QIDs, which is the part transform's policy actually operates on."""
     return WikidataRow(
         film=film,
+        film_label=film_label or film,
         film_sitelinks=film_sitelinks,
         actor=actor,
+        actor_label=actor_label or actor,
         actor_sitelinks=actor_sitelinks,
     )
+
+
+def _cast(*pairs: tuple[str, int]) -> dict[str, Actor]:
+    """qid -> Actor, the shape _cap_cast ranks. Labels are irrelevant to the ordering."""
+    return {qid: Actor(qid=qid, label=qid, sitelinks=n) for qid, n in pairs}
 
 
 # --- _cap_cast ------------------------------------------------------------------
@@ -39,66 +59,43 @@ def test_cap_cast_empty_dict():
 
 def test_cap_cast_single_actor():
     """Single actor is returned as-is."""
-    cast = {"Q10": 50}
-    result = _cap_cast(cast, cap=5)
-    assert result == [("Q10", 50)]
+    result = _cap_cast(_cast(("Q10", 50)), cap=5)
+    assert [a.qid for a in result] == ["Q10"]
 
 
 def test_cap_cast_sorts_by_sitelinks_desc():
     """Actors are sorted by sitelinks descending."""
-    cast = {
-        "Q1": 10,
-        "Q2": 100,
-        "Q3": 50,
-    }
-    result = _cap_cast(cast, cap=10)
-    assert [a[0] for a in result] == ["Q2", "Q3", "Q1"]
+    result = _cap_cast(_cast(("Q1", 10), ("Q2", 100), ("Q3", 50)), cap=10)
+    assert [a.qid for a in result] == ["Q2", "Q3", "Q1"]
 
 
 def test_cap_cast_ties_broken_by_qid_asc():
     """When sitelinks are equal, sort by qid ascending."""
-    cast = {
-        "Q3": 50,
-        "Q1": 50,
-        "Q2": 50,
-    }
-    result = _cap_cast(cast, cap=10)
-    assert [a[0] for a in result] == ["Q1", "Q2", "Q3"]
+    result = _cap_cast(_cast(("Q3", 50), ("Q1", 50), ("Q2", 50)), cap=10)
+    assert [a.qid for a in result] == ["Q1", "Q2", "Q3"]
 
 
 def test_cap_cast_ties_broken_by_numeric_qid_not_lexicographic():
     """Equal sitelinks: QIDs sort numerically (Q9 before Q10), not as strings."""
-    cast = {
-        "Q10": 50,
-        "Q9": 50,
-        "Q100": 50,
-    }
-    result = _cap_cast(cast, cap=10)
-    assert [a[0] for a in result] == ["Q9", "Q10", "Q100"]
+    result = _cap_cast(_cast(("Q10", 50), ("Q9", 50), ("Q100", 50)), cap=10)
+    assert [a.qid for a in result] == ["Q9", "Q10", "Q100"]
 
 
 def test_cap_cast_respects_cap():
     """Only top N actors by sitelinks are returned."""
-    cast = {f"Q{i}": 100 - i for i in range(10)}
-    result = _cap_cast(cast, cap=3)
-    assert len(result) == 3
-    assert [a[0] for a in result] == ["Q0", "Q1", "Q2"]
+    result = _cap_cast(_cast(*((f"Q{i}", 100 - i) for i in range(10))), cap=3)
+    assert [a.qid for a in result] == ["Q0", "Q1", "Q2"]
 
 
 def test_cap_cast_cap_larger_than_cast():
     """If cap is larger than cast size, all actors are returned."""
-    cast = {
-        "Q1": 50,
-        "Q2": 25,
-    }
-    result = _cap_cast(cast, cap=10)
+    result = _cap_cast(_cast(("Q1", 50), ("Q2", 25)), cap=10)
     assert len(result) == 2
 
 
 def test_cap_cast_cap_zero():
     """Cap of zero returns empty list."""
-    cast = {"Q1": 50}
-    assert _cap_cast(cast, cap=0) == []
+    assert _cap_cast(_cast(("Q1", 50)), cap=0) == []
 
 
 # --- build_edge_list ------------------------------------------------------
@@ -251,3 +248,45 @@ def test_transform_cast_cap_below_min_cast():
     result = _build_edge_list(rows, min_cast=4, cast_cap=2)
     assert len(result) == 2
     assert [e.actor for e in result] == ["Q0", "Q1"]
+
+
+# --- _load_rows -----------------------------------------------------------------
+
+
+@pytest.fixture
+def raw_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    monkeypatch.setattr(paths, "RAW_DIR", raw)
+    return raw
+
+
+def _write_partition(raw: Path, year: int, rows: list[WikidataRow]) -> None:
+    (raw / f"films-{year}.json").write_text(
+        json.dumps(
+            {
+                "year": year,
+                "fetched_at": "2020-01-01T00:00:00+00:00",
+                "endpoint": BuildConfig().endpoint,
+                "min_sitelinks": 5,
+                "query_version": extract.QUERY_VERSION,
+                "row_count": len(rows),
+                "rows": rows,
+            }
+        )
+    )
+
+
+def test_load_rows_yields_partitions_oldest_first(raw_dir: Path):
+    """Path.glob yields in os.scandir order, which is filesystem-dependent. Sorting makes
+    the interim file's line order reproducible across machines, and over films-YYYY.json
+    lexicographic order is chronological."""
+    _write_partition(raw_dir, 2016, [_row(film="Q3")])
+    _write_partition(raw_dir, 1994, [_row(film="Q1")])
+    _write_partition(raw_dir, 2005, [_row(film="Q2")])
+
+    assert [rows[0]["film"] for rows in _load_rows()] == ["Q1", "Q2", "Q3"]
+
+
+def test_load_rows_empty_dir_yields_nothing(raw_dir: Path):
+    assert list(_load_rows()) == []

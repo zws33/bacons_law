@@ -35,14 +35,20 @@ def raw_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _row(film: str = "Q1", actor: str = "Q10") -> dict[str, str | int]:
     return {
         "film": film,
+        "film_label": f"Film {film}",
         "film_sitelinks": 100,
         "actor": actor,
+        "actor_label": f"Actor {actor}",
         "actor_sitelinks": 50,
     }
 
 
 def _write_cache(
-    path: Path, *, min_sitelinks: int, require_enwiki: bool, rows: list | None = None
+    path: Path,
+    *,
+    min_sitelinks: int,
+    rows: list | None = None,
+    query_version: int | None = None,
 ) -> None:
     """Write a current-format (metadata-wrapped) raw cache file."""
     path.write_text(
@@ -50,9 +56,11 @@ def _write_cache(
             {
                 "year": 1994,
                 "fetched_at": "2020-01-01T00:00:00+00:00",
-                "endpoint": "https://query.wikidata.org/sparql",
+                "endpoint": BuildConfig().endpoint,
                 "min_sitelinks": min_sitelinks,
-                "require_enwiki": require_enwiki,
+                "query_version": (
+                    extract.QUERY_VERSION if query_version is None else query_version
+                ),
                 "row_count": len(rows or []),
                 "rows": rows or [],
             }
@@ -70,14 +78,18 @@ def test_render_query_templated_from_config():
     assert "en.wikipedia.org" in q
 
 
-def test_render_query_omits_enwiki_block_when_disabled():
-    assert "en.wikipedia.org" not in extract.render_query(1994, BuildConfig(require_enwiki=False))
-
-
 def test_render_query_excludes_documentary_and_tv_film():
     q = extract.render_query(1994, BuildConfig())
     assert f"FILTER NOT EXISTS {{ ?film wdt:P31 wd:{extract.DOCUMENTARY} }}" in q
     assert f"FILTER NOT EXISTS {{ ?film wdt:P31 wd:{extract.TV_FILM} }}" in q
+
+
+def test_render_query_selects_the_enwiki_article_title():
+    """The film display-name fallback. It must stay OPTIONAL: a required schema:name would
+    drop films whose article lacks one instead of degrading the label."""
+    q = extract.render_query(1994, BuildConfig())
+    assert "?articleName" in q.split("WHERE")[0]  # in the SELECT list
+    assert "OPTIONAL { ?article schema:name ?articleName }" in q
 
 
 # --- _cache_is_valid --------------------------------------------------------
@@ -88,18 +100,44 @@ def test_cache_missing_file_is_invalid(raw_dir: Path):
 
 
 def test_cache_matching_config_is_valid(raw_dir: Path):
-    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, require_enwiki=True)
-    assert extract._cache_is_valid(BuildConfig(min_sitelinks=5, require_enwiki=True), 1994)
+    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5)
+    assert extract._cache_is_valid(BuildConfig(min_sitelinks=5), 1994)
 
 
 def test_cache_min_sitelinks_mismatch_is_invalid(raw_dir: Path):
-    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, require_enwiki=True)
+    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5)
     assert extract._cache_is_valid(BuildConfig(min_sitelinks=7), 1994) is False
 
 
-def test_cache_require_enwiki_mismatch_is_invalid(raw_dir: Path):
-    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, require_enwiki=True)
-    assert extract._cache_is_valid(BuildConfig(require_enwiki=False), 1994) is False
+def test_cache_endpoint_mismatch_is_invalid(raw_dir: Path):
+    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5)
+    stale = BuildConfig(min_sitelinks=5, endpoint="https://query.wikidata.org/sparql")
+    assert extract._cache_is_valid(stale, 1994) is False
+
+
+def test_cache_from_an_older_query_shape_is_invalid(raw_dir: Path):
+    """Config alone can't spot a re-shaped query: the columns a partition was flattened
+    from are baked into its rows. Without this, adding a SELECT column would silently reuse
+    partitions that never had it."""
+    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, query_version=1)
+    assert extract._cache_is_valid(BuildConfig(min_sitelinks=5), 1994) is False
+
+
+def test_cache_predating_query_versioning_is_invalid(raw_dir: Path):
+    """A partition written before query_version existed has no way to prove its shape."""
+    (raw_dir / "films-1994.json").write_text(
+        json.dumps(
+            {
+                "year": 1994,
+                "fetched_at": "2020-01-01T00:00:00+00:00",
+                "endpoint": BuildConfig().endpoint,
+                "min_sitelinks": 5,
+                "row_count": 0,
+                "rows": [],
+            }
+        )
+    )
+    assert extract._cache_is_valid(BuildConfig(min_sitelinks=5), 1994) is False
 
 
 def test_cache_stale_bare_list_is_invalid(raw_dir: Path):
@@ -138,12 +176,11 @@ def test_extract_fetches_and_wraps_rows(raw_dir: Path, monkeypatch: pytest.Monke
     assert data["row_count"] == 1
     assert data["year"] == 1994
     assert data["min_sitelinks"] == 6
-    assert data["require_enwiki"] == cfg.require_enwiki
     assert len(calls) == 1
 
 
 def test_extract_skips_valid_cached_year(raw_dir: Path, monkeypatch: pytest.MonkeyPatch):
-    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, require_enwiki=True, rows=[_row()])
+    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, rows=[_row()])
 
     def boom(q: str, cfg: BuildConfig):
         raise AssertionError("network query should not run for a valid cache")
@@ -153,7 +190,7 @@ def test_extract_skips_valid_cached_year(raw_dir: Path, monkeypatch: pytest.Monk
 
 
 def test_extract_refetches_when_config_changes(raw_dir: Path, monkeypatch: pytest.MonkeyPatch):
-    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, require_enwiki=True, rows=[_row()])
+    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, rows=[_row()])
     called = False
 
     def fake_query(q: str, cfg: BuildConfig):

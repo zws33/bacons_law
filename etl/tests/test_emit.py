@@ -49,24 +49,20 @@ def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _edge(movie: str = "Q1", actor: str = "Q10") -> Edge:
-    return Edge(movie=movie, actor=actor)
-
-
-def _write_labels(edges: list[Edge]) -> None:
-    """Write a labels.json derived from the edge list so emit._load_labels() succeeds."""
-    labels: dict[str, str] = {}
-    for e in edges:
-        labels[e.movie] = f"Film {e.movie}"
-        labels[e.actor] = f"Actor {e.actor}"
-    paths.labels_path().write_text(json.dumps(labels))
+    """Positional order is (movie, actor) — every call site below relies on it. Labels are
+    derived so they stay distinguishable per QID without another argument at each site."""
+    return Edge(
+        movie=movie,
+        movie_label=f"Film {movie}",
+        actor=actor,
+        actor_label=f"Actor {actor}",
+    )
 
 
 def _write_edges(edges: list[Edge]) -> None:
     """Write edges.jsonl the way transform actually writes it (not a hand-rolled copy),
-    so these tests break if the two stages ever disagree on the format.
-    Also writes labels.json so emit() can load labels."""
+    so these tests break if the two stages ever disagree on the format."""
     transform._write_edges(edges)
-    _write_labels(edges)
 
 
 def _write_raw(path: Path, fetched_at: str) -> None:
@@ -148,9 +144,8 @@ def test_build_adjacency_empty_edges():
 
 
 def test_build_entities_labels_and_types_both_sides():
-    edges = [_edge("Q1", "Q10")]
-    labels: dict[str, str | None] = {"Q1": "Film Q1", "Q10": "Actor Q10"}
-    entities = emit._build_entities(edges, labels)
+    """Labels ride on the edge now — they come off the extract query, not a side file."""
+    entities = emit._build_entities([_edge("Q1", "Q10")])
     assert entities == {
         "Q1": {"label": "Film Q1", "type": "movie"},
         "Q10": {"label": "Actor Q10", "type": "actor"},
@@ -161,9 +156,7 @@ def test_build_entities_covers_every_node():
     edges = [_edge("Q1", "Q10"), _edge("Q1", "Q11"), _edge("Q2", "Q10")]
     movies, actors = emit._build_adjacency(edges)
     all_qids = set(movies) | set(actors)
-    labels: dict[str, str | None] = {qid: f"Label {qid}" for qid in all_qids}
-    entities = emit._build_entities(edges, labels)
-    assert set(entities) == all_qids
+    assert set(emit._build_entities(edges)) == all_qids
 
 
 # --- _sorted_adjacency ------------------------------------------------------------
@@ -233,7 +226,7 @@ def test_emit_manifest_records_config_and_counts(tree: Path):
     """The dials must travel WITH the data — a build is reproducible only if it says
     what went into it."""
     _write_edges([_edge("Q1", "Q10"), _edge("Q1", "Q11"), _edge("Q2", "Q11")])
-    cfg = BuildConfig(min_sitelinks=7, min_cast=4, cast_cap=9, require_enwiki=False)
+    cfg = BuildConfig(min_sitelinks=7, min_cast=4, cast_cap=9)
     out = emit.emit(cfg, "v2")
 
     manifest = json.loads((out / "manifest.json").read_text())
@@ -244,11 +237,24 @@ def test_emit_manifest_records_config_and_counts(tree: Path):
         "min_sitelinks": 7,
         "min_cast": 4,
         "cast_cap": 9,
-        "require_enwiki": False,
         "year_from": cfg.year_from,
         "year_to": cfg.year_to,
     }
     assert manifest["counts"] == {"n_movies": 2, "n_actors": 2, "n_edges": 3}
+
+
+def test_emit_counts_distinct_edges_not_interim_lines(tree: Path):
+    """A film in two year partitions writes its edges twice (P577 is multi-valued), so the
+    interim line count overstates the graph. All three counters describe the artifact."""
+    _write_edges([_edge("Q1", "Q10"), _edge("Q1", "Q10"), _edge("Q1", "Q11")])
+    out = emit.emit(BuildConfig(), "v1")
+
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert manifest["counts"] == {"n_movies": 1, "n_actors": 2, "n_edges": 2}
+
+    graph = json.loads((out / "graph.json").read_text())
+    pairs = {(m, a) for m, cast in graph["movies_to_actors"].items() for a in cast}
+    assert manifest["counts"]["n_edges"] == len(pairs)
 
 
 def test_emit_manifest_carries_query_date_from_raw_cache(tree: Path):
