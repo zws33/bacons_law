@@ -1,6 +1,10 @@
 # Repair Plan — get the pipeline to a working state
 
-**Status:** working checklist. Delete once the graph is built and Phase 2 (Kotlin loader) starts.
+**Status:** Phases 0–2 are **done** (branch `fix/etl-pipeline-repair`, PR #14). Only **Phase 3**, the
+full build, is outstanding. Delete this file once the graph exists and the project moves to its own
+Phase 2 (the Kotlin loader) — not to be confused with this document's Phase 2 below.
+
+The completed phases are kept for the reasoning, not as instructions; the code has moved past them.
 
 ## Diagnosis
 
@@ -27,7 +31,7 @@ from a produced one, and Phase 3 costs an hour of wall-clock you don't want to s
 
 ---
 
-## Phase 0 — Prove QLever works (do this first)
+## Phase 0 — Prove QLever works (do this first) ✅ done
 
 Everything downstream assumes `qlever.dev` answers the labeled query. If it doesn't, the plan changes.
 
@@ -76,7 +80,7 @@ ballpark.
 
 ---
 
-## Phase 1 — Finish the label removal (the actual blocker)
+## Phase 1 — Finish the label removal (the actual blocker) ✅ done
 
 ### 1.1 `src/etl/emit.py`
 
@@ -134,7 +138,7 @@ Pyright is the one that matters here — it catches any remaining reference to `
 
 ---
 
-## Phase 2 — Repair the tests
+## Phase 2 — Repair the tests ✅ done
 
 62 failures, but they collapse out of four helper functions. Work in this order — `test_sparql` first,
 since it's the narrowest.
@@ -254,22 +258,29 @@ The largest file but the edits are subtractive:
 uv run pytest -q
 ```
 
-Target: 0 failed. If `test_pipeline_manifest_describes_the_build` fails on `n_edges`, see the P577 note
-under TODOs.
+Target: 0 failed. (Outcome: 125 passing, ruff and basedpyright clean.)
 
 ---
 
 ## Phase 3 — Build the real graph
 
-### 3.1 Dry run on a narrow range first
+### 3.1 Dry run on a narrow range first ✅ done
 
 ```sh
 uv run python -m etl build --year-from 2014 --year-to 2016 --out-version smoke
 ```
 
 Confirms the three stages wire together against live QLever before committing to 102 sequential
-queries. Inspect `data/graph/smoke/manifest.json` — check `counts` are non-zero and `query_date.from` is
-populated.
+queries.
+
+Measured, as the baseline the full run should scale from: 65,407 rows across 3 partitions, ~7s per
+query. 2,722 movies, 14,418 actors, 24,948 edges. 0 symmetry violations; `entities` keys exactly equal
+the graph's nodes; cast per movie ranges 3–15 with 23% sitting at the cap; re-emit is byte-identical.
+Label coverage 100% of movies, 98.5% of actors.
+
+Two things this run surfaced, both since fixed: films had no fallback when Wikidata has an enwiki
+article but no English label (`Q20856802` / "La La Land"), and `manifest.n_edges` counted interim lines
+rather than distinct pairs.
 
 ### 3.2 The full run
 
@@ -284,24 +295,45 @@ uv run python -m etl build --year-from 1925 --year-to 2026 --out-version v1
   `extract.py:110`.
 - **A `SystemExit` from extract aborts the whole `build` chain**, so transform/emit won't run on a
   partial pull. Re-run `build` until extract reports 0 failures, then it flows through.
+- **Re-running a single stage needs the same dials the artifact was built with.** `--year-from` /
+  `--year-to` are recorded in the manifest, so a bare `etl emit --out-version v1` uses the defaults and
+  the version guard refuses it (`graph/v1 was built with different config (year_from, year_to differ)`).
+  That guard is working — it stops a 3-year artifact being relabelled as a full-range one — but it is
+  easy to trip when re-emitting after a fix.
 
 ### 3.3 Verify the artifact
 
 Spot-check that the graph is *correct*, not merely *produced*:
 
 ```sh
-uv run python -c "
-import json; g=json.load(open('data/graph/v1/graph.json'))
-print('movies', len(g['movies_to_actors']), 'actors', len(g['actors_to_movies']))
-print(g['entities']['Q104123'])
-qids=[q for q,e in g['entities'].items() if e['label']==q]
-print('unlabeled:', len(qids), 'of', len(g['entities']))
-"
+uv run python - <<'EOF'
+import collections, json
+g = json.load(open('data/graph/v1/graph.json'))
+m2a, a2m, ent = g['movies_to_actors'], g['actors_to_movies'], g['entities']
+print('movies', len(m2a), 'actors', len(a2m), 'entities', len(ent))
+
+bad  = sum(1 for mv, c in m2a.items() for a in c if mv not in a2m.get(a, ()))
+bad += sum(1 for a, fs in a2m.items() for mv in fs if a not in m2a.get(mv, ()))
+print('symmetry violations:', bad)                    # must be 0
+print('entities == nodes:', set(ent) == set(m2a) | set(a2m))
+
+unl = [q for q, e in ent.items() if e['label'] == q]
+print('unlabeled:', collections.Counter(ent[q]['type'] for q in unl))
+
+pairs = {(mv, a) for mv, c in m2a.items() for a in c}
+print('n_edges matches graph:',
+      json.load(open('data/graph/v1/manifest.json'))['counts']['n_edges'] == len(pairs))
+
+sizes = [len(c) for c in m2a.values()]
+print('cast/movie: min', min(sizes), 'max', max(sizes))   # must be within [min_cast, cast_cap]
+EOF
 ```
 
-That last number is the label-coverage check. The guide predicts near-total coverage for films (the
-enwiki anchor guarantees it) and lower for actors. A large unlabeled fraction means the `OPTIONAL` isn't
-binding at scale even though it worked in the smoke.
+**Expected:** 0 symmetry violations, `entities` exactly equal to the node set, `n_edges` matching, and
+cast sizes inside `[min_cast, cast_cap]`. Any unlabeled **movies** is the signal to investigate — films
+are anchored to an English Wikipedia article, so the article-title fallback should cover every one of
+them. Unlabeled **actors** are expected and fine (no anchor applies to them); the 3-year sample ran at
+1.5%, so a full-range figure in that neighbourhood is normal and a much larger one is not.
 
 ---
 
@@ -313,10 +345,14 @@ binding at scale even though it worked in the smoke.
    `_cache_is_valid`, `_load_rows`, and half of `test_pipeline` to save one-time runtime on a pipeline
    that runs once, and losing resume on a 102-query pull.
 
-2. **P577 is multi-valued.** A film with release dates in two years lands in both partitions, so
-   `edges.jsonl` gets duplicate lines. `emit._build_adjacency` dedupes via sets, so `graph.json` is
-   correct — only `manifest.counts.n_edges` is inflated. Fix by deduping in `transform`, or by counting
-   distinct pairs in `emit`.
+2. **Deduplicate `edges.jsonl` across partitions** — now an optimization, not a correctness issue.
+   P577 is multi-valued, so a film with release dates in two years lands in both partitions and writes
+   its edges twice (407 films / 4,282 lines in the 3-year sample, ~17%). `graph.json` was never
+   affected — `_build_adjacency` dedupes via sets — and `manifest.n_edges` now counts distinct pairs,
+   so the artifact is correct either way. What remains is the wasted disk and `emit`'s peak memory.
+   Fix by tracking seen film QIDs in `transform._edges` and skipping a film on second sighting; the
+   cast comes from `wdt:P161` and is date-independent, so repeat partitions carry identical rows.
+   `_load_rows` now sorts, so first-seen-wins means earliest release year wins, deterministically.
 
 3. **Incremental update path.** The graph won't be rebuilt after the initial run, but there's currently
    no "fetch year N+1 and merge into an existing artifact" command — `build` always re-emits from the
