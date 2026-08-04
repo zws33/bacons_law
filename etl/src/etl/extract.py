@@ -15,6 +15,12 @@ FILM = "Q11424"
 DOCUMENTARY = "Q93204"
 TV_FILM = "Q506240"
 
+# Bump whenever render_query's SHAPE changes (new column, changed pattern) — anything a
+# cached partition's rows were flattened from. It is part of the cache key, so a bump
+# invalidates every partition. Config values baked into the query (min_sitelinks) are
+# compared separately and don't need a bump.
+QUERY_VERSION = 2
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,7 +32,7 @@ PREFIX wikibase: <http://wikiba.se/ontology#>
 PREFIX schema: <http://schema.org/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
-SELECT ?film ?filmLabel ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE {{
+SELECT ?film ?filmLabel ?articleName ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE {{
   ?film wdt:P31 wd:{FILM} ;               # instance of: film
         wikibase:sitelinks ?filmSitelinks ;
         wdt:P577 ?date ;                   # publication date → partition key
@@ -43,6 +49,13 @@ SELECT ?film ?filmLabel ?filmSitelinks ?actor ?actorLabel ?actorSitelinks WHERE 
 
   OPTIONAL {{ ?film  rdfs:label ?filmLabel  . FILTER(LANG(?filmLabel)  = "en") }}
   OPTIONAL {{ ?actor rdfs:label ?actorLabel . FILTER(LANG(?actorLabel) = "en") }}
+
+  # Film display-name fallback. A prominent item can have an enwiki ARTICLE and still have
+  # no English LABEL (Q20856802 / "La La Land": 73 sitelinks, 41 labels, no en). The anchor
+  # above already binds ?article, so its title costs no extra join. OPTIONAL on purpose —
+  # a required pattern here would DROP any film whose article lacks schema:name rather than
+  # degrade its label, trading a cosmetic gap for a missing node.
+  OPTIONAL {{ ?article schema:name ?articleName }}
 }}
 """
 
@@ -56,7 +69,11 @@ def _cache_is_valid(cfg: BuildConfig, year: int) -> bool:
     except ValidationError:
         return False
 
-    return data.min_sitelinks == cfg.min_sitelinks and data.endpoint == cfg.endpoint
+    return (
+        data.min_sitelinks == cfg.min_sitelinks
+        and data.endpoint == cfg.endpoint
+        and data.query_version == QUERY_VERSION
+    )
 
 
 class ExtractStats(NamedTuple):
@@ -101,6 +118,7 @@ def extract(cfg: BuildConfig) -> ExtractStats:
             fetched_at=datetime.now(UTC).isoformat(),
             endpoint=cfg.endpoint,
             min_sitelinks=cfg.min_sitelinks,
+            query_version=QUERY_VERSION,
             row_count=len(rows),
             rows=rows,
         )

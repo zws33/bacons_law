@@ -85,6 +85,7 @@ class CacheHeader(BaseModel):
     fetched_at: str
     endpoint: str
     min_sitelinks: int
+    query_version: int
     row_count: int
 
 

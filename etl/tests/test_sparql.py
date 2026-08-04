@@ -29,6 +29,7 @@ def _binding(
     actor_links: int,
     film_label: str | None = None,
     actor_label: str | None = None,
+    article_name: str | None = None,
 ) -> _Row:
     b: _Row = {
         "film": {"type": "uri", "value": f"http://www.wikidata.org/entity/{film}"},
@@ -40,6 +41,8 @@ def _binding(
         b["filmLabel"] = {"type": "literal", "value": film_label}
     if actor_label is not None:
         b["actorLabel"] = {"type": "literal", "value": actor_label}
+    if article_name is not None:
+        b["articleName"] = {"type": "literal", "value": article_name}
     return b
 
 
@@ -108,6 +111,33 @@ def test_flatten_falls_back_to_qid_when_label_is_unbound():
     to the QID restores the total-coverage guarantee SERVICE wikibase:label used to give."""
     rows = _flatten(_payload(_binding("Q1", "Q10", film_links=100, actor_links=50)))
     assert rows[0]["film_label"] == "Q1"
+    assert rows[0]["actor_label"] == "Q10"
+
+
+def test_flatten_falls_back_to_the_enwiki_article_title_for_films():
+    """Real case: Q20856802 ("La La Land") has 73 sitelinks, an enwiki article, and 41
+    labels — none of them English. The article title is the display name a player expects."""
+    rows = _flatten(
+        _payload(
+            _binding("Q1", "Q10", 100, 50, article_name="La La Land"),
+        )
+    )
+    assert rows[0]["film_label"] == "La La Land"
+
+
+def test_flatten_prefers_the_rdfs_label_over_the_article_title():
+    """The article title is a fallback, not an override: an item's own label wins."""
+    rows = _flatten(
+        _payload(
+            _binding("Q1", "Q10", 100, 50, film_label="Arrival", article_name="Arrival (film)"),
+        )
+    )
+    assert rows[0]["film_label"] == "Arrival"
+
+
+def test_flatten_article_title_does_not_leak_into_the_actor_label():
+    """Actors have no enwiki anchor; articleName belongs to the FILM's article only."""
+    rows = _flatten(_payload(_binding("Q1", "Q10", 100, 50, article_name="La La Land")))
     assert rows[0]["actor_label"] == "Q10"
 
 

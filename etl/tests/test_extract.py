@@ -43,7 +43,13 @@ def _row(film: str = "Q1", actor: str = "Q10") -> dict[str, str | int]:
     }
 
 
-def _write_cache(path: Path, *, min_sitelinks: int, rows: list | None = None) -> None:
+def _write_cache(
+    path: Path,
+    *,
+    min_sitelinks: int,
+    rows: list | None = None,
+    query_version: int | None = None,
+) -> None:
     """Write a current-format (metadata-wrapped) raw cache file."""
     path.write_text(
         json.dumps(
@@ -52,6 +58,9 @@ def _write_cache(path: Path, *, min_sitelinks: int, rows: list | None = None) ->
                 "fetched_at": "2020-01-01T00:00:00+00:00",
                 "endpoint": BuildConfig().endpoint,
                 "min_sitelinks": min_sitelinks,
+                "query_version": (
+                    extract.QUERY_VERSION if query_version is None else query_version
+                ),
                 "row_count": len(rows or []),
                 "rows": rows or [],
             }
@@ -75,6 +84,14 @@ def test_render_query_excludes_documentary_and_tv_film():
     assert f"FILTER NOT EXISTS {{ ?film wdt:P31 wd:{extract.TV_FILM} }}" in q
 
 
+def test_render_query_selects_the_enwiki_article_title():
+    """The film display-name fallback. It must stay OPTIONAL: a required schema:name would
+    drop films whose article lacks one instead of degrading the label."""
+    q = extract.render_query(1994, BuildConfig())
+    assert "?articleName" in q.split("WHERE")[0]  # in the SELECT list
+    assert "OPTIONAL { ?article schema:name ?articleName }" in q
+
+
 # --- _cache_is_valid --------------------------------------------------------
 
 
@@ -96,6 +113,31 @@ def test_cache_endpoint_mismatch_is_invalid(raw_dir: Path):
     _write_cache(raw_dir / "films-1994.json", min_sitelinks=5)
     stale = BuildConfig(min_sitelinks=5, endpoint="https://query.wikidata.org/sparql")
     assert extract._cache_is_valid(stale, 1994) is False
+
+
+def test_cache_from_an_older_query_shape_is_invalid(raw_dir: Path):
+    """Config alone can't spot a re-shaped query: the columns a partition was flattened
+    from are baked into its rows. Without this, adding a SELECT column would silently reuse
+    partitions that never had it."""
+    _write_cache(raw_dir / "films-1994.json", min_sitelinks=5, query_version=1)
+    assert extract._cache_is_valid(BuildConfig(min_sitelinks=5), 1994) is False
+
+
+def test_cache_predating_query_versioning_is_invalid(raw_dir: Path):
+    """A partition written before query_version existed has no way to prove its shape."""
+    (raw_dir / "films-1994.json").write_text(
+        json.dumps(
+            {
+                "year": 1994,
+                "fetched_at": "2020-01-01T00:00:00+00:00",
+                "endpoint": BuildConfig().endpoint,
+                "min_sitelinks": 5,
+                "row_count": 0,
+                "rows": [],
+            }
+        )
+    )
+    assert extract._cache_is_valid(BuildConfig(min_sitelinks=5), 1994) is False
 
 
 def test_cache_stale_bare_list_is_invalid(raw_dir: Path):
