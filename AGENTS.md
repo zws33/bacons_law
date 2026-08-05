@@ -194,8 +194,9 @@ in playtests; that is a dial (`cast_cap`, `min_cast`), not a bug.
 
 ## What to Avoid
 
-The Binding boundaries above restated as failure modes — these are the mistakes this architecture
-exists to prevent, and the Python showcase made the first one.
+The boundaries above restated as failure modes — these are the mistakes this architecture exists to
+prevent, and the Python showcase made the first one. Both tiers are represented: bypassing repeat
+detection and the out-of-scope list are Current decisions, not Binding.
 
 - **A per-turn movie-API call in the move path.** Validation is precomputed offline and served
   in-process. This was the showcase's mistake and the reason for the pivot.
