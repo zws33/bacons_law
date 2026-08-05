@@ -194,7 +194,7 @@ exists to prevent, and the Python showcase made the first one.
 
 | Document | Purpose |
 |----------|---------|
-| [docs/DECISIONS.md](docs/DECISIONS.md) | **Authoritative** on direction; ADR log, 008–013 cover the current architecture (012–013: async modes + identity) |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | ADR log — the reasoning that got the project here; 008–013 cover the current direction (012–013: async modes + identity). Read for *why*, not as commitments |
 | [docs/CASE_STUDY.md](docs/CASE_STUDY.md) | System-design reasoning behind this architecture (a retrospective, not a build spec) |
 | `bacons-law-architecture` skill | System architecture and decisions orientation (points to the docs above) |
 | `movie-actor-chain-game` skill | Domain rules and vocabulary (implementation-agnostic; leaves project-specific rules open) |

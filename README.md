@@ -32,7 +32,7 @@ that it should be **precomputed, not looked up per turn**:
 The graph and the validation logic must stay in the same process — that co-location is what makes
 validation cheap.
 
-## Tech Stack
+## Tech Stack (current, provisional — see [Status](#status))
 
 - **Kotlin / Ktor** — authoritative game server (HTTP + WebSocket move adapters, in-process graph)
 - **Kotlin `:core`** — pure game engine (state machine, validation, turn management)
@@ -79,8 +79,8 @@ No API keys are required — the actor↔movie data comes from CC0 Wikidata, bui
 
 ## Documentation
 
-- [Decision Log](docs/DECISIONS.md) — key technical and product decisions with rationale; the
-  authority on the current direction
+- [Decision Log](docs/DECISIONS.md) — key technical and product decisions with the reasoning behind
+  them; read for the *why*, not as a set of commitments
 - [Case Study](docs/CASE_STUDY.md) — the system-design reasoning behind this architecture
 - [ETL](etl/README.md) — the offline graph build
 - [Agents Guide](AGENTS.md) — repository layout, conventions, and architecture boundaries

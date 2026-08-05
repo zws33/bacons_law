@@ -6,8 +6,8 @@ description: System architecture, technical decisions, and build order for the B
 # Bacon's Law — System Architecture & Roadmap
 
 Orientation for the system design and project direction. This skill is a **map, not the territory** —
-the authoritative detail lives in the documents linked below. When they disagree with this summary, the
-documents win; update this skill to match rather than duplicating their content here.
+the detail lives in the documents linked below. When they disagree with this summary, the documents
+win; update this skill to match rather than duplicating their content here.
 
 ## How to use this context
 
@@ -77,7 +77,7 @@ assuming a phase. The build order above and `docs/DECISIONS.md` are what survive
 
 | Topic | Document |
 |-------|----------|
-| Technical & product decisions (ADR log) | `docs/DECISIONS.md` — ADRs 008–013 are the current direction |
+| Technical & product decisions (ADR log) | `docs/DECISIONS.md` — ADRs 008–013 record the reasoning behind the current direction, not commitments |
 | System-design reasoning (the "why") | `docs/CASE_STUDY.md` |
 | Pure game engine (rules + state machine) | `kotlin/core/.../GameEngine.kt` and its tests — no prose spec |
 | Offline graph build | `etl/AGENTS.md` |
