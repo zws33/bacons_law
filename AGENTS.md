@@ -130,7 +130,9 @@ discards the point of the pipeline.
 
 **Validation data is precomputed offline.** The actor↔movie relationship is built by the ETL into a
 versioned artifact and loaded read-only at boot. **Do not add a per-turn external API call** to the
-move path — that is the anti-pattern this architecture exists to remove.
+move path — that is the anti-pattern this architecture exists to remove. A consequence worth stating
+outright: **graph membership defines validity**, not real-world truth — an edge the artifact does
+not carry is not a legal move, however true it is off-graph.
 
 **Validation is co-located with the graph, in-process.** The O(1) check holds **only** while the graph
 and the validation logic share a process. **The engine/data seam must never cross a network hop** — do
@@ -162,9 +164,24 @@ cache, never the source of truth** (do not put authoritative state behind a TTL)
 clients on one game) does not require multiple server instances; horizontal scaling is a deferred pair
 (Redis-coordinated locking + Pub/Sub broadcast — ADR 008).
 
-**Repeat detection is on.** Reuse of an actor or movie already in the chain is rejected — a game rule,
-not a bug. It is one of the questions the `movie-actor-chain-game` skill deliberately leaves open;
-this is the project's answer.
+**The three questions `movie-actor-chain-game` leaves open, answered.** The domain skill is
+deliberately implementation-agnostic about repeats, the opening move, and "appeared in" policy;
+these are the answers this project has taken.
+
+**Repeat detection is on.** Reusing an actor or movie already in the chain is rejected — a game
+rule, not a bug. Uniqueness is per type: an actor and a movie may share an ID without colliding.
+
+**The opening move is unconstrained at the engine.** On an empty chain `playMove` accepts any move
+unconditionally — no connection check, no repeat check. "The first move must be an actor" is a
+caller concern (UI / session layer), not an engine rule. The engine supports N ≥ 2 players; the
+product target is 2.
+
+**"Appeared in" means "in the capped graph."** Cast comes from truthy `wdt:P161`, so voice, cameo,
+and uncredited roles count exactly insofar as Wikidata records them. The sharp edge is the cap: each
+film keeps only its top-N cast ranked by the actor's own sitelink count (`cast_cap`; billing order
+`P1545` is ~8% populated and unusable — [etl/AGENTS.md](etl/AGENTS.md)). **A real but obscure cast
+member is absent from the graph and is therefore not a valid move.** Expect "but they were in it!"
+in playtests; that is a dial (`cast_cap`, `min_cast`), not a bug.
 
 ---
 
