@@ -74,7 +74,7 @@ Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag `python-fastapi-s
 
 No API keys are required — the actor↔movie data comes from CC0 Wikidata, built offline by the ETL.
 
-- Game logic: `./gradlew :core:test` (from `kotlin/`)
+- Game logic: `./gradlew :core:jvmTest` (from `kotlin/`)
 - ETL: see [etl/README.md](etl/README.md)
 
 ## Documentation

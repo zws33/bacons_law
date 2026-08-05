@@ -101,7 +101,9 @@ offline. Do not reintroduce a per-turn movie-API dependency.
 
 Gradle commands run from `kotlin/`; the ETL runs from `etl/`. No build tooling runs from the repo root.
 
-`:core:test` is the fast feedback loop for game logic.
+`./gradlew :core:jvmTest` is the fast feedback loop for game logic. Note the target: `:core` is a
+KMP module (`commonMain` / `jvmTest`), so there is **no `:core:test` task**; `allTests` runs every
+target.
 
 ---
 
