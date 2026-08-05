@@ -27,3 +27,17 @@ set-membership check the server validates moves against) plus `entities` (QID �
 endpoint — **back up `data/raw/` once you have it.**
 
 Development commands and the decisions behind the pipeline are in [AGENTS.md](AGENTS.md).
+
+## Known follow-ons
+
+Deferred deliberately — none is a bug, and none blocks a build.
+
+- **Collapse year partitioning into a single query.** `data/spike/films-all.rq` shows QLever returns
+  the full range in one pull, with no 60s wall to hide under. Doing it would delete the per-year
+  cache, the failed-year accounting, and the resume logic — rewriting `_cache_is_valid`, `_load_rows`,
+  and much of `test_pipeline` to save one-time runtime on a pipeline that runs rarely, while losing
+  resumability on a ~100-query pull. Not worth it as things stand.
+- **Incremental update path.** There is no "fetch year N+1 and merge into an existing artifact"
+  command; `build` always re-emits from the full raw cache. That is cheap today (transform and emit
+  are pure and fast over cached files), so the update cadence is: re-run `extract` for the new year,
+  then `build`. Worth designing properly before the first real refresh.

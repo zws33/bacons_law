@@ -5,6 +5,10 @@ Lightweight ADR-style record of key technical and product decisions.
 > ADRs 001–007 are the original Kotlin/Android decisions. ADRs 008+ cover the current direction — a
 > Kotlin/Ktor server validating moves against a precomputed Wikidata graph built by a Python ETL.
 > The archived Python/FastAPI showcase kept its own log at [`python/DECISIONS.md`](python/DECISIONS.md).
+>
+> **Phase numbers below refer to a roadmap that has since been retired.** They are kept as part of the
+> dated record — don't read them as current sequencing or infer status from them. These ADRs record
+> the reasoning that got the project here, not commitments; see [`../AGENTS.md`](../AGENTS.md).
 
 ---
 

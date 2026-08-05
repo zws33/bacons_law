@@ -1,6 +1,6 @@
 # ETL — agent operating rules (offline Python)
 
-Scope: this directory is the **Phase 1 offline graph build** — a self-contained Python toolchain
+Scope: this directory is the **offline graph build** — a self-contained Python toolchain
 (`uv` + `ruff`, Python 3.14) with no coupling to the Kotlin project. It runs **offline**, produces the
 versioned graph artifact the server loads at boot, and is **never** in the request path. (The root
 `AGENTS.md` still applies; this file adds the ETL-specific focus so a session here doesn't have to
@@ -46,8 +46,10 @@ re-pull.
 - **Filter = enwiki ∩ ≥`min_sitelinks` ∩ ≥`min_cast` cast.** The enwiki anchor is unconditional in the
   query and `min_sitelinks` is applied at **extract** time (baked into the raw cache); `min_cast` /
   `cast_cap` are **transform**-time dials you retune often.
-- **Artifact keys are Wikidata QIDs (strings).** The engine's `castIds: Set<Int>` contract is a
-  *loader-side* (Phase 2, Kotlin) concern — do **not** pre-map QIDs to ints here.
+- **Artifact keys are Wikidata QIDs (strings).** This is the contract the server validates against.
+  If a consuming engine wants some other ID type, that mapping is a **loader-side** concern — do
+  **not** pre-map QIDs to ints here. (The current Kotlin `:core` declares `Set<Int>`, left over from
+  the dropped TMDB source; that signature is provisional and does not bind this pipeline.)
 - **A movie's release year comes from its partition, not a second query.** `FILTER(YEAR(?date) = N)`
   means the partition key *is* a publication year of every film in the file, so `entities` gets its
   year from `CachePayload.year` for free. Don't add `?date` to the SELECT to get it. Movies carry
@@ -64,8 +66,8 @@ re-pull.
 - **Movies only:** exclude documentary (`Q93204`) and TV-film (`Q506240`) at extract.
 - **Year partitioning is a retained choice, not a requirement.** It existed to fit under the WDQS 60s
   wall, which QLever doesn't have. It stays because it keeps the raw cache resumable and each
-  response small enough for non-streaming JSON parsing. Collapsing to one query is a documented
-  follow-on, not a bug to fix.
+  response small enough for non-streaming JSON parsing. Don't collapse it to a single query as a
+  cleanup.
 
 ## The one architectural reason this pipeline exists
 
@@ -83,13 +85,16 @@ outage being an inconvenience and being a rebuild from dumps.
 
 ## Docs — open the right one, only when you need it (context hygiene)
 
-- **`REPAIR_PLAN.md`** — the in-flight work: finishing the QLever migration and running the first full
-  build. Start here while it exists; delete it once the graph is built.
-- **`EXPLORATION.md`** — the Wikidata source characterization (the numbers behind the decisions).
-  Still accurate; the spike independently corroborated its ~68k-films-at-`min_sitelinks=5` figure.
+- **`REPAIR_PLAN.md`** — the remaining in-flight work: running the first full build and verifying the
+  artifact. Start here while it exists; delete it once the graph is built.
+- **`README.md`** — the pipeline at a glance, plus known follow-ons (deferred work lives there, not
+  here — this file is operating rules only).
 - Config contract: `src/etl/config.py`.
 
-`IMPLEMENTATION_GUIDE.md` and `QLEVER_MIGRATION_PLAN.md` were deleted once the migration they described
-landed — a build-it-by-hand guide and a migration plan both go stale the moment the code catches up.
-The facts worth keeping from them are inlined above. Git history holds the rest, as it does for the
-staged reference implementations (`docs/00–04`) removed earlier.
+Plans and guides are deleted once the code catches up; the facts worth keeping are inlined above and
+git history holds the rest. That has already happened to `IMPLEMENTATION_GUIDE.md`,
+`QLEVER_MIGRATION_PLAN.md`, `YEAR_PLAN.md`, the staged reference implementations (`docs/00–04`), and
+`EXPLORATION.md` — the last of which characterized the Wikidata source to pick the dials
+(`min_sitelinks`, `min_cast`, `cast_cap`, ranking cast by actor sitelinks rather than billing order).
+Those dials are now settled and recorded above, so the characterization behind them is no longer
+needed.
