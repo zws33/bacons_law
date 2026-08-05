@@ -50,6 +50,11 @@ consume. The current Kotlin code still declares `id: Int` and `castIds: Set<Int>
 dropped TMDB data source ([ADR 010](docs/DECISIONS.md)); it does not match the data and carries no
 authority. Reconcile it whenever the engine is next touched.
 
+Note what that costs: `:backend` and `:app` both declare `implementation(project(":core"))`, and
+eight files across them consume `Move` and `GameState` directly. Retyping the IDs breaks the Gradle
+build, so the reconciliation includes updating those call sites — that is not "modifying" `:app` in
+the preserved-as-reference sense above; it is keeping `kotlin/` compiling.
+
 **There is no written engine spec.** `kotlin/core/src/commonMain/kotlin/me/zwsmith/core/GameEngine.kt`
 and its test suite are the spec of record — read them before changing engine behavior. The
 `movie-actor-chain-game` skill covers the domain rules and vocabulary, but is deliberately
