@@ -3,7 +3,7 @@ name: bacons-law-architecture
 description: System architecture, technical decisions, and build order for the Bacon's Law project — the graph-backed Kotlin/Ktor server, Python ETL, real-time + correspondence game modes, durable store, identity model, and deployment/sequencing. Consult this skill whenever working on or reasoning about the backend, server architecture, the data/ETL pipeline, the session/transport layer, persistence, identity, deployment, or what to build next. Trigger it whenever a task touches how the system is built or how the work is sequenced, even when the user never says "architecture" or "roadmap". This is the system-design companion to the movie-actor-chain-game skill (which owns domain rules and is deliberately implementation-agnostic).
 ---
 
-# Bacon's Law — System Architecture & Roadmap
+# Bacon's Law — System Architecture
 
 Orientation for the system design and project direction. This skill is a **map, not the territory** —
 the detail lives in the documents linked below. When they disagree with this summary, the documents
@@ -21,10 +21,10 @@ win; update this skill to match rather than duplicating their content here.
 ## The one load-bearing property
 
 **Validation is co-located with the graph, in-process.** The per-turn connection check is O(1) set
-membership (is this cast QID in that movie's set?) against a precomputed bipartite graph loaded read-only at boot —
-no per-turn external API call. This holds **only** while the graph and the validation logic share a
-process, so the engine/data seam must never cross a network hop. Everything else is downstream of this.
-(CASE_STUDY §2, §6; ADR 009.)
+membership (is this cast QID in that movie's set?) against a precomputed bipartite graph loaded
+read-only at boot — no per-turn external API call. This holds **only** while the graph and the
+validation logic share a process, so the engine/data seam must never cross a network hop. Everything
+else is downstream of this. (CASE_STUDY §2, §6; ADR 009.)
 
 ## What is settled, and what is not
 

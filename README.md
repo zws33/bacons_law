@@ -48,7 +48,7 @@ The root is stack-agnostic; each implementation lives in its own self-contained 
 
 ```
 bacons-law/
-├── docs/          # Engine spec, case study, decision log; docs/python/ archives the prior showcase
+├── docs/          # Case study and decision log; archive/ and python/ hold prior efforts
 ├── kotlin/        # Self-contained Gradle project — the Kotlin implementation
 │   ├── core/      #   Pure Kotlin game engine — state machine, validation, turn management
 │   ├── backend/   #   Ktor server — graph-backed session server (being rebuilt from a proxy)
