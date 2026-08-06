@@ -1,9 +1,9 @@
 # Bacon's Law
 
 A trivia game based on "Six Degrees of Kevin Bacon." **Two or more players on separate devices** take
-turns naming movies and actors to build a chain of connections — playable **real-time** (live, with a
-chess clock) or **async ("correspondence")**. A server validates every move against a precomputed
-actor↔movie graph.
+turns naming movies and actors to build a chain of connections. Play is **async ("correspondence")** —
+move when you can, get notified when it's your turn, with a per-turn deadline. A server validates every
+move against a precomputed actor↔movie graph.
 
 ## How It Works
 
@@ -31,11 +31,18 @@ that it should be **precomputed, not looked up per turn**:
   set-membership check — no per-turn external API call.
 - A **pure round engine** owns the rules, specified by
   [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md). A **durable store** holds authoritative
-  game state for both modes — it must survive restarts and span days for correspondence play. Which
-  store, and what provides presence and broadcast for real-time play, is an open planning question.
+  game state — it must survive restarts and span days. Which store is an open planning question.
 
 The graph and the validation logic must stay in the same process — that co-location is what makes
 validation cheap.
+
+The second design crux is one the project got wrong first and corrected
+([ADR 018](docs/DECISIONS.md)): **the game is turn-based, and real-time is a time control rather than
+an architecture.** Nothing in the rules is decided by reaction time, so moves go over ordinary
+request/response and an opponent learns of one by polling plus push — no WebSockets, no presence
+service, no broadcast channel, and no single-instance constraint. A live chess clock is deferred, and
+because a turn deadline is stored as a duration rather than a mode, adding one later is a different
+number, not a second system.
 
 ## Tech Stack
 
@@ -47,12 +54,12 @@ validation cheap.
 
 - **Server language and framework.** The tree holds a Kotlin/Ktor server and a pure Kotlin `:core`
   engine; both are prototypes, not commitments.
-- **Durable store** for authoritative game state, and whatever provides presence and broadcast for
-  real-time play. Prior choices were withdrawn to avoid biasing this decision.
+- **Durable store** for authoritative game state. Prior choices were withdrawn to avoid biasing this
+  decision. There is no presence/broadcast layer to choose — see [ADR 018](docs/DECISIONS.md).
 - **Client.** The tree holds an unmaintained Android/Compose app built for a dropped design.
-- **Hosting.** Whatever is chosen must run a **single long-lived instance** — scale-to-zero and
-  multi-instance autoscaling are incompatible with persistent WebSockets and the in-process graph.
-  That constraint follows from the architecture; the vendor does not.
+- **Hosting.** Wide open. An earlier revision of this file required a single long-lived instance;
+  [ADR 018](docs/DECISIONS.md) removed that. The graph is read-only and identical on every instance, so
+  it constrains **cold start**, not instance count — and that is a measurement, not a ruling.
 
 ## Project Structure
 
@@ -97,8 +104,11 @@ No API keys are required — the actor↔movie data comes from CC0 Wikidata, bui
   R1–R15 plus a numbered conformance suite, language- and framework-agnostic. Authoritative over
   `kotlin/core/.../GameEngine.kt`, which is prototype code the spec records divergences from
 - [Decision Log](docs/DECISIONS.md) — key technical and product decisions with the reasoning behind
-  them; read for the *why*, not as a set of commitments
-- [Case Study](docs/CASE_STUDY.md) — the system-design reasoning behind this architecture
+  them; read for the *why*, not as a set of commitments. **ADR 018 is the most consequential recent
+  one** — it amends 008, 011, and 012 on transport, hosting, and modes
+- [Case Study](docs/CASE_STUDY.md) — the system-design reasoning behind this architecture. Its §2, §5,
+  and §6 assume a WebSocket transport the project has since dropped; they are kept as dated record with
+  inline superseding markers
 - [ETL](etl/README.md) — the offline graph build
 - [Agents Guide](AGENTS.md) — repository layout, conventions, and architecture boundaries
 - [History](docs/HISTORY.md) — the two prior efforts and why they ended; reference, not guidance

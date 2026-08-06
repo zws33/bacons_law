@@ -2,8 +2,9 @@
 
 A trivia game based on "Six Degrees of Kevin Bacon." **Two or more players on separate devices** take
 turns naming movies and actors to build a chain of connections; each answer must connect factually to
-the previous one. Games run in one of two modes (chess.com-style, chosen at creation): **real-time**
-(live, with a chess clock) or **correspondence** (async, move-when-you-can). A server owns
+the previous one. Play is **correspondence** — async, move-when-you-can, notified on your turn — with a
+per-turn deadline. That is the only mode; live play with a running chess clock is deferred, and
+**real-time is a time control, not an architecture** ([ADR 018](docs/DECISIONS.md)). A server owns
 authoritative game state and validates every move against a **precomputed actor↔movie graph** held in
 memory (O(1) set membership — no per-turn external API call).
 
@@ -80,8 +81,10 @@ pinned as test cases in the conformance spec.
 Still the thin TMDB proxy it started as (movie/person search, credits). The graph-backed authoritative
 session server has not been built; whether it is built here, in Kotlin, at all, is open. It depends on
 `:core`, never the reverse. For the session-layer design as currently reasoned (durable store,
-transport-agnostic move pipeline, real-time/correspondence modes, identity, and the
-correspondence-first build order), see [ADR 012](docs/DECISIONS.md) and [ADR 013](docs/DECISIONS.md).
+transport-agnostic move pipeline, identity, and the correspondence build order), see
+[ADR 012](docs/DECISIONS.md) and [ADR 013](docs/DECISIONS.md) — both as amended by
+[ADR 018](docs/DECISIONS.md), which drops the WebSocket transport and the real-time mode. Move
+submission is request/response; there are no sockets to build.
 
 ### `etl/` — the offline graph build (Python) — **the durable part**
 
@@ -124,16 +127,26 @@ target.
 
 ## Deployment
 
-The binding constraint is that the server runs as a **single long-lived instance** — persistent
-WebSocket connections (real-time mode) and the in-process graph are incompatible with scale-to-zero and
-multi-instance autoscaling. That rules out scale-to-zero platforms; it does not pick a vendor. Fly.io
-is the current choice ([ADR 011](docs/DECISIONS.md)) and is open to reevaluation.
+**There is no single-instance constraint.** Earlier revisions of this file said the server must run as
+one long-lived instance because persistent WebSockets and the in-process graph ruled out scale-to-zero
+and multi-instance autoscaling. [ADR 018](docs/DECISIONS.md) dropped the sockets, and the graph half of
+that claim was never true: the artifact is ~21 MB, read-only, and identical everywhere, so N instances
+each load a copy and coordinate nothing. **Do not reintroduce that constraint**, and do not cite the
+in-process graph as an argument about instance count.
 
-Concurrent moves are serialized by **optimistic concurrency (version/CAS) on the durable store** — the
-authoritative mechanism across both modes. The graph artifact is bundled with / loaded by the server at
-boot, and whatever hosts the durable store should be colocated with the instance to keep the move path
-cheap. **The durable store and the presence/broadcast mechanism are undecided** — see
-[ADR 012](docs/DECISIONS.md).
+What survives is a **cold-start** consideration — the artifact is loaded at boot, so scale-to-zero
+costs whatever that load takes. That is a measurement, not a ruling, and turns are minutes-to-days
+apart. **Hosting is an open planning-session question**, Fly.io included; nothing in the architecture
+picks a vendor.
+
+Concurrent writes are serialized by **optimistic concurrency (version/CAS) on the durable store**. Note
+what this is *for*: by the rules, two players cannot contend for the same turn. The real writers are
+**duplicate submissions** (a slow request plus a re-tap or client retry — one player racing themselves,
+which the turn rule does not prevent), **deadline adjudication** (not a player, and it can fire while
+that player submits), and **match-level quits** (not turn-scoped). This needs a version column and a
+`WHERE version = ?`, not coordination infrastructure — no distributed lock, no external coordinator, no
+in-process `Mutex`. **The durable store is undecided** — see [ADR 012](docs/DECISIONS.md). There is no
+presence/broadcast mechanism to decide.
 
 ---
 
@@ -178,21 +191,49 @@ mocks and shareable across server and clients. This is a property to preserve, n
 
 ### Current decisions — provisional, subject to reevaluation
 
-These are where the design stands per ADRs 008–013. They are reasoned positions, not commitments;
+These are where the design stands per ADRs 008–018. They are reasoned positions, not commitments;
 the planning session may replace any of them. Follow them absent a decision to the contrary, but
 don't defend them as invariants.
 
+**The game is turn-based. Real-time is a time control, not an architecture** (ADR 018). Correspondence
+is the primary and only mode built. Live play with a running chess clock is **deferred, not designed
+for** — it is a non-functional requirement noted for later, and the cost of that deferral is three
+seams (below), not a mode. Do not add a persistent-socket transport, a presence service, or a broadcast
+channel; do not evaluate stacks on connection-holding, idle-socket memory, or broadcast fan-out. The
+game rewards recall and strategy, not reaction time, so the budget for delivering an opponent's move is
+seconds.
+
+**Opponents learn of a move by polling + push.** Adaptive polling (~2s while the game view is
+foregrounded and it is not your turn; stopped when backgrounded), plus push notification to the
+device-anchored token (ADR 013). The player who moved sees the result in their own response. This is
+stateless — any instance can serve it.
+
+**Store a deadline, not a mode.** A turn deadline is `turn_duration` plus a `deadline_at` timestamp; a
+60-second turn and a 3-day turn are the same field at different values. **Do not introduce a
+`realtime | correspondence` enum** — a mode enum branching through the codebase is how one system
+becomes two. This replaces ADR 012 §2.
+
+**Three seams keep live play cheap to add later.** They are the entire cost of deferring rather than
+dropping it: (1) the move core stays transport-agnostic — `(player, gameId, validatedMove) -> result`
+as a plain function, no HTTP types in domain logic; (2) **move handling emits a notification event
+rather than calling the notifier** — "game X advanced to player B," consumed by a delivery layer; this
+is the one item genuinely expensive to retrofit; (3) the deadline is data, per above.
+
 **A durable store is authoritative for game state — which store is undecided.** The serialized
-`GameState` (plus mode, time-control, players, and clock/deadline state) is persisted per game. The
+`GameState` (plus players, turn-duration/deadline, and per-player time state) is persisted per game. The
 requirements it must meet: survive restarts, span days for correspondence play, hold serializable
-state, and support compare-and-swap on a version so concurrent moves serialize (ADR 012). **No
+state, and support compare-and-swap on a version so concurrent writes serialize (ADR 012). **No
 authoritative state behind a TTL** — that was the concrete failure of the earlier design, and it is the
 one thing here that generalizes past any particular product.
 
-**Presence and broadcast are a separate concern from the durable store, and also undecided.** A cache
-or pub/sub layer, if one is used, is never the source of truth. Multi-device (many clients on one game)
-does not require multiple server instances; horizontal scaling is a deferred pair — coordinated locking
-*and* a broadcast channel, since a second instance cannot see the first's sockets (ADR 008).
+**Concurrency control is a version column, not infrastructure.** Two *players* cannot contend for the
+same turn — that is a rule. CAS exists for three other writers: duplicate submissions (one player
+racing themselves via re-tap or client retry, which the turn rule does not prevent), deadline
+adjudication, and match-level quits. A client-generated move ID for idempotency is recommended: CAS
+rejects a duplicate, surfacing an error for something that actually succeeded, whereas an idempotency
+key returns the original result. **Horizontal scaling is neither paired nor blocked** — ADR 008's
+"coordinated locking *and* a broadcast channel" is void, the broadcast half being an artifact of
+holding sockets and the locking half being CAS.
 
 > Specific products were named in ADRs 008–012 and have been **deliberately removed from this file** so
 > that a fresh planning pass evaluates storage and persistence on the requirements above rather than
@@ -258,6 +299,17 @@ detection and the out-of-scope list are Current decisions, not Binding.
   in-process. This was the showcase's mistake and the reason for the pivot.
 - **Splitting the engine from the graph across a network boundary.** Co-location is load-bearing.
 - **I/O in the engine** — no network, no database or cache calls, no platform deps.
+- **A persistent-socket transport, a presence service, or a broadcast channel.** The game is
+  turn-based and rewards recall, not reaction time; moves go over request/response and opponents learn
+  of them by polling + push ([ADR 018](docs/DECISIONS.md)). Related: **do not evaluate stacks on
+  connection-holding, idle-socket memory, or broadcast fan-out** — that framing in
+  [docs/CASE_STUDY.md](docs/CASE_STUDY.md) §5–§6 is superseded, and inheriting it silently picks a
+  stack for a workload this system does not have.
+- **Asserting a single-instance constraint**, or citing the in-process graph as an argument about
+  instance count. The graph is read-only and identical on every instance. Cold start is the only live
+  consideration, and it is a measurement.
+- **A `realtime | correspondence` mode enum.** Store `turn_duration` + `deadline_at`; the modes differ
+  only in the number.
 - **TMDB as a runtime dependency**, or any API key. The source is CC0 Wikidata, built offline.
 - **Pre-mapping QIDs to integers in the ETL.** ID adaptation is a loader-side concern.
 - **Bypassing repeat detection.** It is a game rule.
@@ -282,8 +334,8 @@ detection and the out-of-scope list are Current decisions, not Binding.
 
 | Document | Purpose |
 |----------|---------|
-| [docs/DECISIONS.md](docs/DECISIONS.md) | ADR log — the reasoning that got the project here; 008–013 cover the current direction (012–013: async modes + identity). Read for *why*, not as commitments |
-| [docs/CASE_STUDY.md](docs/CASE_STUDY.md) | System-design reasoning behind this architecture (a retrospective, not a build spec) |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | ADR log — the reasoning that got the project here; 008–018 cover the current direction. **Read [ADR 018](docs/DECISIONS.md) first** — it amends 008, 011, and 012 on transport, hosting, and modes. Read for *why*, not as commitments |
+| [docs/CASE_STUDY.md](docs/CASE_STUDY.md) | System-design reasoning behind this architecture (a retrospective, not a build spec). **§2, §5, and §6 are superseded by [ADR 018](docs/DECISIONS.md)** and carry inline markers — they assume a WebSocket transport this project no longer has |
 | `movie-actor-chain-game` skill | Domain rules and vocabulary (implementation-agnostic; leaves project-specific rules open) |
 | [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) | **The round-engine spec of record.** Rules R1–R15 + a numbered conformance suite; language-agnostic, generates a test suite in any stack. Defines the round/match seam |
 | `kotlin/core/.../GameEngine.kt` + tests | Prototype implementation — subordinate to the conformance spec, which records where it diverges |

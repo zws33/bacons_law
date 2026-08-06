@@ -6,6 +6,11 @@ Lightweight ADR-style record of key technical and product decisions.
 > the current architecture — a server validating moves against a precomputed Wikidata graph built by a
 > Python ETL. **014–017** record decisions made since that were previously only in `AGENTS.md`: the
 > round/match split, N-player multiplayer, the QID contract, and the conformance spec's authority.
+> **[018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) is the most
+> consequential recent change and amends 008, 011, and 012**: the game is turn-based, real-time is a
+> time control rather than an architecture, and the WebSocket transport — along with the
+> single-instance constraint it implied — is dropped. Read it before acting on anything in 008–012
+> about transport, presence, broadcast, hosting, or instance count.
 > The archived Python/FastAPI showcase kept its own log; it was deleted along with that effort's plans
 > — see [`HISTORY.md`](HISTORY.md).
 >
@@ -152,12 +157,22 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 
 ## 008: Multi-device, server-authoritative play is the core requirement
 
-> **Amended.** The core decision holds. The concurrency mechanism below does not: the in-process
-> per-room `Mutex` is demoted by
-> [ADR 012](#012-async-correspondence-is-a-first-class-mode-durable-store-authoritative) §4 in favour
-> of optimistic concurrency (version/CAS) on the durable store. Read "this is the v1 design" as
-> historical. The two-player framing is superseded by
-> [ADR 015](#015-multiplayer-beyond-two-players-is-a-day-one-requirement).
+> **Amended twice.** The core decision — multi-device play with the server authoritative over game
+> state — **holds and is not in question.** Three things below do not:
+>
+> - The in-process per-room `Mutex` is demoted by
+>   [ADR 012](#012-async-correspondence-is-a-first-class-mode-durable-store-authoritative) §4 in favour
+>   of optimistic concurrency (version/CAS) on the durable store. Read "this is the v1 design" as
+>   historical.
+> - **The WebSocket transport is dropped** by
+>   [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture). Clients
+>   submit moves over request/response and learn of opponents' moves by polling + push. The
+>   "horizontal scaling is a deferred pair" consequence below is **void**: the broadcast half was an
+>   artifact of holding sockets, and the locking half is CAS. Scaling is neither paired nor blocked.
+>   ADR 018 §4 also corrects the concurrency rationale — two *players* cannot contend for one turn; the
+>   real writers are duplicate submissions, deadline adjudication, and match-level quits.
+> - The two-player framing is superseded by
+>   [ADR 015](#015-multiplayer-beyond-two-players-is-a-day-one-requirement).
 
 **Date:** 2026-06-29
 
@@ -179,7 +194,7 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 
 **Date:** 2026-06-29
 
-**Context:** The intuitive approach validates "did this actor appear in this movie?" with a movie-API call per turn — the Python showcase did exactly that (a TMDB credits call per movie move). [CASE_STUDY.md](CASE_STUDY.md) (§2–3) shows this is backwards: precompute the actor↔movie relationship once, offline, and the per-turn check collapses to an O(1) set-membership lookup. The system is connection-bound, not compute-bound; the connection check is the cheapest thing in it.
+**Context:** The intuitive approach validates "did this actor appear in this movie?" with a movie-API call per turn — the Python showcase did exactly that (a TMDB credits call per movie move). [CASE_STUDY.md](CASE_STUDY.md) (§2–3) shows this is backwards: precompute the actor↔movie relationship once, offline, and the per-turn check collapses to an O(1) set-membership lookup. The system is connection-bound, not compute-bound; the connection check is the cheapest thing in it. *(The "connection-bound" half of that last clause is retracted by [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) — there are no persistent connections. The decision below does not depend on it: precomputed in-process validation is binding regardless of transport, and "the connection check is the cheapest thing in the system" is exactly as true over HTTP.)*
 
 **Decision:** The actor↔movie relationship is precomputed offline into a bipartite graph (`movie_id → set(actor_id)`, `actor_id → set(movie_id)` — generic notation predating the source choice; the keys are Wikidata QID strings, see [ADR 016](#016-cast-ids-are-wikidata-qid-strings-id-adaptation-is-loader-side)) and loaded **read-only, in-process** into the server at boot. Move validation is `castIds.contains(...)` against the loaded graph — no network call in the hot path. The pure `:core` engine is unchanged; only its data source changes.
 
@@ -209,12 +224,22 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 
 ## 011: Kotlin/Ktor server + Python ETL; single Fly.io instance, not Cloud Run
 
-> **The language choice is reopened.** The *offline/online split* (Python ETL, everything else online)
-> and the *hosting* decision (single long-lived Fly.io instance, not scale-to-zero) both hold — they
-> follow from the load-bearing property, not from Kotlin. But "server: Kotlin/Ktor," "reuse the pure
-> `:core` engine as-is," and "the running system stays all-Kotlin" are **provisional**: the whole
-> application build-out, stack included, is to be reevaluated in a planning session. See
+> **The language choice is reopened, and the hosting decision has lost its premise.** The
+> *offline/online split* (Python ETL, everything else online) **holds**. "Server: Kotlin/Ktor," "reuse
+> the pure `:core` engine as-is," and "the running system stays all-Kotlin" are **provisional**: the
+> whole application build-out, stack included, is to be reevaluated in a planning session. See
 > [`../AGENTS.md`](../AGENTS.md).
+>
+> **The hosting rationale below is void.**
+> [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) drops
+> persistent WebSockets, which was the entire reason scale-to-zero and multi-instance autoscaling were
+> ruled out. The second clause of that rationale — "in-process session state + graph" — was **never a
+> multi-instance argument**: the graph is ~21 MB, read-only, and identical everywhere, so N instances
+> each load a copy and coordinate nothing. It survives only as a *cold-start* consideration, to be
+> measured rather than assumed. **Hosting is an open planning-session question**, Fly.io included.
+>
+> Note also that the "server is connection-bound (CASE_STUDY §6)" premise in the Context below is
+> itself what ADR 018 overturns.
 
 **Date:** 2026-06-29
 
@@ -249,11 +274,29 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 
 **Date:** 2026-07-06
 
+> **Amended by [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture).**
+> The **requirement set survives intact** and is still the durable part of this ADR. Three things
+> change:
+>
+> - **Real-time is no longer a mode to build.** §6's "correspondence-first, then real-time as an
+>   additive layer (WS transport + presence + pub/sub + the clock subsystem)" becomes
+>   correspondence-*only*; live play is a deferred non-functional requirement.
+> - **§2's `mode` as per-game config is replaced** by storing a deadline as data — `turn_duration` plus
+>   `deadline_at`. A 60-second turn and a 3-day turn are the same field, so there is no mode enum and
+>   no second code path.
+> - **§5's two clock models collapse to one.** The per-move deadline (timestamp, lazily swept) is
+>   built; the running server-authoritative chess clock is not. Clocks remain session-layer state and
+>   still never enter the engine.
+>
+> §1 (durable store authoritative, never behind a TTL), §3 (transport-agnostic move core), and §4
+> (optimistic concurrency) all hold — though ADR 018 §4 corrects *why* §4 is needed.
+
 **Amends [ADR 008](#008-multi-device-server-authoritative-play-is-the-core-requirement):** the in-process
 per-room `Mutex` is demoted (below). **Supersedes** parts of the ROADMAP "out of scope" list — turn
-timers and game-history persistence move *in scope*. **[ADR 011](#011-kotlinktor-server--python-etl-single-flyio-instance-not-cloud-run)
+timers and game-history persistence move *in scope*. ~~**[ADR 011](#011-kotlinktor-server--python-etl-single-flyio-instance-not-cloud-run)
 survives** — real-time still requires persistent WebSockets + in-process graph on a single Fly
-instance. Identity is split into [ADR 013](#013-persistent-player-identity-device-anchored-first).
+instance.~~ (Void — see the ADR 018 note above.) Identity is split into
+[ADR 013](#013-persistent-player-identity-device-anchored-first).
 
 **Context:** The product target is the chess.com model: at game creation a player picks a **mode** —
 *real-time* (live, with a chess clock) or *correspondence* (async, move-when-you-can, notified on your
@@ -477,3 +520,113 @@ silently choosing where the rules live.
   validation, and has repeat tests whose fixtures don't isolate the repeat rule.
 - The spec's own **Open questions** (failure reason codes, opening-player index, clock-expiry
   ownership, chain-length limits) are live inputs to the planning session, not oversights.
+
+---
+
+## 018: The game is turn-based; real-time is a time control, not an architecture
+
+**Date:** 2026-08-06
+
+**Amends [ADR 008](#008-multi-device-server-authoritative-play-is-the-core-requirement)** (the
+WebSocket transport and the "horizontal scaling is a deferred pair" consequence),
+**[ADR 011](#011-kotlinktor-server--python-etl-single-flyio-instance-not-cloud-run)** (the
+single-long-lived-instance hosting constraint loses most of its premise), and
+**[ADR 012](#012-async-correspondence-is-a-first-class-mode-durable-store-authoritative)** (mode as
+per-game config; real-time as an additive transport layer). The server-authoritative core of ADR 008,
+the durable-store requirements of ADR 012, and the offline/online split of ADR 011 all **survive
+unchanged**.
+
+**Context:** [CASE_STUDY.md](CASE_STUDY.md) §1 names the load-bearing property as "the game is
+real-time and turn-based" and treats it as one thing. It is two, and only one of them is a rule.
+**Turn-based is a rule of the game. Real-time is a time-control setting** — the way blitz is a setting
+in chess, not a different architecture.
+
+Taking them as one compound property led the case study to identify its central constraint as
+"managing many long-lived, **mostly-idle** WebSocket connections" (§2). That adjective is the
+counter-argument: a persistent bidirectional connection carrying a few messages per minute is a
+mechanism without a workload. The consequences propagated well past the transport — §5's cost model is
+built entirely on connection-holding and broadcast egress, and §6's language evaluation is *selected*
+by it (green threads vs. event loops, memory per idle socket, built-in presence tracking, broadcast
+fan-out). None of those criteria survive the removal of sockets, which means the assumption was
+silently choosing the stack.
+
+Two further observations settled it:
+
+- **Real-time degrades as player count grows, and N > 2 is a day-one requirement
+  ([ADR 015](#015-multiplayer-beyond-two-players-is-a-day-one-requirement)).** With four players on a
+  60-second clock, each waits ~3 minutes between turns, all four must be simultaneously present and
+  attentive, and one disconnect stalls everyone. Correspondence is indifferent to N. Live play is
+  effectively a two-player mode, and ADR 012 and ADR 015 were in unnoticed tension.
+- **The game rewards recall and strategy, not reaction time.** Nothing in the rules is decided by
+  milliseconds, so the latency budget for delivering an opponent's move is seconds, not frames.
+
+**Decision:**
+
+1. **Correspondence is the primary and only gameplay mode built.** Live play with a running chess
+   clock is dropped from the build, retained as a deferred non-functional requirement (below).
+2. **No persistent-socket transport.** Move submission is request/response. The opponent learns of a
+   move by **adaptive polling** (~2s while the game view is foregrounded and it is not your turn;
+   stopped when backgrounded) plus **push notification** to the device-anchored token
+   ([ADR 013](#013-persistent-player-identity-device-anchored-first)). The player who moved sees the
+   result in their own response. This yields a perceived-live experience with no socket, no presence
+   service, and no broadcast channel.
+3. **Deadlines are stored as data, not as a mode.** A turn deadline is `turn_duration` plus a
+   `deadline_at` timestamp. A 60-second turn and a 3-day turn are the same field at different values.
+   This **replaces ADR 012 §2's framing of `mode` as per-game config** with a branch-free
+   representation: there is no `realtime | correspondence` enum threading through the codebase, and
+   therefore no second system to build.
+4. **Optimistic concurrency (version/CAS) is retained, with a corrected rationale.** ADR 008 justified
+   serialization by "two devices can send near-simultaneous messages"; by the rules, two *players*
+   cannot contend for the same turn. The real sources are:
+   - **Duplicate submission** — a slow request plus a user re-tap or a client retry. Both requests read
+     the same version, both pass the turn check, both write; the move lands twice and a player is
+     skipped. This is one player racing themselves, so the turn rule does not help.
+   - **Deadline adjudication** — whatever resolves an expired deadline is not a player, and it can fire
+     while that player submits at the last second. Keeping deadlines (§3) guarantees this writer exists.
+   - **Match-level quit** — [ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md) scopes `forfeit` to the
+     player on turn, but notes that quitting the *match* is a match-layer event; that one is not
+     turn-scoped.
+
+   What is dropped is **coordination infrastructure** — no distributed lock, no external coordination
+   service, no in-process `Mutex`. What remains is a version column and a `WHERE version = ?` clause.
+5. **Horizontal scaling is no longer a deferred pair, and no longer blocked.** ADR 008 held that
+   scaling required coordinated locking *and* an inter-instance broadcast channel. The broadcast half
+   was purely an artifact of holding sockets; the locking half is CAS on the store. Both are resolved.
+
+**On the in-process graph and instance count.** AGENTS.md, README.md, and ADR 011 all state that
+persistent WebSockets *and the in-process graph* together force a single instance. Only the first
+clause was ever true. The graph is ~21 MB, read-only, and identical on every instance; N instances each
+load their own copy and coordinate nothing. **The in-process graph is an argument about cold-start
+cost, not about instance count.** It remains a mild argument against scale-to-zero — measurable as
+artifact load time at boot, and to be measured rather than assumed, since turns are minutes-to-days
+apart.
+
+**Consequences:**
+
+- **The stack decision is un-biased.** The planning session evaluates languages on ordinary
+  request/response criteria. CASE_STUDY §6's concurrency-model comparison no longer selects for
+  anything; a boring stack is now fully admissible.
+- **Hosting is reopened.** ADR 011 rejected scale-to-zero platforms specifically because of persistent
+  sockets. That premise is gone. The remaining question is artifact load time, which is a measurement.
+- **Three seams keep live play cheap to add later**, and are the whole cost of deferring rather than
+  dropping it:
+  - Keep the move core transport-agnostic — `(player, gameId, validatedMove) -> result` as a plain
+    function, per ADR 012 §3, which already required this. No HTTP types in domain logic.
+  - **Emit a notification event; do not call the notifier.** If move handling directly sends the push,
+    adding a delivery mechanism later means editing the move path. Emitting "game X advanced to player
+    B" for a delivery layer to consume keeps mechanisms pluggable. This is the one item genuinely
+    expensive to retrofit.
+  - Store the deadline, not the mode (§3 above).
+- **A client-generated move ID for idempotency is recommended but not mandated.** CAS *rejects* a
+  duplicate submission, which surfaces to the player as an error for something that in fact succeeded;
+  an idempotency key returns the original result instead. Better UX for the dominant failure mode.
+- **Typeahead, not gameplay, is the highest-frequency operation in the system.** CASE_STUDY §2 already
+  identified name resolution as the real hard problem and then spent the architecture budget on
+  transport. With sockets gone, the typeahead over ~89k entities is the load path worth designing —
+  debounced request/response, or shipped to the client outright.
+- **The case study loses its two most ornate sections** (§5's connection cost model, §6's concurrency
+  comparison) as live analysis. They are preserved as dated record with superseding markers. The
+  replacement is a stronger result: a designed-for workload that the game's own rules ruled out.
+- **Unchanged:** server-authoritative state, the precomputed in-process graph, the engine/data
+  co-location, the pure round engine, the durable-store requirement set (serializable, survives
+  restarts, spans days, CAS-able, never behind a TTL), and device-anchored identity.

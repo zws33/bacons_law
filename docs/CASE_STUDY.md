@@ -4,6 +4,21 @@
 
 > **How to read this.** This is a retrospective of two design sessions on a small hobby project. It is deliberately _not_ a build spec. The value is in the reasoning — the reframings, the options weighed, and the tradeoffs taken — so each section is structured as **problem → options → tradeoff → takeaway**. A final section abstracts the lessons into principles you can carry to unrelated projects. Where the text extends beyond what the sessions actually covered, it says so.
 
+> ⚠️ **Superseded in part — read this before §2, §5, or §6.** This document's central claim is that the
+> system is **connection-bound**, and it reasons from there to a WebSocket transport, a cost model
+> built on connection-holding and broadcast egress, and a language comparison decided by concurrency
+> model. **[ADR 018](DECISIONS.md) overturned that premise.** The game is turn-based and rewards recall
+> rather than reaction time; "real-time" is a time-control setting, not an architecture. Moves go over
+> ordinary request/response, opponents learn of them by polling plus push, and there are no sockets,
+> no presence service, no broadcast channel, and no single-instance constraint.
+>
+> The affected text is **kept unedited as dated record** — the wrong turn is part of the reasoning
+> trail, and §7's lesson about finding the real constraint applies to this document as much as to the
+> connection check it was written about. Superseding markers appear inline at each affected point.
+> **Do not build from §2's constraint claim, §5's cost model, or §6's evaluation criteria**, and in
+> particular do not let §6 select a stack: it scores runtimes on idle-socket memory and broadcast
+> fan-out, neither of which this system has.
+
 ---
 
 ## 1. Context: a small game with a sharp design problem
@@ -20,17 +35,19 @@ Inception (movie)
 
 The constraints are what make it interesting. The intent is **non-commercial and hobby-scale**, but with two non-negotiables: it should be _extensible_ enough to survive growth, and it should never be _forced_ to limit the game by operational cost. "Build something cheap" and "build something that can scale" usually pull against each other; reconciling them was the spine of the whole exercise.
 
-What makes this a good teaching case is that the game's rules make the design questions unusually _sharp_. There's exactly one hard problem in the rules — establishing whether an actor was really in a movie — and a single architectural property (the game is real-time and turn-based) that, once you take it seriously, sorts almost every downstream decision for you. Most of this document is the consequence of taking those two things seriously.
+What makes this a good teaching case is that the game's rules make the design questions unusually _sharp_. There's exactly one hard problem in the rules — establishing whether an actor was really in a movie — and a single architectural property (the game is real-time and turn-based) **[SUPERSEDED — ADR 018: that is two properties, and only "turn-based" is a rule; "real-time" is a time control]** that, once you take it seriously, sorts almost every downstream decision for you. Most of this document is the consequence of taking those two things seriously.
+
+> **Superseded ([ADR 018](DECISIONS.md)).** "The game is real-time and turn-based" is written here as one property. It is two, and only one is a rule. **Turn-based is a rule of the game; real-time is a time-control setting** — the way blitz is a setting in chess, not a different architecture. Fusing them is the error this document then builds on for three sections. Read the rest of the sentence as still true of the *turn-based* half: it really does sort the downstream decisions, just toward a much duller architecture than the one below.
 
 ---
 
-## 2. The reframing that organized everything
+## 2. The reframing that organized everything [precompute holds · "connection-bound" SUPERSEDED — ADR 018]
 
 **The intuitive trap.** Read the rules and the expensive-looking part jumps out immediately: the _connection check_. "Did this actor appear in this movie" feels like the thing you'll spend your effort on — it requires ground truth, it's fuzzy at the edges, it's where correctness lives. The natural instinct is to optimize it.
 
 **The inversion.** That instinct is backwards. Once you precompute the relationship between actors and movies, the per-turn check collapses to a single hash lookup — _is this actor in this movie's cast set?_ — which is sub-millisecond and needs no external call. The check isn't the bottleneck. It's the cheapest thing in the system.
 
-The real constraint moves somewhere far less obvious: **managing many long-lived, mostly-idle WebSocket connections** for synchronous real-time play. A realistic per-turn latency budget makes the point:
+The real constraint moves somewhere far less obvious: **managing many long-lived, mostly-idle WebSocket connections** for synchronous real-time play. **[SUPERSEDED — ADR 018. This is the origin of the document's central error: "mostly-idle" was the tell that the transport was wrong, not that idle connections needed engineering around. There are no WebSockets in this project.]** A realistic per-turn latency budget makes the point:
 
 | Step                                        | Cost        |
 | ------------------------------------------- | ----------- |
@@ -39,9 +56,17 @@ The real constraint moves somewhere far less obvious: **managing many long-lived
 | State update + broadcast to the room        | ~5–10 ms    |
 | Typeahead search (separate, per keystroke)  | < 50 ms p99 |
 
-Server-side turn processing sits comfortably under ~50 ms and is dominated by network round-trips to clients, not computation. The app is **connection-bound and I/O-bound, not compute-bound.**
+Server-side turn processing sits comfortably under ~50 ms and is dominated by network round-trips to clients, not computation. The app is **connection-bound and I/O-bound, not compute-bound.** **[SUPERSEDED — ADR 018: there are no persistent connections; moves go over request/response and the app is neither connection-bound nor compute-bound.]**
 
 This single sentence is the throughline of the entire project. Every section below is, in some sense, a corollary of it. It's also the first transferable lesson: _the part of a system that looks hardest in the spec is often not the part that decides the architecture._ Find the real constraint before you optimize the obvious one.
+
+> **Superseded ([ADR 018](DECISIONS.md)) — and note the tell.** The paragraph above names the constraint as many long-lived, **mostly-idle** connections. That adjective is the counter-argument: a persistent bidirectional connection carrying a few messages per minute is a mechanism without a workload. The right conclusion was that the transport was wrong, not that idle connections were a thing to engineer around.
+>
+> What actually follows from a turn-based game with a seconds-scale latency budget: **request/response for moves, polling plus push for notification.** The app is neither connection-bound nor compute-bound; at the scale this project will ever see, it is not bound by anything, which is the honest answer.
+>
+> Two further points settle it. **Real-time degrades as player count grows** — with four players on a 60-second clock, each waits ~3 minutes between turns and all four must be simultaneously present — while correspondence is indifferent to N, and N > 2 is a day-one requirement ([ADR 015](DECISIONS.md)). And the row this table under-weights is the last one: **the typeahead is the highest-frequency operation in the system by a wide margin**, far above move submission. §2 correctly identifies name resolution as the real hard problem a few pages on, then spends the architecture budget on transport anyway.
+>
+> The lesson in the paragraph above is sound. This document is just a second instance of it.
 
 > One caveat worth stating early, because it constrains a later decision: the "sub-millisecond validation" property holds _only_ while the precomputed graph lives in the same process's memory as the validation logic. That co-location is load-bearing, and it quietly rules out some otherwise-tidy deployment shapes (see §6).
 
@@ -101,10 +126,15 @@ Without the cap, the game becomes trivially easy and weird (every movie connects
 
 Laid out as layers:
 
+> **Superseded ([ADR 018](DECISIONS.md)).** The top layer of the diagram below is now
+> `HTTP handlers · polling · push` — there are no WebSocket rooms, no broadcast, and no presence. It is
+> also no longer "the scaling axis": with nothing held per connection, scaling is unremarkable. The
+> three layers beneath it are unchanged and still correct.
+
 ```mermaid
 graph TD
-    subgraph Connection["Connection layer (the scaling axis)"]
-        WS["WebSocket rooms · broadcast · presence"]
+    subgraph Connection["Connection layer (SUPERSEDED — ADR 018)"]
+        WS["WebSocket rooms · broadcast · presence<br/>replaced by: HTTP handlers · polling · push"]
     end
     subgraph Match["Match layer (no movie facts)"]
         SC["scoring · elimination · win condition"]
@@ -149,11 +179,22 @@ The practical consequence: **provenance, not formatting, is what binds you.** An
 
 ---
 
-## 5. Cost and funding
+## 5. [SUPERSEDED — ADR 018] Cost and funding
+
+> ⚠️ **Superseded ([ADR 018](DECISIONS.md)).** This entire section is downstream of the WebSocket
+> assumption: it identifies the cost drivers as connection-holding and broadcast egress, then reasons
+> about egress pricing, idle-connection reaping, and a Cloudflare-front posture. **None of those
+> drivers exist without sockets.** A correspondence game delivering via polling and push has near-zero
+> idle cost and negligible egress at any plausible scale — the cost question this section works so hard
+> on simply does not arise.
+>
+> Kept as dated record. The two reusable ideas survive the premise: **concurrency ≠ total users**, and
+> **egress pricing varies ~100× and is a provider choice rather than a code change.** Both are true and
+> worth carrying elsewhere; neither is a live constraint for this project.
 
 **Problem.** Run a real-time app that must never get throttled by cost _and_ must never produce a surprise bill — on a hobbyist budget.
 
-**Where the bill actually comes from.** Consistent with §2, the cost drivers are not compute or storage. They are **holding open WebSocket connections** and **broadcast egress bandwidth**. Two clarifications shaped the model:
+**Where the bill actually comes from.** Consistent with §2, the cost drivers are not compute or storage. They are **holding open WebSocket connections** and **broadcast egress bandwidth**. **[SUPERSEDED — ADR 018: neither driver exists. There are no sockets and no broadcast; a polling + push correspondence game has near-zero idle cost.]** Two clarifications shaped the model:
 
 - **Concurrency ≠ total users.** A million registered users might be only 10–30k _concurrent_ at peak. You provision for concurrency, not headcount.
 - **Viral traffic is spiky, not sustained.** You pay for peak windows, then load decays. This makes autoscale-down and idle-connection reaping (cheap and natural in a turn-based game, where connections sit idle between turns) genuine cost levers rather than micro-optimizations.
@@ -180,17 +221,35 @@ A lean stack — **Cloudflare in front (free egress, DDoS shielding) of a Hetzne
 
 ---
 
-## 6. Runtime and language choice — a framework, not a verdict
+## 6. [SUPERSEDED — ADR 018] Runtime and language choice — a framework, not a verdict
+
+> ⚠️ **Superseded ([ADR 018](DECISIONS.md)) — the most important marker in this document.** This
+> section picks its deciding axis from the connection-bound premise: "how does each runtime model
+> concurrency for many long-lived, mostly-idle connections?" With that premise gone, **every criterion
+> below evaluates a workload this system does not have** — idle-socket memory, green threads vs. event
+> loops, built-in presence tracking, broadcast fan-out pressure, turnkey socket management.
+>
+> This is why the section is dangerous rather than merely stale: it does not just describe an old
+> decision, it **silently selects the stack** for anyone who reads it as guidance. The stack decision is
+> still open and is a planning-session output. Evaluate it on ordinary request/response criteria —
+> ecosystem, typing, team familiarity, deployment simplicity, and how cleanly the language expresses
+> the round engine's sealed-union state machine. On those terms a boring stack is fully admissible, and
+> the caveats this section raises against several contenders do not apply.
+>
+> One passage below **survives and is arguably the most load-bearing sentence in the document**: the
+> polyglot split is blessed across the *offline/online* seam (the Python ETL) but **not** across the
+> engine/data seam, because the O(1) validation property holds only while the graph and the validation
+> logic share a process. That constraint is independent of transport and still binding.
 
 This session was explicitly an _academic_ exploration: the goal was to understand what different languages are good at, not to commit to one. So this section deliberately ends without a winner. The framework _is_ the takeaway.
 
-**Why the architecture makes the question sharp.** Because the app is connection-bound, the deciding axis is narrow and concrete: **how does each runtime model concurrency for many long-lived, mostly-idle connections doing trivial per-message work?** That one property sorts the field more than taste or ecosystem does. Three families:
+**Why the architecture makes the question sharp.** **[SUPERSEDED — ADR 018: the premise is false, so every criterion in this section evaluates a workload this system does not have. Do not use it to pick a stack.]** Because the app is connection-bound, the deciding axis is narrow and concrete: **how does each runtime model concurrency for many long-lived, mostly-idle connections doing trivial per-message work?** That one property sorts the field more than taste or ecosystem does. Three families:
 
 - **Thread-per-connection (classic OS threads).** ~1 MB stack per connection; readable sequential code, but falls over at a few thousand connections. The model you're trying _not_ to use.
 - **Event loop / async-await** (Node, Python `asyncio`, Rust `tokio`, C# `async`). One or a few threads multiplex thousands of connections as state machines. Memory-efficient for idle sockets; the cost is "function coloring" and the risk that one blocking call stalls the loop.
 - **Lightweight green threads / processes** (Go goroutines ~2 KB, BEAM processes ~300 bytes, JVM virtual threads). Write blocking-_looking_ sequential code that the runtime cheaply parks. Readability of threads, scalability of the event loop — the sweet spot for this workload.
 
-**The contenders, honestly.**
+**The contenders, honestly.** **[SUPERSEDED — ADR 018: every "genuine strength here" below is scored against socket concurrency, which this system does not do. The rows remain accurate about the languages in general; they are not reasons to pick one for this project.]**
 
 | Runtime                                   | Genuine strength here                                                                                                                                                                                                                         | Cost                                                                                                                               |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -226,9 +285,15 @@ Abstracted from the project so they travel to unrelated work:
 
 5. **Design the failure mode as a feature.** Graceful degradation — a queue instead of a crash or a surprise bill — converts your worst case into something you _chose_. Decide it on day one; it's nearly impossible to bolt on under load.
 
-6. **Pick infrastructure by your dominant cost driver.** Here it was egress, varying ~100× by provider. Identifying that one variable turned a frightening bill into a rounding error.
+6. **Pick infrastructure by your dominant cost driver.** Here it was egress, varying ~100× by provider. Identifying that one variable turned a frightening bill into a rounding error. **[The example is SUPERSEDED — ADR 018; egress was a driver only because of broadcast. The principle survives.]**
 
-7. **Find the one property that makes the hard questions sharp.** "Connection-bound, not compute-bound" collapsed an open-ended tech-stack debate into a single decisive axis. The best architectural insight is usually the one sentence that makes everything else follow.
+   > **Example superseded ([ADR 018](DECISIONS.md)).** Egress was the dominant driver only because of broadcast over persistent connections. Without them this project has no dominant cost driver worth designing around. The principle is sound; the instance of it was an artifact of the mistake in #7.
+
+7. **Find the one property that makes the hard questions sharp.** "Connection-bound, not compute-bound" collapsed an open-ended tech-stack debate into a single decisive axis. The best architectural insight is usually the one sentence that makes everything else follow. **[The example is SUPERSEDED — ADR 018; that sentence was wrong. The principle survives, inverted — see below.]**
+
+   > **The example inverts; the principle holds — with a warning attached ([ADR 018](DECISIONS.md)).** That one sentence was *wrong*, and because everything followed from it, the error propagated into the transport, the cost model, and the language evaluation before anyone checked it. The corrected property is duller: **the game is turn-based, and nothing in it is decided by reaction time.** So the real principle is two-sided — a single sharp property does collapse the decision space, and that is exactly why it earns more scrutiny than any decision downstream of it. Load-bearing sentences deserve to be attacked, not admired.
+   >
+   > The tell was available at the time and written down: §2 described the connections as **mostly idle**. A constraint that is mostly idle is usually not the constraint.
 
 8. **Let the architecture preserve choice.** The lock-ins (IDs not strings, serializable state, the `ConnectionChecker` interface) cost little early and kept later doors open. Good early decisions aren't the ones that solve scale — they're the ones that don't _foreclose_ it.
 
