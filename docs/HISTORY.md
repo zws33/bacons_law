@@ -42,7 +42,7 @@ put a third-party network hop in the hot path of the one operation the game does
 had it.
 
 The fix was to precompute the actor↔movie relationship offline into a graph the server holds in
-memory, which is what `etl/` now builds. That analysis is [CASE_STUDY.md](CASE_STUDY.md) §2 and §6;
+memory, which is what `etl/` now builds. That analysis is [CASE_STUDY.md](investigations/000-system-design-case-study.md) §2 and §6;
 the decisions are ADRs 008–011, extended by 012–013 (async modes, identity) on 2026-07-06.
 
 The showcase's own ADR log (one entry, on Python package barrel imports) went with it.
@@ -51,7 +51,7 @@ The showcase's own ADR log (one entry, on Python package barrel imports) went wi
 
 | From the archive | Where it lives now |
 |---|---|
-| Pivot reasoning, validation-as-the-real-constraint | [CASE_STUDY.md](CASE_STUDY.md) |
+| Pivot reasoning, validation-as-the-real-constraint | [CASE_STUDY.md](investigations/000-system-design-case-study.md) |
 | Every decision worth keeping | [DECISIONS.md](DECISIONS.md), ADRs 001–013 |
 | Engine rules (was `GAME_SPEC.md` / `GAME_SPEC_V2.md`) | [ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md) — the spec of record |
 | Hosting analysis (Fly.io over Cloud Run) | [ADR 011](DECISIONS.md), [AGENTS.md](../AGENTS.md) |

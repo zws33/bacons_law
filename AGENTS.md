@@ -20,10 +20,13 @@ before play. Multiplayer is a day-one requirement, not a later extension.
 > stack included. Treat nothing outside `etl/` as a fixed contract, and never preserve a signature,
 > module layout, or design decision merely because it is already in the tree.
 >
-> **What that means for the docs.** `docs/DECISIONS.md` (ADRs 008–013) and `docs/CASE_STUDY.md`
-> record the reasoning that got the project here — read them for *why*, not as commitments. There is
-> currently **no roadmap document and no architecture-orientation skill**; both were retired pending
-> regeneration after the planning session, so don't infer phase or status from any file.
+> **What that means for the docs.** `docs/DECISIONS.md` (ADRs 008–018) records the reasoning that got
+> the project here — read it for *why*, not as commitments. Everything under
+> [`docs/investigations/`](docs/investigations/) — including the system-design case study — is
+> **non-normative by location**: records of how questions were investigated, containing falsified
+> hypotheses by design. Never cite one as authority. There is currently **no roadmap document and no
+> architecture-orientation skill**; both were retired pending regeneration after the planning session,
+> so don't infer phase or status from any file.
 >
 > This file holds the **always-on operating rules**: repository layout, build/test commands,
 > conventions, and the architecture boundaries below — which are tiered by what actually binds.
@@ -303,13 +306,18 @@ detection and the out-of-scope list are Current decisions, not Binding.
   turn-based and rewards recall, not reaction time; moves go over request/response and opponents learn
   of them by polling + push ([ADR 018](docs/DECISIONS.md)). Related: **do not evaluate stacks on
   connection-holding, idle-socket memory, or broadcast fan-out** — that framing in
-  [docs/CASE_STUDY.md](docs/CASE_STUDY.md) §5–§6 is superseded, and inheriting it silently picks a
+  [docs/CASE_STUDY.md](docs/investigations/000-system-design-case-study.md) §5–§6 is superseded, and inheriting it silently picks a
   stack for a workload this system does not have.
 - **Asserting a single-instance constraint**, or citing the in-process graph as an argument about
   instance count. The graph is read-only and identical on every instance. Cold start is the only live
   consideration, and it is a measurement.
 - **A `realtime | correspondence` mode enum.** Store `turn_duration` + `deadline_at`; the modes differ
   only in the number.
+- **Citing anything under [`docs/investigations/`](docs/investigations/) as authority.** Those are
+  **records, never rules** — they contain falsified hypotheses and revised framings by design. If an
+  investigation produced a binding outcome, that outcome was promoted into an ADR, this file, or a
+  spec; cite *that*. A claim found there is evidence of what someone once thought, not of what the
+  project has decided.
 - **TMDB as a runtime dependency**, or any API key. The source is CC0 Wikidata, built offline.
 - **Pre-mapping QIDs to integers in the ETL.** ID adaptation is a loader-side concern.
 - **Bypassing repeat detection.** It is a game rule.
@@ -335,7 +343,8 @@ detection and the out-of-scope list are Current decisions, not Binding.
 | Document | Purpose |
 |----------|---------|
 | [docs/DECISIONS.md](docs/DECISIONS.md) | ADR log — the reasoning that got the project here; 008–018 cover the current direction. **Read [ADR 018](docs/DECISIONS.md) first** — it amends 008, 011, and 012 on transport, hosting, and modes. Read for *why*, not as commitments |
-| [docs/CASE_STUDY.md](docs/CASE_STUDY.md) | System-design reasoning behind this architecture (a retrospective, not a build spec). **§2, §5, and §6 are superseded by [ADR 018](docs/DECISIONS.md)** and carry inline markers — they assume a WebSocket transport this project no longer has |
+| [docs/investigations/](docs/investigations/) | **Records, never rules.** Investigation write-ups and design retrospectives, including hypotheses that were falsified. Non-normative *by location* — never cite one as authority for a change; binding outcomes are promoted out into ADRs, this file, or a spec. Read [its README](docs/investigations/README.md) before using anything inside |
+| [docs/investigations/000-system-design-case-study.md](docs/investigations/000-system-design-case-study.md) | System-design reasoning behind this architecture (a retrospective, not a build spec). **§2, §5, and §6 are superseded by [ADR 018](docs/DECISIONS.md)** and carry inline markers — they assume a WebSocket transport this project no longer has |
 | `movie-actor-chain-game` skill | Domain rules and vocabulary (implementation-agnostic; leaves project-specific rules open) |
 | [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) | **The round-engine spec of record.** Rules R1–R15 + a numbered conformance suite; language-agnostic, generates a test suite in any stack. Defines the round/match seam |
 | `kotlin/core/.../GameEngine.kt` + tests | Prototype implementation — subordinate to the conformance spec, which records where it diverges |

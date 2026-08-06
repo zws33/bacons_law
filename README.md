@@ -22,7 +22,8 @@ coming next.
 
 ## Architecture
 
-Validation is the design crux, and the key insight (see [docs/CASE_STUDY.md](docs/CASE_STUDY.md)) is
+Validation is the design crux, and the key insight (see
+[the system-design case study](docs/investigations/000-system-design-case-study.md)) is
 that it should be **precomputed, not looked up per turn**:
 
 - An offline **Python ETL** builds a bipartite movie↔actor graph from **CC0 Wikidata** data
@@ -67,7 +68,8 @@ The root is stack-agnostic; each implementation lives in its own self-contained 
 
 ```
 bacons-law/
-├── docs/          # Case study, decision log, engine spec, and a history note on prior efforts
+├── docs/          # Decision log, engine spec, history note
+│   └── investigations/   #   Records, never rules — case study + investigation write-ups
 ├── kotlin/        # Self-contained Gradle project — the Kotlin implementation
 │   ├── core/      #   Pure Kotlin game engine — state machine, validation, turn management
 │   ├── backend/   #   Ktor server — graph-backed session server (being rebuilt from a proxy)
@@ -106,7 +108,7 @@ No API keys are required — the actor↔movie data comes from CC0 Wikidata, bui
 - [Decision Log](docs/DECISIONS.md) — key technical and product decisions with the reasoning behind
   them; read for the *why*, not as a set of commitments. **ADR 018 is the most consequential recent
   one** — it amends 008, 011, and 012 on transport, hosting, and modes
-- [Case Study](docs/CASE_STUDY.md) — the system-design reasoning behind this architecture. Its §2, §5,
+- [Case Study](docs/investigations/000-system-design-case-study.md) — the system-design reasoning behind this architecture. Its §2, §5,
   and §6 assume a WebSocket transport the project has since dropped; they are kept as dated record with
   inline superseding markers
 - [ETL](etl/README.md) — the offline graph build

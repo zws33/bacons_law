@@ -194,7 +194,7 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 
 **Date:** 2026-06-29
 
-**Context:** The intuitive approach validates "did this actor appear in this movie?" with a movie-API call per turn — the Python showcase did exactly that (a TMDB credits call per movie move). [CASE_STUDY.md](CASE_STUDY.md) (§2–3) shows this is backwards: precompute the actor↔movie relationship once, offline, and the per-turn check collapses to an O(1) set-membership lookup. The system is connection-bound, not compute-bound; the connection check is the cheapest thing in it. *(The "connection-bound" half of that last clause is retracted by [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) — there are no persistent connections. The decision below does not depend on it: precomputed in-process validation is binding regardless of transport, and "the connection check is the cheapest thing in the system" is exactly as true over HTTP.)*
+**Context:** The intuitive approach validates "did this actor appear in this movie?" with a movie-API call per turn — the Python showcase did exactly that (a TMDB credits call per movie move). [CASE_STUDY.md](investigations/000-system-design-case-study.md) (§2–3) shows this is backwards: precompute the actor↔movie relationship once, offline, and the per-turn check collapses to an O(1) set-membership lookup. The system is connection-bound, not compute-bound; the connection check is the cheapest thing in it. *(The "connection-bound" half of that last clause is retracted by [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) — there are no persistent connections. The decision below does not depend on it: precomputed in-process validation is binding regardless of transport, and "the connection check is the cheapest thing in the system" is exactly as true over HTTP.)*
 
 **Decision:** The actor↔movie relationship is precomputed offline into a bipartite graph (`movie_id → set(actor_id)`, `actor_id → set(movie_id)` — generic notation predating the source choice; the keys are Wikidata QID strings, see [ADR 016](#016-cast-ids-are-wikidata-qid-strings-id-adaptation-is-loader-side)) and loaded **read-only, in-process** into the server at boot. Move validation is `castIds.contains(...)` against the loaded graph — no network call in the hot path. The pure `:core` engine is unchanged; only its data source changes.
 
@@ -536,7 +536,7 @@ per-game config; real-time as an additive transport layer). The server-authorita
 the durable-store requirements of ADR 012, and the offline/online split of ADR 011 all **survive
 unchanged**.
 
-**Context:** [CASE_STUDY.md](CASE_STUDY.md) §1 names the load-bearing property as "the game is
+**Context:** [CASE_STUDY.md](investigations/000-system-design-case-study.md) §1 names the load-bearing property as "the game is
 real-time and turn-based" and treats it as one thing. It is two, and only one of them is a rule.
 **Turn-based is a rule of the game. Real-time is a time-control setting** — the way blitz is a setting
 in chess, not a different architecture.
