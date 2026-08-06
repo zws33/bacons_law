@@ -610,7 +610,12 @@ apart.
   request/response criteria. CASE_STUDY §6's concurrency-model comparison no longer selects for
   anything; a boring stack is now fully admissible.
 - **Hosting is reopened.** ADR 011 rejected scale-to-zero platforms specifically because of persistent
-  sockets. That premise is gone. The remaining question is artifact load time, which is a measurement.
+  sockets. That premise is gone. The remaining question was artifact load time — **now measured, and
+  it is not an obstacle:** the 21.4 MB `v1` artifact reads, parses, and converts to O(1)-membership
+  sets in **~175 ms** (CPython 3.14 / stdlib `json`, the slowest realistic option; Node and JVM parse
+  faster). Against turns that are minutes to days apart, a sub-second cold start is invisible.
+  **Scale-to-zero is therefore viable**, and hosting is a free choice on ordinary grounds — cost,
+  operational simplicity, familiarity — rather than a constrained one.
 - **Three seams keep live play cheap to add later**, and are the whole cost of deferring rather than
   dropping it:
   - Keep the move core transport-agnostic — `(player, gameId, validatedMove) -> result` as a plain
