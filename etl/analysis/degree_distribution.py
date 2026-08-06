@@ -236,6 +236,30 @@ def m1_degree_distribution(
     return result, violations
 
 
+def split_degree1(
+    degree1_qids: set[str], agg: RawAggregates
+) -> tuple[set[str], set[str], set[str]]:
+    """Partition degree-1 actors into (genuine, cap_induced, anomalous) by pre-cap film count.
+
+    Shared by M2 (which reports the split) and M7 (which simulates removing one side of it), so
+    the remedy simulation cannot drift from the number that justified it.
+    """
+    genuine: set[str] = set()
+    cap_induced: set[str] = set()
+    anomalous: set[str] = set()
+    for qid in degree1_qids:
+        n = len(agg["degree1_raw_films"].get(qid, ()))
+        if n == 0:
+            # Cannot happen: an actor keys actors_to_movies only via an edge from a film that
+            # survived min_cast, so at least one graph-eligible raw row must mention them.
+            anomalous.add(qid)
+        elif n == 1:
+            genuine.add(qid)
+        else:
+            cap_induced.add(qid)
+    return genuine, cap_induced, anomalous
+
+
 def m2_genuine_vs_cap_induced(degree1_qids: set[str], agg: RawAggregates) -> dict[str, Any]:
     """Split degree-1 actors into real one-credit people and cast-cap artifacts.
 
@@ -243,30 +267,15 @@ def m2_genuine_vs_cap_induced(degree1_qids: set[str], agg: RawAggregates) -> dic
     legitimate game content, while a cap-induced one is the false-rejection defect seen from
     the other side — that actor's other films are ones a player might name and be rejected for.
     """
-    genuine = 0
-    cap_induced = 0
-    anomalous: list[str] = []
-    truncation: Counter[int] = Counter()
+    genuine, cap_induced, anomalous = split_degree1(degree1_qids, agg)
+    truncation: Counter[int] = Counter(len(agg["degree1_raw_films"][qid]) for qid in cap_induced)
 
-    for qid in degree1_qids:
-        n = len(agg["degree1_raw_films"].get(qid, ()))
-        if n == 0:
-            # Cannot happen: an actor keys actors_to_movies only via an edge from a film that
-            # survived min_cast, so at least one graph-eligible raw row must mention them.
-            # Reported separately, never folded into either bucket.
-            anomalous.append(qid)
-        elif n == 1:
-            genuine += 1
-        else:
-            cap_induced += 1
-            truncation[n] += 1
-
-    classified = genuine + cap_induced
+    classified = len(genuine) + len(cap_induced)
     return {
         "n_degree_1": len(degree1_qids),
-        "genuine": genuine,
-        "cap_induced": cap_induced,
-        "genuine_share": _pct(genuine, classified),
+        "genuine": len(genuine),
+        "cap_induced": len(cap_induced),
+        "genuine_share": _pct(len(genuine), classified),
         "anomalous_count": len(anomalous),
         "anomalous_sample": sorted(anomalous)[:20],
         "cap_induced_raw_film_count_histogram": {str(k): v for k, v in sorted(truncation.items())},
@@ -378,6 +387,104 @@ def m6_degree1_actor_notability(
         "multi_credit_sitelink_profile": profile(multi),
         "kill_availability_by_actor_floor": by_threshold,
         "status": "POST-HOC — thresholds chosen after seeing the data; resolves no hypothesis",
+    }
+
+
+def m7_cap_rescue_simulation(
+    movies_to_actors: Adjacency,
+    degree1_qids: set[str],
+    agg: RawAggregates,
+    thresholds: tuple[int, ...] = (0, 10, 25, 50),
+) -> dict[str, Any]:
+    """POST-HOC. Does cap rescue pay for itself?
+
+    Cap-induced actors are only 16% of the degree-1 population, so the remedy looks marginal by
+    headcount. But headcount is the wrong measure: they reached several films in the first place,
+    which suggests they are MORE notable than genuine one-credit actors — and therefore
+    contribute disproportionately to the kills a player could actually name.
+
+    Simulated by removing cap-induced actors from the degree-1 set: a rescued actor gains an edge
+    and stops being a leaf. First-order only — restoring edges also grows the films they rejoin,
+    which could shift other counts slightly. Adequate for a build/don't-build decision, not a
+    substitute for rebuilding and re-measuring.
+    """
+    sitelinks = agg["actor_sitelinks"]
+    genuine, cap_induced, _ = split_degree1(degree1_qids, agg)
+
+    def profile(qids: set[str]) -> dict[str, Any]:
+        values = sorted(sitelinks.get(qid, 0) for qid in qids)
+        return {
+            "n": len(values),
+            "median": _percentile(values, 0.50),
+            "p75": _percentile(values, 0.75),
+            "p90": _percentile(values, 0.90),
+        }
+
+    rows: list[dict[str, Any]] = []
+    total_films = len(movies_to_actors)
+    for floor in thresholds:
+        before = {q for q in degree1_qids if sitelinks.get(q, 0) >= floor}
+        after = {q for q in genuine if sitelinks.get(q, 0) >= floor}
+        films_before = sum(
+            1 for cast in movies_to_actors.values() if any(a in before for a in cast)
+        )
+        films_after = sum(1 for cast in movies_to_actors.values() if any(a in after for a in cast))
+        rows.append(
+            {
+                "actor_sitelinks_floor": floor,
+                "nameable_kills_before": len(before),
+                "nameable_kills_after_rescue": len(after),
+                "pct_films_with_nameable_kill_before": _pct(films_before, total_films),
+                "pct_films_with_nameable_kill_after_rescue": _pct(films_after, total_films),
+                "relative_reduction": _pct(films_before - films_after, films_before),
+            }
+        )
+
+    return {
+        "genuine_sitelink_profile": profile(genuine),
+        "cap_induced_sitelink_profile": profile(cap_induced),
+        "simulation": rows,
+        "status": "POST-HOC — first-order simulation; resolves no hypothesis",
+    }
+
+
+def m8_top_n_films(
+    movies_to_actors: Adjacency,
+    actor_degree: dict[str, int],
+    agg: RawAggregates,
+    top_ns: tuple[int, ...] = (100, 250, 500, 1000, 2500),
+    thresholds: tuple[int, ...] = (0, 10, 25, 50),
+) -> dict[str, Any]:
+    """POST-HOC. Closes the gap M3's decile design left open.
+
+    min_sitelinks=5 admits a large mass of barely-notable films, so the sitelink distribution is
+    compressed and decile 9 begins at only 27 sitelinks — 4,763 films, far broader than "the
+    films players will actually name", which sit at 100+. H4 was aimed at that right tail and
+    never reached it. Top-N by sitelinks addresses the tail directly.
+    """
+    sitelinks = agg["actor_sitelinks"]
+    ranked = sorted(movies_to_actors, key=lambda m: (-agg["film_sitelinks"].get(m, 0), int(m[1:])))
+    degree1 = {qid for qid, degree in actor_degree.items() if degree == 1}
+
+    rows: list[dict[str, Any]] = []
+    for n in top_ns:
+        films = ranked[:n]
+        film_sitelinks = [agg["film_sitelinks"].get(m, 0) for m in films]
+        entry: dict[str, Any] = {
+            "top_n": n,
+            "sitelinks_min": min(film_sitelinks) if film_sitelinks else 0,
+            "sitelinks_max": max(film_sitelinks) if film_sitelinks else 0,
+            "mean_graph_cast_size": _mean([len(movies_to_actors[m]) for m in films]),
+        }
+        for floor in thresholds:
+            nameable = {q for q in degree1 if sitelinks.get(q, 0) >= floor}
+            hits = sum(1 for m in films if any(a in nameable for a in movies_to_actors[m]))
+            entry[f"pct_with_kill_floor_{floor}"] = _pct(hits, len(films))
+        rows.append(entry)
+
+    return {
+        "by_top_n": rows,
+        "status": "POST-HOC — addresses the tail H4's decile design could not reach",
     }
 
 
@@ -576,6 +683,10 @@ def run(version: str) -> dict[str, Any]:
         "m6_degree1_actor_notability_POST_HOC": m6_degree1_actor_notability(
             movies_to_actors, actor_degree, agg
         ),
+        "m7_cap_rescue_simulation_POST_HOC": m7_cap_rescue_simulation(
+            movies_to_actors, degree1_qids, agg
+        ),
+        "m8_top_n_films_POST_HOC": m8_top_n_films(movies_to_actors, actor_degree, agg),
         "hypotheses": resolve_hypotheses(m2, m3, m4, m5),
         "invariant_violations": violations,
     }

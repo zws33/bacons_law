@@ -81,4 +81,4 @@ exact failure it was created to prevent, just with better intentions.
 | Document | Status | Question |
 |---|---|---|
 | [000 — System design case study](000-system-design-case-study.md) | `SUPERSEDED IN PART` | How should the game be architected? (§2, §5, §6 overturned by [ADR 018](../DECISIONS.md)) |
-| [001 — Actor degree distribution](001-actor-degree-distribution.md) | `IN PROGRESS` | How often does the graph offer a cheap round-ending move? |
+| [001 — Actor degree distribution](001-actor-degree-distribution.md) | `COMPLETE` | How often does the graph offer a cheap round-ending move? → Rarely. No action on the data; cap rescue rejected ([ADR 019](../DECISIONS.md)) |

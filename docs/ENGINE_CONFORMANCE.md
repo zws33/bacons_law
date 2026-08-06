@@ -1078,8 +1078,18 @@ The cheaper placement is the session layer, which holds the graph and can comput
 either direction in O(degree) — and can do so *before* the round ends rather than after. What is
 genuinely undecided is the policy (does an exhausted frontier end the round without a strike? is the
 *previous* move rejected as a dead end?) and whether `RoundOver` needs to express the distinction at
-all, which folds back into reason codes. **How common this is in the shipped graph is unmeasured** —
-see the actor-degree probe; the answer should inform the policy rather than the reverse.
+all, which folds back into reason codes.
+
+**Now measured, and the answer lowers the priority.** [ADR 019](DECISIONS.md) reports that while
+45.9% of actor nodes in `graph/v1` are degree-1, they have a median of 4 sitelinks — a move nobody
+can name is not an available move. Requiring the round-ending actor to be even modestly
+recognizable puts the rate at 11% of the 100 most famous films, and 2% for a well-known actor.
+**The current behaviour — the player on turn is the loser — is therefore defensible**, and this
+question is open rather than blocking. Note also that a dead-end move is a *legitimate winning
+move* under this project's framing, so ending the round without a strike is not obviously the
+right policy: if knowing an actor has one credit is the knowledge the game tests, the loser
+arguably should take the strike. Two things remain unmeasured: whether players find these moves at
+all, and how the rate rises mid-chain as degree-2+ actors exhaust their alternatives.
 
 **Chain length limits.** Nothing bounds chain growth. With correspondence the only mode
 ([ADR 018](DECISIONS.md)), a round spanning weeks is the normal case rather than an edge case, so an

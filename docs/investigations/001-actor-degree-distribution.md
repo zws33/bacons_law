@@ -4,9 +4,11 @@
 > Rules live in [`../../AGENTS.md`](../../AGENTS.md). Decisions live in
 > [`../DECISIONS.md`](../DECISIONS.md). See [the directory charter](README.md).
 >
-> **STATUS: `IN PROGRESS`** — pre-registered 2026-08-06 (commit `8048a96`), measured 2026-08-06
-> (commit `efff2a0`). Results are recorded below; **Findings and promoted conclusions are not yet
-> written.** Four hypotheses confirmed, one falsified.
+> **STATUS: `COMPLETE`** — pre-registered 2026-08-06 (commit `8048a96`), measured and concluded
+> 2026-08-06. Four hypotheses confirmed, one falsified. **Outcome: no action on the data**; cap
+> rescue rejected. Conclusions promoted to [ADR 019](../DECISIONS.md),
+> [`../ENGINE_CONFORMANCE.md`](../ENGINE_CONFORMANCE.md), and
+> [`../../etl/AGENTS.md`](../../etl/AGENTS.md) — cite those, not this.
 >
 > Raw output: [`001-data/summary.json`](001-data/summary.json). Reproduce with
 > `cd etl && uv run python -m analysis.degree_distribution`.
@@ -282,20 +284,118 @@ Filtered to nameable actors, notable films carry *more* (23.3% vs. 15.2% overall
 notable films have more notable cast throughout, including their one-credit members. Cheap kills
 concentrate in exactly the films players name most, but at low absolute rates.
 
+### M7 — cap-rescue simulation (post-hoc)
+
+Run to answer whether cap rescue is worth building. **The expectation behind it was wrong.**
+
+| Group | n | Median | p75 | p90 |
+|---|---:|---:|---:|---:|
+| Genuine | 34,341 | **4** | 10 | 18 |
+| Cap-induced | 6,565 | **3** | 6 | 11 |
+
+I expected cap-induced actors to be *more* notable than genuine ones, reasoning that reaching
+several films implies some recognition. The opposite holds — they are **less** notable on every
+percentile. The mechanism was in front of me: `_cap_cast` ranks by the actor's own sitelinks, so
+being truncated *is* the notability filter operating. Appearing in many films and surviving in
+none of them is a signature of low notability, not moderate fame.
+
+Simulating the remedy (cap-induced actors gain an edge and stop being leaves):
+
+| Actor floor | % films with nameable kill — before | after rescue | Relative reduction |
+|---:|---:|---:|---:|
+| 0 | 42.3% | 37.4% | 11.7% |
+| ≥10 | 15.2% | 13.8% | 8.9% |
+| ≥25 | 3.8% | 3.7% | 3.7% |
+| ≥50 | 1.0% | 1.0% | **1.0%** |
+
+**The remedy is worth least exactly where the problem matters most.** The higher the
+recognizability floor, the smaller the benefit — because the population it fixes is more obscure
+than the population it leaves behind.
+
+### M8 — the famous tail (post-hoc)
+
+Addresses what M3's compressed deciles could not reach. Top-N films by sitelinks:
+
+| Top N | Sitelinks | Mean cast | Floor 0 | ≥10 | ≥25 | ≥50 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100 | 75–138 | 14.71 | 31.0% | 26.0% | **11.0%** | **2.0%** |
+| 250 | 64–138 | 14.42 | 35.6% | 25.6% | 11.6% | 3.6% |
+| 500 | 56–138 | 14.35 | 36.4% | 25.8% | 12.4% | 3.4% |
+| 1,000 | 47–138 | 14.01 | 38.3% | 25.2% | 10.6% | 3.2% |
+| 2,500 | 36–138 | 13.51 | 40.1% | 24.1% | 9.8% | 2.8% |
+
+The inversion holds at the tail and is visible in both directions: famous films have **fewer**
+degree-1 actors overall (31.0% vs. 42.3% across all films) but **more nameable** ones (26.0% vs.
+15.2%). Among the 100 most famous films, **11% offer a kill via a moderately-known one-credit
+actor, and 2% via a well-known one.**
+
 ---
 
 ## Findings
 
-> **EMPTY — no findings exist.** Do not cite this document as evidence of anything about the graph
-> until this section is populated and the status at the top reads `COMPLETE`.
+**1. Take no action on the data. The graph is fine as built.**
+
+Among the 100 most famous films, 11% offer a round-ending move via a moderately-recognizable
+one-credit actor and 2% via a well-known one. That is a skill filter operating as intended: rare
+enough not to compress play, real enough to reward a player who studies deep cuts. The
+pre-registered rule's "<15% → leave it alone" holds once the question is asked at the right end of
+the distribution.
+
+**2. The alarming headline number is an artifact of counting unnameable actors.**
+
+45.9% of actor nodes are degree-1, and 42.3% of films contain one. Both are true and neither
+matters, because degree-1 actors have a median of 4 sitelinks against 11 for multi-credit actors.
+A move nobody can name is not an available move. Requiring merely ten language Wikipedias cuts
+availability from 42.3% to 15.2%; requiring twenty-five cuts it to 3.8%.
+
+**3. Cap rescue is rejected.** It reduces nameable kills by 8.9% at a ≥10 floor and 1.0% at ≥50 —
+worth least where the problem matters most, because the actors it fixes are *more* obscure than
+the ones it leaves. The secondary justification (false rejections, since a truncated actor's other
+films are ones a player might name and be refused) falls to the same number: median 3 sitelinks
+means those films are unlikely to be named either. **Rejected on both counts, not deferred.**
+
+**4. Famous films are the risky ones, which inverts the original framing.** The investigation was
+scoped around cheap kills concentrating in obscure territory. The opposite is true: notable films
+carry fewer degree-1 actors but more *nameable* ones (26.0% vs. 15.2% at a ≥10 floor), because
+their one-credit members are themselves more notable. The absolute rates stay low, so this changes
+the explanation rather than the conclusion — but the mechanism was backwards in the write-up until
+the data corrected it.
+
+**5. Issue #19's confound is negligible for this question.** Nine QIDs, 0.02% of degree-1 actors,
+independently reproducing the issue's own list. The query fixes remain worth doing for
+correctness; they will not move any number in this document. Characters, animals, and groups stay
+unmeasured and would need a Wikidata query.
+
+**6. The decision rule assumed a remedy that does not exist.** Its middle band (15–40%) prescribed
+"fix the cap-induced share only." M7 shows that fix is ineffective at any floor worth caring
+about. A rule that names a remedy per band is only as good as the assumption that each band *has*
+one — worth knowing before writing the next one.
+
+### What this does not answer
+
+- **Whether players find these moves.** The graph shows a kill is *available*; only playtesting
+  shows whether anyone plays it. Stated as a limit in the Method and it still stands.
+- **Exhaustion later in a chain.** Degree-1 is the guaranteed dead end from the opening. A degree-2
+  or degree-3 actor becomes one once the chain consumes their alternatives, and nothing here
+  measures how chain length changes the rate. That is the walk simulation, deliberately skipped
+  because M3 did not trigger it.
+- **The other dials.** `min_cast` and `cast_cap` sweeps were listed as candidates and are not run
+  here. Nothing in these results argues for moving them.
 
 ---
 
 ## What changed as a result
 
-> **EMPTY.** On completion, anything binding is promoted out — to an ADR, to `AGENTS.md`, to
-> `ENGINE_CONFORMANCE.md`'s exhausted-frontier open question, or to the ETL dials — and linked from
-> here. This document records evidence and reasoning; it is never where a rule lives.
+| Outcome | Where it landed |
+|---|---|
+| No ETL dial change; cap rescue rejected with evidence | [ADR 019](../DECISIONS.md) |
+| Exhausted-frontier open question narrowed — measured as rare, current behaviour defensible | [`../ENGINE_CONFORMANCE.md`](../ENGINE_CONFORMANCE.md) |
+| `cast_cap`'s interaction with actor degree, and why truncation is itself a notability filter | [`../../etl/AGENTS.md`](../../etl/AGENTS.md) |
+
+**Nothing binding lives in this document.** The numbers are evidence; the decisions they support
+are in the rows above.
+
+---
 
 ---
 
@@ -322,3 +422,37 @@ had already decided that all degree-1 actors were the same thing.
 **The transferable version:** when a metric implies a remedy before it has been measured, the
 framing is probably carrying a value judgment. "Trap rate" presumes traps are bad. "Cheap versus
 earned" does not presume anything, and it is measurable.
+
+### The metric that could not fail informatively
+
+H4 was stated on "% of films with ≥1 degree-1 cast member". That measure **saturates**: with 9–13
+cast and a 6–12% per-actor rate, P(at least one) is high for every population, so it reads ~42%
+everywhere and discriminates nothing. The gradient it was meant to detect was real and visible the
+moment the same data was divided by cast size.
+
+The failure is not that H4 was wrong — a falsified prediction is a working prediction. It is that
+H4 was **unfalsifiable in the informative direction**: no plausible graph would have produced a
+number under 15% on that metric, so confirming it would have meant nothing either. Worth checking
+before pre-registering: *what value would this metric take if my hypothesis were false, and is
+that value distinguishable from the one I expect?*
+
+The fix was not to restate H4 on a better metric. It stands falsified as written, and the better
+metric is reported separately as post-hoc.
+
+### Two expectations that were backwards
+
+Both were stated confidently and both inverted on contact with data:
+
+**Cap-induced actors are less notable, not more.** M7 was run expecting the opposite — reaching
+several films seemed to imply some recognition. But `_cap_cast` ranks by the actor's own
+sitelinks, so *being truncated is the notability filter operating*. The mechanism was already
+written down in this document's own H2 rationale; it just wasn't carried through to its
+consequence.
+
+**Cheap kills concentrate in famous films, not obscure ones.** The entire cheap/earned framing
+assumed obscure territory was where dead ends lived. Filtered for nameability, notable films carry
+*more* of them. The conclusion survives — absolute rates are low — but the explanation in this
+document was wrong until M8 corrected it.
+
+The pattern in both: a mechanism was correctly identified, then not followed one step further.
+That is a different failure from not knowing, and pre-registration is what made it visible.
