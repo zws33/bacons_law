@@ -20,17 +20,18 @@ before play. Multiplayer is a day-one requirement, not a later extension.
 > module layout, or design decision merely because it is already in the tree.
 >
 > **What that means for the docs.** `docs/DECISIONS.md` (ADRs 008–013) and `docs/CASE_STUDY.md`
-> record the reasoning that got the project here — read them for *why*, not as commitments. The
-> **`bacons-law-architecture`** skill maps them. There is currently **no roadmap document**; the
-> phased plan was deleted pending regeneration, so don't infer phase or status from any file.
+> record the reasoning that got the project here — read them for *why*, not as commitments. There is
+> currently **no roadmap document and no architecture-orientation skill**; both were retired pending
+> regeneration after the planning session, so don't infer phase or status from any file.
 >
 > This file holds the **always-on operating rules**: repository layout, build/test commands,
 > conventions, and the architecture boundaries below — which are tiered by what actually binds.
 >
 > **Prior efforts preserved as reference, not maintained** — do not modify unless explicitly asked: the
 > Kotlin/Compose Android client (`:app`) and the Python/FastAPI showcase (branch
-> `fullstack-py-ts-rewrite`, tag `python-fastapi-showcase`, docs under
-> [docs/python/](docs/python/README.md)).
+> `fullstack-py-ts-rewrite`, tag `python-fastapi-showcase`). Both were built on the per-turn TMDB call
+> this architecture exists to remove; [docs/HISTORY.md](docs/HISTORY.md) records what they were and why
+> they ended. Their detailed plans were deleted — do not go looking for them in the tree.
 
 ---
 
@@ -79,8 +80,8 @@ pinned as test cases in the conformance spec.
 Still the thin TMDB proxy it started as (movie/person search, credits). The graph-backed authoritative
 session server has not been built; whether it is built here, in Kotlin, at all, is open. It depends on
 `:core`, never the reverse. For the session-layer design as currently reasoned (durable store,
-transport-agnostic move pipeline, real-time/correspondence modes, identity), see the
-**`bacons-law-architecture`** skill.
+transport-agnostic move pipeline, real-time/correspondence modes, identity, and the
+correspondence-first build order), see [ADR 012](docs/DECISIONS.md) and [ADR 013](docs/DECISIONS.md).
 
 ### `etl/` — the offline graph build (Python) — **the durable part**
 
@@ -105,8 +106,9 @@ offline. Do not reintroduce a per-turn movie-API dependency.
 
 - **ETL:** runs offline; its Wikidata access needs no secret. Output is a versioned graph artifact
   consumed by the server.
-- **Server:** needs `DATABASE_URL` and `REDIS_URL` — see
-  [kotlin/backend/CLAUDE.md](kotlin/backend/CLAUDE.md).
+- **Server:** its storage dependencies are **undecided** — the durable store and the presence/broadcast
+  mechanism are planning-session questions, so there are no environment variables to document yet.
+  Whatever is chosen, inject credentials from the environment; never commit them.
 
 ---
 
@@ -122,13 +124,16 @@ target.
 
 ## Deployment
 
-Hosting is **Fly.io, not Cloud Run** — persistent WebSocket connections (real-time mode) and the
-in-process graph are incompatible with scale-to-zero / multi-instance autoscaling. The server runs as a
-**single long-lived instance by design**. Concurrent moves are serialized by **optimistic concurrency
-(version/CAS) on the durable store** — the authoritative mechanism across both modes (an in-process
-per-room `Mutex` may remain only as a same-instance fast-path). The graph artifact is bundled with /
-loaded by the server at boot. Postgres (authoritative game state) and Redis (presence/cache) run
-colocated on Fly. See [ADR 011](docs/DECISIONS.md) and [ADR 012](docs/DECISIONS.md).
+The binding constraint is that the server runs as a **single long-lived instance** — persistent
+WebSocket connections (real-time mode) and the in-process graph are incompatible with scale-to-zero and
+multi-instance autoscaling. That rules out scale-to-zero platforms; it does not pick a vendor. Fly.io
+is the current choice ([ADR 011](docs/DECISIONS.md)) and is open to reevaluation.
+
+Concurrent moves are serialized by **optimistic concurrency (version/CAS) on the durable store** — the
+authoritative mechanism across both modes. The graph artifact is bundled with / loaded by the server at
+boot, and whatever hosts the durable store should be colocated with the instance to keep the move path
+cheap. **The durable store and the presence/broadcast mechanism are undecided** — see
+[ADR 012](docs/DECISIONS.md).
 
 ---
 
@@ -177,12 +182,21 @@ These are where the design stands per ADRs 008–013. They are reasoned position
 the planning session may replace any of them. Follow them absent a decision to the contrary, but
 don't defend them as invariants.
 
-**The durable store is authoritative for game state.** The serialized `GameState` (plus mode,
-time-control, players, and clock/deadline state) lives in Postgres per game — it must survive restarts
-and span days for correspondence play (ADR 012). **Redis is presence + pub/sub broadcast + hot-game
-cache, never the source of truth** (do not put authoritative state behind a TTL). Multi-device (many
-clients on one game) does not require multiple server instances; horizontal scaling is a deferred pair
-(Redis-coordinated locking + Pub/Sub broadcast — ADR 008).
+**A durable store is authoritative for game state — which store is undecided.** The serialized
+`GameState` (plus mode, time-control, players, and clock/deadline state) is persisted per game. The
+requirements it must meet: survive restarts, span days for correspondence play, hold serializable
+state, and support compare-and-swap on a version so concurrent moves serialize (ADR 012). **No
+authoritative state behind a TTL** — that was the concrete failure of the earlier design, and it is the
+one thing here that generalizes past any particular product.
+
+**Presence and broadcast are a separate concern from the durable store, and also undecided.** A cache
+or pub/sub layer, if one is used, is never the source of truth. Multi-device (many clients on one game)
+does not require multiple server instances; horizontal scaling is a deferred pair — coordinated locking
+*and* a broadcast channel, since a second instance cannot see the first's sockets (ADR 008).
+
+> Specific products were named in ADRs 008–012 and have been **deliberately removed from this file** so
+> that a fresh planning pass evaluates storage and persistence on the requirements above rather than
+> inheriting an answer. Do not reintroduce a named store here until that session picks one.
 
 **Round and match are separate layers.** The **round engine** builds one chain: opening move, turn
 rotation among N players, per-move validation, and — on an invalid move or a give-up — a round result
@@ -243,7 +257,7 @@ detection and the out-of-scope list are Current decisions, not Binding.
 - **A per-turn movie-API call in the move path.** Validation is precomputed offline and served
   in-process. This was the showcase's mistake and the reason for the pivot.
 - **Splitting the engine from the graph across a network boundary.** Co-location is load-bearing.
-- **I/O in the engine** — no network, no Redis, no platform deps.
+- **I/O in the engine** — no network, no database or cache calls, no platform deps.
 - **TMDB as a runtime dependency**, or any API key. The source is CC0 Wikidata, built offline.
 - **Pre-mapping QIDs to integers in the ETL.** ID adaptation is a loader-side concern.
 - **Bypassing repeat detection.** It is a game rule.
@@ -270,9 +284,8 @@ detection and the out-of-scope list are Current decisions, not Binding.
 |----------|---------|
 | [docs/DECISIONS.md](docs/DECISIONS.md) | ADR log — the reasoning that got the project here; 008–013 cover the current direction (012–013: async modes + identity). Read for *why*, not as commitments |
 | [docs/CASE_STUDY.md](docs/CASE_STUDY.md) | System-design reasoning behind this architecture (a retrospective, not a build spec) |
-| `bacons-law-architecture` skill | System architecture and decisions orientation (points to the docs above) |
 | `movie-actor-chain-game` skill | Domain rules and vocabulary (implementation-agnostic; leaves project-specific rules open) |
 | [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) | **The round-engine spec of record.** Rules R1–R15 + a numbered conformance suite; language-agnostic, generates a test suite in any stack. Defines the round/match seam |
 | `kotlin/core/.../GameEngine.kt` + tests | Prototype implementation — subordinate to the conformance spec, which records where it diverges |
 | [etl/AGENTS.md](etl/AGENTS.md) | ETL operating rules and the load-bearing facts of the graph build |
-| [docs/python/](docs/python/README.md) | Archived Python/FastAPI showcase docs |
+| [docs/HISTORY.md](docs/HISTORY.md) | The two prior efforts (Kotlin pass-the-phone MVP, Python/FastAPI showcase) — what they were, why they ended, where the code lives. Reference only; neither is guidance |
