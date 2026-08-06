@@ -63,7 +63,12 @@ re-pull.
   artifact.** It is not "the same query produces the same bytes" — the live index drifts ~0.008%/day,
   so two pulls days apart legitimately differ. Reproducibility lives at the disk seam, not at the
   endpoint.
-- **Movies only:** exclude documentary (`Q93204`) and TV-film (`Q506240`) at extract.
+- **Movies only:** exclude documentary (`Q93204`) and TV-film (`Q506240`) at extract. These are exact
+  `P31` checks, so they only catch what an editor tagged — a documentary typed solely as `film` gets
+  through, and miniseries (`Q1259759`) is a different class from TV-film. Known leak, deferred:
+  [#19](https://github.com/zws33/bacons_law/issues/19).
+- **Nothing constrains the type of the `P161` object.** Whatever a film points at becomes an actor
+  node, so a handful of films are keyed as actors. Also [#19](https://github.com/zws33/bacons_law/issues/19).
 - **Year partitioning is a retained choice, not a requirement.** It existed to fit under the WDQS 60s
   wall, which QLever doesn't have. It stays because it keeps the raw cache resumable and each
   response small enough for non-streaming JSON parsing. Don't collapse it to a single query as a
@@ -85,10 +90,8 @@ outage being an inconvenience and being a rebuild from dumps.
 
 ## Docs — open the right one, only when you need it (context hygiene)
 
-- **`REPAIR_PLAN.md`** — the remaining in-flight work: running the first full build and verifying the
-  artifact. Start here while it exists; delete it once the graph is built.
-- **`README.md`** — the pipeline at a glance, plus known follow-ons (deferred work lives there, not
-  here — this file is operating rules only).
+- **`README.md`** — the pipeline at a glance, the current artifact's shape, the verification script,
+  and known follow-ons (deferred work lives there, not here — this file is operating rules only).
 - Config contract: `src/etl/config.py`.
 
 Plans and guides are deleted once the code catches up; the facts worth keeping are inlined above and
