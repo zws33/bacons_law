@@ -7,7 +7,7 @@
 > ⚠️ **Superseded in part — read this before §2, §5, or §6.** This document's central claim is that the
 > system is **connection-bound**, and it reasons from there to a WebSocket transport, a cost model
 > built on connection-holding and broadcast egress, and a language comparison decided by concurrency
-> model. **[ADR 018](DECISIONS.md) overturned that premise.** The game is turn-based and rewards recall
+> model. **[ADR 018](../DECISIONS.md) overturned that premise.** The game is turn-based and rewards recall
 > rather than reaction time; "real-time" is a time-control setting, not an architecture. Moves go over
 > ordinary request/response, opponents learn of them by polling plus push, and there are no sockets,
 > no presence service, no broadcast channel, and no single-instance constraint.
@@ -37,7 +37,7 @@ The constraints are what make it interesting. The intent is **non-commercial and
 
 What makes this a good teaching case is that the game's rules make the design questions unusually _sharp_. There's exactly one hard problem in the rules — establishing whether an actor was really in a movie — and a single architectural property (the game is real-time and turn-based) **[SUPERSEDED — ADR 018: that is two properties, and only "turn-based" is a rule; "real-time" is a time control]** that, once you take it seriously, sorts almost every downstream decision for you. Most of this document is the consequence of taking those two things seriously.
 
-> **Superseded ([ADR 018](DECISIONS.md)).** "The game is real-time and turn-based" is written here as one property. It is two, and only one is a rule. **Turn-based is a rule of the game; real-time is a time-control setting** — the way blitz is a setting in chess, not a different architecture. Fusing them is the error this document then builds on for three sections. Read the rest of the sentence as still true of the *turn-based* half: it really does sort the downstream decisions, just toward a much duller architecture than the one below.
+> **Superseded ([ADR 018](../DECISIONS.md)).** "The game is real-time and turn-based" is written here as one property. It is two, and only one is a rule. **Turn-based is a rule of the game; real-time is a time-control setting** — the way blitz is a setting in chess, not a different architecture. Fusing them is the error this document then builds on for three sections. Read the rest of the sentence as still true of the _turn-based_ half: it really does sort the downstream decisions, just toward a much duller architecture than the one below.
 
 ---
 
@@ -60,11 +60,11 @@ Server-side turn processing sits comfortably under ~50 ms and is dominated by ne
 
 This single sentence is the throughline of the entire project. Every section below is, in some sense, a corollary of it. It's also the first transferable lesson: _the part of a system that looks hardest in the spec is often not the part that decides the architecture._ Find the real constraint before you optimize the obvious one.
 
-> **Superseded ([ADR 018](DECISIONS.md)) — and note the tell.** The paragraph above names the constraint as many long-lived, **mostly-idle** connections. That adjective is the counter-argument: a persistent bidirectional connection carrying a few messages per minute is a mechanism without a workload. The right conclusion was that the transport was wrong, not that idle connections were a thing to engineer around.
+> **Superseded ([ADR 018](../DECISIONS.md)) — and note the tell.** The paragraph above names the constraint as many long-lived, **mostly-idle** connections. That adjective is the counter-argument: a persistent bidirectional connection carrying a few messages per minute is a mechanism without a workload. The right conclusion was that the transport was wrong, not that idle connections were a thing to engineer around.
 >
 > What actually follows from a turn-based game with a seconds-scale latency budget: **request/response for moves, polling plus push for notification.** The app is neither connection-bound nor compute-bound; at the scale this project will ever see, it is not bound by anything, which is the honest answer.
 >
-> Two further points settle it. **Real-time degrades as player count grows** — with four players on a 60-second clock, each waits ~3 minutes between turns and all four must be simultaneously present — while correspondence is indifferent to N, and N > 2 is a day-one requirement ([ADR 015](DECISIONS.md)). And the row this table under-weights is the last one: **the typeahead is the highest-frequency operation in the system by a wide margin**, far above move submission. §2 correctly identifies name resolution as the real hard problem a few pages on, then spends the architecture budget on transport anyway.
+> Two further points settle it. **Real-time degrades as player count grows** — with four players on a 60-second clock, each waits ~3 minutes between turns and all four must be simultaneously present — while correspondence is indifferent to N, and N > 2 is a day-one requirement ([ADR 015](../DECISIONS.md)). And the row this table under-weights is the last one: **the typeahead is the highest-frequency operation in the system by a wide margin**, far above move submission. §2 correctly identifies name resolution as the real hard problem a few pages on, then spends the architecture budget on transport anyway.
 >
 > The lesson in the paragraph above is sound. This document is just a second instance of it.
 
@@ -126,7 +126,7 @@ Without the cap, the game becomes trivially easy and weird (every movie connects
 
 Laid out as layers:
 
-> **Superseded ([ADR 018](DECISIONS.md)).** The top layer of the diagram below is now
+> **Superseded ([ADR 018](../DECISIONS.md)).** The top layer of the diagram below is now
 > `HTTP handlers · polling · push` — there are no WebSocket rooms, no broadcast, and no presence. It is
 > also no longer "the scaling axis": with nothing held per connection, scaling is unremarkable. The
 > three layers beneath it are unchanged and still correct.
@@ -181,7 +181,7 @@ The practical consequence: **provenance, not formatting, is what binds you.** An
 
 ## 5. [SUPERSEDED — ADR 018] Cost and funding
 
-> ⚠️ **Superseded ([ADR 018](DECISIONS.md)).** This entire section is downstream of the WebSocket
+> ⚠️ **Superseded ([ADR 018](../DECISIONS.md)).** This entire section is downstream of the WebSocket
 > assumption: it identifies the cost drivers as connection-holding and broadcast egress, then reasons
 > about egress pricing, idle-connection reaping, and a Cloudflare-front posture. **None of those
 > drivers exist without sockets.** A correspondence game delivering via polling and push has near-zero
@@ -223,7 +223,7 @@ A lean stack — **Cloudflare in front (free egress, DDoS shielding) of a Hetzne
 
 ## 6. [SUPERSEDED — ADR 018] Runtime and language choice — a framework, not a verdict
 
-> ⚠️ **Superseded ([ADR 018](DECISIONS.md)) — the most important marker in this document.** This
+> ⚠️ **Superseded ([ADR 018](../DECISIONS.md)) — the most important marker in this document.** This
 > section picks its deciding axis from the connection-bound premise: "how does each runtime model
 > concurrency for many long-lived, mostly-idle connections?" With that premise gone, **every criterion
 > below evaluates a workload this system does not have** — idle-socket memory, green threads vs. event
@@ -287,11 +287,11 @@ Abstracted from the project so they travel to unrelated work:
 
 6. **Pick infrastructure by your dominant cost driver.** Here it was egress, varying ~100× by provider. Identifying that one variable turned a frightening bill into a rounding error. **[The example is SUPERSEDED — ADR 018; egress was a driver only because of broadcast. The principle survives.]**
 
-   > **Example superseded ([ADR 018](DECISIONS.md)).** Egress was the dominant driver only because of broadcast over persistent connections. Without them this project has no dominant cost driver worth designing around. The principle is sound; the instance of it was an artifact of the mistake in #7.
+   > **Example superseded ([ADR 018](../DECISIONS.md)).** Egress was the dominant driver only because of broadcast over persistent connections. Without them this project has no dominant cost driver worth designing around. The principle is sound; the instance of it was an artifact of the mistake in #7.
 
 7. **Find the one property that makes the hard questions sharp.** "Connection-bound, not compute-bound" collapsed an open-ended tech-stack debate into a single decisive axis. The best architectural insight is usually the one sentence that makes everything else follow. **[The example is SUPERSEDED — ADR 018; that sentence was wrong. The principle survives, inverted — see below.]**
 
-   > **The example inverts; the principle holds — with a warning attached ([ADR 018](DECISIONS.md)).** That one sentence was *wrong*, and because everything followed from it, the error propagated into the transport, the cost model, and the language evaluation before anyone checked it. The corrected property is duller: **the game is turn-based, and nothing in it is decided by reaction time.** So the real principle is two-sided — a single sharp property does collapse the decision space, and that is exactly why it earns more scrutiny than any decision downstream of it. Load-bearing sentences deserve to be attacked, not admired.
+   > **The example inverts; the principle holds — with a warning attached ([ADR 018](../DECISIONS.md)).** That one sentence was *wrong*, and because everything followed from it, the error propagated into the transport, the cost model, and the language evaluation before anyone checked it. The corrected property is duller: **the game is turn-based, and nothing in it is decided by reaction time.** So the real principle is two-sided — a single sharp property does collapse the decision space, and that is exactly why it earns more scrutiny than any decision downstream of it. Load-bearing sentences deserve to be attacked, not admired.
    >
    > The tell was available at the time and written down: §2 described the connections as **mostly idle**. A constraint that is mostly idle is usually not the constraint.
 

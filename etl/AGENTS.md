@@ -43,6 +43,19 @@ re-pull.
   only buy qualifiers we've already established are unusable (below).
 - **Billing order (`P1545`) is ~8% populated → unusable.** Rank each film's cast by the **actor's own
   sitelink count** and take top-N (`cast_cap`). This lever is gameplay + policy, not a size hack.
+- **Truncation by `cast_cap` is itself a notability filter.** Because ranking is by the actor's own
+  sitelinks, an actor who appears in several films and survives the cap in none of them is thereby
+  demonstrated to be obscure — not merely unlucky. This is measured, not assumed: cap-truncated
+  actors are *less* notable than genuine one-credit actors on every percentile
+  ([ADR 019](../docs/DECISIONS.md)). The practical consequence is that **"cap rescue" — restoring a
+  truncated actor's next-best edge so they are not left with a single credit — was measured and
+  rejected.** Do not re-propose it without new evidence; it repairs a population more obscure than
+  the one it leaves behind.
+- **`min_sitelinks` gates FILMS, not actors.** `extract.py` filters `?filmSitelinks` only;
+  `?actorSitelinks` is selected and never filtered. Actors therefore enter at any notability, and
+  in a film with `min_cast` cast members all of them survive regardless of who they are. This is why
+  45.9% of actor nodes in `v1` are degree-1 — a known and **accepted** property, not an oversight
+  ([ADR 019](../docs/DECISIONS.md)).
 - **Filter = enwiki ∩ ≥`min_sitelinks` ∩ ≥`min_cast` cast.** The enwiki anchor is unconditional in the
   query and `min_sitelinks` is applied at **extract** time (baked into the raw cache); `min_cast` /
   `cast_cap` are **transform**-time dials you retune often.

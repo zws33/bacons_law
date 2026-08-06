@@ -10,7 +10,10 @@ Lightweight ADR-style record of key technical and product decisions.
 > consequential recent change and amends 008, 011, and 012**: the game is turn-based, real-time is a
 > time control rather than an architecture, and the WebSocket transport — along with the
 > single-instance constraint it implied — is dropped. Read it before acting on anything in 008–012
-> about transport, presence, broadcast, hosting, or instance count.
+> about transport, presence, broadcast, hosting, or instance count. **019** records the first
+> decision this project made from measurement rather than reasoning — the graph's degree-1
+> population is acceptable and cap rescue is rejected — and its evidence is
+> [investigation 001](investigations/001-actor-degree-distribution.md).
 > The archived Python/FastAPI showcase kept its own log; it was deleted along with that effort's plans
 > — see [`HISTORY.md`](HISTORY.md).
 >
@@ -194,7 +197,7 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 
 **Date:** 2026-06-29
 
-**Context:** The intuitive approach validates "did this actor appear in this movie?" with a movie-API call per turn — the Python showcase did exactly that (a TMDB credits call per movie move). [CASE_STUDY.md](CASE_STUDY.md) (§2–3) shows this is backwards: precompute the actor↔movie relationship once, offline, and the per-turn check collapses to an O(1) set-membership lookup. The system is connection-bound, not compute-bound; the connection check is the cheapest thing in it. *(The "connection-bound" half of that last clause is retracted by [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) — there are no persistent connections. The decision below does not depend on it: precomputed in-process validation is binding regardless of transport, and "the connection check is the cheapest thing in the system" is exactly as true over HTTP.)*
+**Context:** The intuitive approach validates "did this actor appear in this movie?" with a movie-API call per turn — the Python showcase did exactly that (a TMDB credits call per movie move). [CASE_STUDY.md](investigations/000-system-design-case-study.md) (§2–3) shows this is backwards: precompute the actor↔movie relationship once, offline, and the per-turn check collapses to an O(1) set-membership lookup. The system is connection-bound, not compute-bound; the connection check is the cheapest thing in it. *(The "connection-bound" half of that last clause is retracted by [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) — there are no persistent connections. The decision below does not depend on it: precomputed in-process validation is binding regardless of transport, and "the connection check is the cheapest thing in the system" is exactly as true over HTTP.)*
 
 **Decision:** The actor↔movie relationship is precomputed offline into a bipartite graph (`movie_id → set(actor_id)`, `actor_id → set(movie_id)` — generic notation predating the source choice; the keys are Wikidata QID strings, see [ADR 016](#016-cast-ids-are-wikidata-qid-strings-id-adaptation-is-loader-side)) and loaded **read-only, in-process** into the server at boot. Move validation is `castIds.contains(...)` against the loaded graph — no network call in the hot path. The pure `:core` engine is unchanged; only its data source changes.
 
@@ -536,7 +539,7 @@ per-game config; real-time as an additive transport layer). The server-authorita
 the durable-store requirements of ADR 012, and the offline/online split of ADR 011 all **survive
 unchanged**.
 
-**Context:** [CASE_STUDY.md](CASE_STUDY.md) §1 names the load-bearing property as "the game is
+**Context:** [CASE_STUDY.md](investigations/000-system-design-case-study.md) §1 names the load-bearing property as "the game is
 real-time and turn-based" and treats it as one thing. It is two, and only one of them is a rule.
 **Turn-based is a rule of the game. Real-time is a time-control setting** — the way blitz is a setting
 in chess, not a different architecture.
@@ -630,3 +633,71 @@ apart.
 - **Unchanged:** server-authoritative state, the precomputed in-process graph, the engine/data
   co-location, the pure round engine, the durable-store requirement set (serializable, survives
   restarts, spans days, CAS-able, never behind a TTL), and device-anchored identity.
+
+---
+
+## 019: The graph's degree-1 population is acceptable; cap rescue is rejected
+
+**Date:** 2026-08-06
+
+**Evidence:** [investigation 001](investigations/001-actor-degree-distribution.md) — measured
+against `graph/v1` (47,624 movies · 89,074 actors · 456,129 edges) and all 102 raw partitions.
+That document is a record, not authority; this ADR is where its conclusions bind.
+
+**Context:** A player whose every graph neighbour is already in the chain has no legal move. The
+round ends and [ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md) names them the loser, identically to
+a player who guessed wrong. Before building a server against the artifact, the question was whether
+that situation arises often enough to change the data, the rules, or neither.
+
+**Framing, stated because it decides the answer:** naming an actor whose only credit is the film in
+play is a **legitimate winning move**, not an exploit. Knowing an actor has one credit is precisely
+the knowledge this game tests, and obscurity is the skill gradient rather than something to
+flatten. The question is only whether the knowledge required to end a round is *proportionate to
+the reward* — cheap kills compress rounds; earned ones are the game working.
+
+**Measurements:**
+
+- **45.9%** of actor nodes (40,906 of 89,074) are degree-1, and **42.3%** of films contain one.
+- Both numbers are misleading. Degree-1 actors have a **median of 4 sitelinks** against 11 for
+  multi-credit actors. Requiring the round-ending actor to have merely ten language Wikipedias cuts
+  availability to **15.2%** of films; twenty-five cuts it to **3.8%**.
+- Among the **100 most famous films**: **11%** offer a round-ending move via a moderately-known
+  one-credit actor, **2%** via a well-known one.
+- **83.95%** of degree-1 actors are genuine one-credit performers; only 6,565 are cast-cap
+  artifacts.
+
+**Decision:**
+
+1. **No ETL dial change.** `cast_cap=15`, `min_cast=3`, and `min_sitelinks=5` stand. The rate at
+   which the graph offers a cheap round-ender is a skill filter, not a defect.
+2. **Cap rescue is rejected**, not deferred. Restoring a truncated actor's next-best edge reduces
+   nameable round-enders by 8.9% at a ≥10 sitelink floor and 1.0% at ≥50 — worth least exactly
+   where the problem matters most. Its secondary justification (false rejections on a truncated
+   actor's other films) falls to the same number: those actors are median-3-sitelink people, so
+   those films are unlikely to be named either.
+3. **No new engine or session-layer rule.** The exhausted-frontier case is rare enough in nameable
+   terms that the current behaviour — the player on turn is the loser — is defensible. The policy
+   question stays open in the conformance spec but is not blocking.
+
+**Rationale — the mechanism worth remembering:** `cast_cap` ranks by the *actor's own* sitelinks,
+so **being truncated is the notability filter operating.** An actor who appears in several films
+and survives the cap in none of them is thereby demonstrated to be obscure. This is why cap rescue
+cannot help: the population it repairs is more obscure than the population it leaves behind. The
+expectation going in was the opposite — that reaching several films implied some recognition — and
+it was wrong.
+
+**Consequences:**
+
+- **Do not re-propose cap rescue** without new evidence. It was measured and rejected, not skipped.
+- **`min_sitelinks` gates films, not actors** ([extract.py](../etl/src/etl/extract.py) filters
+  `?filmSitelinks` only). That is the mechanism admitting 40,906 leaf actors, and it is now a
+  known, accepted property rather than an oversight.
+- **Issue #19's confound is negligible here** — nine QIDs, 0.02% of degree-1 actors, independently
+  reproducing the issue's own list. Its query fixes remain worth doing for correctness; they will
+  not move these numbers.
+- **The risk, such as it is, sits in famous films rather than obscure ones.** Filtered for
+  nameability, notable films carry *more* round-enders (26.0% vs. 15.2%) because their one-credit
+  members are themselves more notable. Absolute rates stay low, so this changes the explanation
+  and not the decision — but it inverts the intuition the investigation started from.
+- **Unmeasured and still open:** whether players actually find these moves (playtest, not graph),
+  and how chain length raises the rate as degree-2+ actors exhaust their alternatives.
