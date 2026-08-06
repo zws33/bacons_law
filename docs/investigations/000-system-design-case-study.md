@@ -37,7 +37,7 @@ The constraints are what make it interesting. The intent is **non-commercial and
 
 What makes this a good teaching case is that the game's rules make the design questions unusually _sharp_. There's exactly one hard problem in the rules — establishing whether an actor was really in a movie — and a single architectural property (the game is real-time and turn-based) **[SUPERSEDED — ADR 018: that is two properties, and only "turn-based" is a rule; "real-time" is a time control]** that, once you take it seriously, sorts almost every downstream decision for you. Most of this document is the consequence of taking those two things seriously.
 
-> **Superseded ([ADR 018](../DECISIONS.md)).** "The game is real-time and turn-based" is written here as one property. It is two, and only one is a rule. **Turn-based is a rule of the game; real-time is a time-control setting** — the way blitz is a setting in chess, not a different architecture. Fusing them is the error this document then builds on for three sections. Read the rest of the sentence as still true of the *turn-based* half: it really does sort the downstream decisions, just toward a much duller architecture than the one below.
+> **Superseded ([ADR 018](../DECISIONS.md)).** "The game is real-time and turn-based" is written here as one property. It is two, and only one is a rule. **Turn-based is a rule of the game; real-time is a time-control setting** — the way blitz is a setting in chess, not a different architecture. Fusing them is the error this document then builds on for three sections. Read the rest of the sentence as still true of the _turn-based_ half: it really does sort the downstream decisions, just toward a much duller architecture than the one below.
 
 ---
 

@@ -22,7 +22,9 @@ build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+# `analysis` is investigation code, not a pipeline stage — it lives outside src/ on purpose
+# (see analysis/README.md) but still gets linted and type-checked.
+src = ["src", "tests", "analysis"]
 
 [tool.ruff.lint]
 # pyflakes, pycodestyle, isort, pyupgrade, bugbear, simplify
@@ -30,9 +32,13 @@ select = ["F", "E", "I", "UP", "B", "SIM"]
 
 [tool.basedpyright]
 pythonVersion = "3.14"
-include = ["src", "tests"]
+include = ["src", "tests", "analysis"]
 exclude = ["**/fixtures/**"]
 typeCheckingMode = "standard"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `analysis` is not part of the installed package (it lives outside src/ on purpose), so it
+# is not importable from the venv the way `etl` is. Put the project root on the path so
+# tests can import it.
+pythonpath = ["."]
