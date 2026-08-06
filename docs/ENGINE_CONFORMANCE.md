@@ -328,7 +328,8 @@ Required by the game, enforced elsewhere. An engine that enforces these is over-
 | The player is offered the correct entity type each turn | Caller presents the right search mode; [R4](#r4--same-type-consecutive-moves-are-always-invalid) is the engine's backstop |
 | `castIds` is accurate and complete | Caller populates from the in-memory graph before constructing the move |
 | Name resolution, typos, disambiguation | Caller, before a `Move` exists |
-| Mapping a clock expiry or an abandonment onto a round result | Session layer; it calls `forfeit` ([ADR 012](DECISIONS.md)) |
+| Mapping a deadline expiry or an abandonment onto a round result | Session layer; it calls `forfeit` ([ADR 012](DECISIONS.md), as amended by [ADR 018](DECISIONS.md) — one deadline model, no running clock) |
+| Detecting that the player on turn has no legal move at all | Session layer; it holds the graph. The engine cannot see it when the chain head is an Actor — see [Open questions](#open-questions) |
 | Persistence, transport, presence | Session layer |
 
 **"Appeared in" is defined by the graph, not by the engine.** `castIds` reflects what the ETL
@@ -1020,25 +1021,69 @@ are new requirements, not a record of existing behavior — see Group G.
 Unresolved. Each needs a decision before the area it touches is built. None of them block the round
 engine — they are match-layer and contract questions the round engine's output feeds.
 
-**Failure reason codes.** `RoundOver` records *that* a move lost, not *why* — a repeat, a bad
-connection, a wrong type, and a give-up are indistinguishable to the caller. This matters more now
-that a match layer consumes round results: a mode that charges a different penalty for giving up than
-for a wrong answer, or a UI that says "you already used that," needs the distinction. Adding it
-changes the `RoundOver` contract and gives
+**Failure reason codes — the highest-priority question here.** `RoundOver` records *that* a move lost,
+not *why* — a repeat, a bad connection, a wrong type, and a give-up are indistinguishable to the
+caller. This matters more now that a match layer consumes round results: a mode that charges a
+different penalty for giving up than for a wrong answer, or a UI that says "you already used that,"
+needs the distinction. Adding it changes the `RoundOver` contract and gives
 [TC-20](#tc-20--repeat-and-connection-failure-produce-identical-outcomes) real assertions.
+
+[ADR 018](DECISIONS.md) raised this question's priority. With a per-turn deadline now the *only* time
+mechanism in the product, **"ran out of time" and "gave up" are the same `RoundOver`** — and they are
+the pair most likely to warrant different treatment, since a correspondence player who lets a
+three-day deadline lapse has not made the same choice as one who taps "give up." Two of the other open
+questions below also resolve into this contract rather than into new operations.
 
 **Whether the match layer needs the round's opening player index.** Move attribution is derivable from
 it ([Engine boundary](#engine-boundary)) and the match layer holds it — but nothing yet specifies that
 the match layer records it, and without it a persisted round result cannot be replayed with
 attribution.
 
-**Clock expiry ownership.** [ADR 012](DECISIONS.md) puts time controls in scope. The engine has no
-notion of time, so expiry resolves to a `forfeit` call from the session layer, making a timeout
-indistinguishable from a deliberate give-up in the round result — which interacts with the reason-code
-question above if a mode penalizes them differently.
+**Deadline expiry ownership.** [ADR 012](DECISIONS.md) puts time controls in scope;
+[ADR 018](DECISIONS.md) **simplified this question** by dropping the running chess clock — there is now
+one time model, not two. A turn carries a `deadline_at` timestamp, and expiry is adjudicated by the
+session layer (lazily on next read, or by a sweeper), which resolves it to a `forfeit` call.
 
-**Chain length limits.** Nothing bounds chain growth. A correspondence round running for weeks has an
-unbounded `moves` list, which is a persistence and payload concern before it is an engine one.
+What remains open is narrower than before: the engine stays timeless ([R10](#r10--the-engine-is-pure)),
+so a lapsed deadline and a deliberate give-up produce identical `RoundOver` values. That is now purely
+a **reason-code** question (above), not a clock-architecture one. Note also that the adjudicator is not
+a player, which is one of the three writers the session layer's optimistic concurrency exists to
+serialize (`AGENTS.md`, [ADR 018](DECISIONS.md) §4).
+
+**An exhausted frontier is indistinguishable from a player's failure.** Nothing in this spec expresses
+"the player on turn had *no* legal move." [R6](#r6--an-invalid-move-ends-the-round) and
+[R8](#r8--loser-determination) both assume the player on turn is at fault; a player who arrives at an
+entity whose every graph neighbour is already in the chain (or excluded) is named the loser exactly as
+if they had guessed wrong.
+
+**This is not by itself a defect.** Steering the chain toward an entity the next player cannot continue
+from is a legitimate winning move — knowing that an actor has exactly one credit is precisely the
+knowledge this game tests, and driving play into obscure territory is strategy, not abuse. Obscurity is
+the skill gradient; the design should not try to flatten it.
+
+The open question is narrower: **whether a round-ending move is cheap or earned.** A kill reachable
+only by first steering into a little-known film is earned. A kill available to anyone who names a
+household-name film and then recalls one bit-part name from it is cheap, and cheap kills compress the
+game. A further distinction matters for whether this is a data problem at all: an actor with exactly
+one credit *in reality* is legitimate content, whereas an actor with one credit only because
+[the cast cap](../etl/AGENTS.md) truncated the others is a build artifact — and the two are
+indistinguishable from the artifact alone.
+
+The engine cannot fully detect this, and the asymmetry is in the [data model](#data-model): `Movie`
+carries `castIds`, so an exhausted frontier *is* computable when the chain head is a movie; `Actor`
+carries no filmography, so the engine is structurally blind to it when the head is an actor. Closing
+that by adding a `filmIds` set to `Actor` would widen the validation contract and the per-move payload.
+
+The cheaper placement is the session layer, which holds the graph and can compute the legal-move set in
+either direction in O(degree) — and can do so *before* the round ends rather than after. What is
+genuinely undecided is the policy (does an exhausted frontier end the round without a strike? is the
+*previous* move rejected as a dead end?) and whether `RoundOver` needs to express the distinction at
+all, which folds back into reason codes. **How common this is in the shipped graph is unmeasured** —
+see the actor-degree probe; the answer should inform the policy rather than the reverse.
+
+**Chain length limits.** Nothing bounds chain growth. With correspondence the only mode
+([ADR 018](DECISIONS.md)), a round spanning weeks is the normal case rather than an edge case, so an
+unbounded `moves` list is a persistence and payload concern before it is an engine one.
 
 ---
 
@@ -1047,7 +1092,7 @@ unbounded `moves` list, which is a persistence and payload concern before it is 
 | Document | Relationship |
 |---|---|
 | [AGENTS.md](../AGENTS.md) | Architecture boundaries; which of these rules are binding vs. provisional |
-| [docs/DECISIONS.md](DECISIONS.md) | ADRs 008–013 — the reasoning behind the data source, deployment, and mode decisions |
+| [docs/DECISIONS.md](DECISIONS.md) | ADRs 008–018 — the reasoning behind the data source, deployment, and mode decisions. [ADR 018](DECISIONS.md) is the one that touches this spec: it drops the running chess clock, leaving a single deadline model |
 | `movie-actor-chain-game` skill | Domain rules and vocabulary; implementation-agnostic, leaves repeats/opener/"appeared in" open — answered here and in AGENTS.md |
 | [etl/AGENTS.md](../etl/AGENTS.md) | How `castIds` is produced; `cast_cap` and `min_cast` define what "appeared in" means in practice |
 | [issue #17](https://github.com/zws33/bacons_law/issues/17) | The coverage gap this document supersedes |
