@@ -13,7 +13,9 @@ Lightweight ADR-style record of key technical and product decisions.
 > about transport, presence, broadcast, hosting, or instance count. **019** records the first
 > decision this project made from measurement rather than reasoning — the graph's degree-1
 > population is acceptable and cap rescue is rejected — and its evidence is
-> [investigation 001](investigations/001-actor-degree-distribution.md).
+> [investigation 001](investigations/001-actor-degree-distribution.md). **020** is the first decision
+> out of the planning session: typeahead resolves server-side, with the client-side index deferred
+> behind a `suggest()` seam.
 > The archived Python/FastAPI showcase kept its own log; it was deleted along with that effort's plans
 > — see [`HISTORY.md`](HISTORY.md).
 >
@@ -706,3 +708,114 @@ it was wrong.
   and not the decision — but it inverts the intuition the investigation started from.
 - **Unmeasured and still open:** whether players actually find these moves (playtest, not graph),
   and how chain length raises the rate as degree-2+ actors exhaust their alternatives.
+
+---
+
+## 020: Typeahead resolves server-side; the client index is a deferred fast-follow
+
+**Date:** 2026-08-07
+
+**Evidence:** Direct measurement of `graph/v1`'s `entities` map — counts and serialized sizes. The
+load and latency figures below are arithmetic on assumed conditions, not measurements, and are
+labelled as such. No investigation document: the measurements are small enough to state here in
+full.
+
+**Context:** Nothing had been designed for name resolution, and it is the highest-frequency
+operation in the system by a wide margin. Players type English names, the engine consumes QIDs, and
+136,689 entities sit between the two. The open question was where resolution runs — server-side
+against the in-memory map with a debounced client, or ship the index to the client and remove the
+endpoint.
+
+**Two framings, stated because they decide the answer:**
+
+1. **The typeahead must search the full corpus, never the legal moves.** At any turn the valid moves
+   are exactly the previous entity's neighbours — ~9.6 actors per film (capped at 15), ~5.1 films
+   per actor. A typeahead scoped to those would be trivially fast and would hand the player the
+   answer, which is the opposite of a game about recall. This is why it is a 136,689-record search
+   problem rather than a 15-record one, and it is not negotiable.
+2. **Endpoint volume is not the axis; latency is — but latency only decides a one-way door.**
+   Typeahead is the sole path in this system with a human-perceptible budget;
+   [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture)
+   established that everything else is measured in seconds to days. That makes latency the dominant
+   *measurement*. It does not make it the dominant *criterion*, because moving resolution to the
+   client later discards nothing.
+
+**Measurements:**
+
+- `entities` holds **136,689 records** — 89,068 actors, 47,621 movies. Nine short of the manifest's
+  136,698: the dual-typed QIDs from [Issue #19](https://github.com/zws33/bacons_law/issues/19), the
+  same nine [investigation 001](investigations/001-actor-degree-distribution.md) found. `entities`
+  is keyed by QID alone, so a film credited as a cast member collapses onto itself and loses one
+  type.
+- Minified, then gzipped: **1.89 MB** as emitted, **1.59 MB** reshaped to parallel arrays, **1.09
+  MB** for labels alone. Raw: 7.93 / 5.72 / 2.43 MB.
+- Reshaping removed 2.2 MB of raw structural overhead and only 0.30 MB of it survived compression —
+  **the wire cost is content, not format.**
+- **Arithmetic, not measured:** at correspondence pace, 1,000 concurrent games moving every four
+  hours is ~0.07 moves/sec; at 5–10 debounced requests per composed move, **under 1 typeahead
+  request/sec.**
+- **Estimated, not measured:** a mobile round-trip puts server-side resolution near 200–400 ms p50
+  and worse on a poor connection, against sub-millisecond client-side.
+
+**Decision:**
+
+1. **Typeahead resolves server-side**, against the entities map already in memory, with the client
+   debouncing input. It is the smaller build and it ships first.
+2. **The client-side index is deferred, not rejected.** ~1.6 MB gzipped is affordable on all three
+   planned client runtimes. The trigger to build it is playtest evidence that the latency is felt —
+   not a threshold set in advance.
+3. **One seam is required now:** the client's suggestion call is an interface —
+   `suggest(prefix) -> Candidate[]` — never a `fetch` inlined into an input handler. This is the
+   entire cost of the deferral, and it is a fourth seam of the kind ADR 018 established.
+4. **The search-optimised shape is derived server-side at boot, never in the ETL.** The artifact
+   emits the neutral contract; folded search keys are a consumer concern exactly as ID adaptation is
+   under [ADR 016](#016-cast-ids-are-wikidata-qid-strings-id-adaptation-is-loader-side). This also
+   means the index format can change without a graph rebuild.
+5. **Matching is on folded keys, indexed at word starts.** Unicode case folding (*not*
+   `toLowerCase` — locale-sensitive, and it fails ß/ss), NFD decomposition with combining marks
+   stripped, apostrophe and punctuation normalisation; each entity indexed under every word start so
+   `matrix` finds *The Matrix*. Corpus and query are folded identically or the two never meet.
+6. **Results are ranked, and sitelink count is the signal.** A three-character prefix matches
+   thousands of entities; which ten are shown is the felt quality of the feature. Ranking is not
+   optional polish.
+
+**Rationale — the mechanism worth remembering:** `entities` carries labels, types, and years and
+**no edges whatsoever.** Every fact about move validity lives in the adjacency maps. The natural
+data seam and the trust seam are therefore the same seam: the index can be shipped to a client
+without disclosing a single answer — only the answer *space*, which players are entitled to know.
+That is what makes the deferral safe rather than merely cheap. Nothing forecloses the later option,
+and the fallback that keeps it open is the same endpoint being built now.
+
+**Consequences:**
+
+- **The resolve endpoint is permanent, not scaffolding.** The server must re-resolve any submitted
+  QID regardless — a client's claim that a QID exists and is of the type it says is not trustworthy.
+  Shipping the index later adds a delivery path; it does not remove this one.
+- **Ranking needs a schema bump, and it is cheap.** Sitelink counts are fetched
+  (`WikidataRow.film_sitelinks` / `actor_sitelinks`) and used for `cast_cap`, then **dropped at
+  `Edge`** and absent from `entities`. Surfacing them means changing `Edge`, `transform`, and
+  `emit`, then re-running **transform and emit only** — the raw partitions already hold the data, so
+  no re-extract and no network. This is independent of Issue #19's rebuild and should not wait for
+  it.
+- **The agenda's rationale for sequencing this first does not hold.** It argued that shipping the
+  index shrinks the server's job and makes the stack and store decisions easier. The server keeps
+  the endpoint either way, so those decisions are unchanged by this one. Deciding it first was still
+  right — it is cheap and it settles the delivery question — but it is not a prerequisite.
+- **Protobuf is not the lever**; do not re-propose it on size grounds. The payload is dominated by
+  string content no schema can compress, and gzip already removes the structural overhead protobuf
+  targets. Expect single-digit percentages. If the index is ever shipped, the real levers are
+  brotli, encoding QIDs as delta-encoded integers rather than strings, and front-coding the sorted
+  labels.
+- **Fold consistency becomes cross-runtime when the second client lands.** Corpus keys are folded
+  server-side, so each client folds only the short query — a small function, but it must agree
+  across JS, Kotlin, and Swift. A shared fixture list of input/expected pairs, run as a test in each
+  client, is the mitigation. Not needed for the first client.
+- **Within the client, algorithm choice is nearly irrelevant** if the index is ever shipped.
+  Pre-folded linear scan is 2–8 ms; a sorted array with binary search on the prefix range is
+  sub-0.1 ms and about twenty lines; a trie is not perceptibly better and costs 10–50× the memory.
+  The 200–400 ms placement gap is two orders of magnitude larger than any of them. Do not spend
+  design effort here.
+- **Unmeasured and still open:** whether players actually notice server-side latency (playtest, not
+  arithmetic); and whether actor name collisions need a disambiguator. Movies got `year` in schema
+  v2 and actors have none — at 89,068 actors the collision count is not zero. Adding one is an ETL
+  schema change and should be batched with the sitelink change above.

@@ -20,7 +20,7 @@ before play. Multiplayer is a day-one requirement, not a later extension.
 > stack included. Treat nothing outside `etl/` as a fixed contract, and never preserve a signature,
 > module layout, or design decision merely because it is already in the tree.
 >
-> **What that means for the docs.** `docs/DECISIONS.md` (ADRs 008–018) records the reasoning that got
+> **What that means for the docs.** `docs/DECISIONS.md` (ADRs 008–020) records the reasoning that got
 > the project here — read it for *why*, not as commitments. Everything under
 > [`docs/investigations/`](docs/investigations/) — including the system-design case study — is
 > **non-normative by location**: records of how questions were investigated, containing falsified
@@ -194,9 +194,11 @@ mocks and shareable across server and clients. This is a property to preserve, n
 
 ### Current decisions — provisional, subject to reevaluation
 
-These are where the design stands per ADRs 008–018. They are reasoned positions, not commitments;
+These are where the design stands per ADRs 008–020. They are reasoned positions, not commitments;
 the planning session may replace any of them. Follow them absent a decision to the contrary, but
-don't defend them as invariants.
+don't defend them as invariants. **ADR 020 is the exception** — it is a planning-session output
+rather than an input to one, and it names its own revisit trigger (playtest evidence that typeahead
+latency is felt).
 
 **The game is turn-based. Real-time is a time control, not an architecture** (ADR 018). Correspondence
 is the primary and only mode built. Live play with a running chess clock is **deferred, not designed
@@ -221,6 +223,28 @@ dropping it: (1) the move core stays transport-agnostic — `(player, gameId, va
 as a plain function, no HTTP types in domain logic; (2) **move handling emits a notification event
 rather than calling the notifier** — "game X advanced to player B," consumed by a delivery layer; this
 is the one item genuinely expensive to retrofit; (3) the deadline is data, per above.
+
+**Name resolution runs server-side; the client index is deferred behind a seam** (ADR 020). Typeahead
+resolves against the in-memory `entities` map over request/response, with the client debouncing input.
+Shipping the index to the client — ~1.6 MB gzipped — is **deferred, not rejected**; the trigger to
+build it is playtest evidence that the latency is felt, not a threshold set in advance. The entire cost
+of that deferral is one seam, a fourth of the kind listed above: **the client's suggestion call is an
+interface — `suggest(prefix) -> Candidate[]` — never a `fetch` inlined into an input handler.** The
+server keeps the resolve endpoint either way, because it must re-resolve any submitted QID regardless:
+a client's claim that a QID exists and is of the type it says is not trustworthy.
+
+**The typeahead searches the whole corpus, never the legal moves.** Scoping suggestions to the previous
+entity's neighbours (~15 actors per film, ~5 films per actor) would be trivially fast and would hand
+the player the answer. The game tests recall — a typeahead that only suggests valid moves is not a
+faster typeahead, it is a different game. This is why name resolution is a 136,689-record search
+problem and not a 15-record one.
+
+**Search keys are derived at boot, never in the ETL.** The artifact emits the neutral contract; folded
+search keys — Unicode case folding (*not* `toLowerCase`), NFD with combining marks stripped,
+punctuation normalised, indexed at every word start so `matrix` finds *The Matrix* — are a consumer
+concern exactly as ID adaptation is (ADR 016). Deriving them loader-side also means the index shape can
+change without a graph rebuild. Results are ranked by sitelink count, which `entities` does not yet
+carry; surfacing it is a `transform`+`emit` change, not a re-extract.
 
 **A durable store is authoritative for game state — which store is undecided.** The serialized
 `GameState` (plus players, turn-duration/deadline, and per-player time state) is persisted per game. The
@@ -320,6 +344,16 @@ detection and the out-of-scope list are Current decisions, not Binding.
   project has decided.
 - **TMDB as a runtime dependency**, or any API key. The source is CC0 Wikidata, built offline.
 - **Pre-mapping QIDs to integers in the ETL.** ID adaptation is a loader-side concern.
+- **Deriving folded search keys — or any search-optimized index — in the ETL.** The same rule as the
+  line above, for the same reason: the artifact emits the neutral contract, and search shape is a
+  consumer concern derived at boot ([ADR 020](docs/DECISIONS.md)). It is also what keeps the index
+  format changeable without a graph rebuild.
+- **Scoping the typeahead to the legal moves.** Suggesting only the previous entity's neighbours is the
+  obvious "helpful" optimization, and it hands the player the answer. The typeahead searches all
+  136,689 entities precisely so that it discloses the answer *space* and never an answer.
+- **Inlining the suggest call into an input handler.** `suggest(prefix) -> Candidate[]` is an
+  interface, and it is the only thing keeping the client-side index a cheap follow-up rather than a
+  rewrite ([ADR 020](docs/DECISIONS.md)).
 - **Bypassing repeat detection.** It is a game rule.
 - **Out-of-scope mechanics.** Not to be introduced unasked: pass/skip, challenge or dispute flow,
   difficulty settings and obscurity filters, single-player/quiz-master mode, open matchmaking pools,
@@ -342,7 +376,7 @@ detection and the out-of-scope list are Current decisions, not Binding.
 
 | Document | Purpose |
 |----------|---------|
-| [docs/DECISIONS.md](docs/DECISIONS.md) | ADR log — the reasoning that got the project here; 008–018 cover the current direction. **Read [ADR 018](docs/DECISIONS.md) first** — it amends 008, 011, and 012 on transport, hosting, and modes. Read for *why*, not as commitments |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | ADR log — the reasoning that got the project here; 008–020 cover the current direction. **Read [ADR 018](docs/DECISIONS.md) first** — it amends 008, 011, and 012 on transport, hosting, and modes. Read for *why*, not as commitments. **[ADR 020](docs/DECISIONS.md) is the first planning-session output** and is settled, not provisional |
 | [docs/investigations/](docs/investigations/) | **Records, never rules.** Investigation write-ups and design retrospectives, including hypotheses that were falsified. Non-normative *by location* — never cite one as authority for a change; binding outcomes are promoted out into ADRs, this file, or a spec. Read [its README](docs/investigations/README.md) before using anything inside |
 | [docs/investigations/000-system-design-case-study.md](docs/investigations/000-system-design-case-study.md) | System-design reasoning behind this architecture (a retrospective, not a build spec). **§2, §5, and §6 are superseded by [ADR 018](docs/DECISIONS.md)** and carry inline markers — they assume a WebSocket transport this project no longer has |
 | `movie-actor-chain-game` skill | Domain rules and vocabulary (implementation-agnostic; leaves project-specific rules open) |
