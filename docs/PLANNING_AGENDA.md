@@ -8,6 +8,14 @@
 > a document is how a project ends up with two sources of truth. Nothing should ever link to it.
 >
 > Prepared 2026-08-06, after [ADR 018](DECISIONS.md) and [ADR 019](DECISIONS.md).
+> **Amended 2026-08-09** for [ADR 020](DECISIONS.md) and [ADR 021](DECISIONS.md), which consumed
+> §4.2 and two of §5's five questions. Resolved items are struck through and point at the ADR that
+> settled them rather than being deleted, so that a reader who remembers the open question finds the
+> answer instead of a silent gap — **the ADR is the source of truth in every case, never the summary
+> here.** The file still records no decisions of its own.
+>
+> **The deletion trigger has not fired.** §3's four decisions — stack, store, hosting, client — are
+> untouched, and they are now most of what is left. Delete this once they are made.
 
 ---
 
@@ -106,16 +114,23 @@ match; standings across a series; mode configuration; who opens the next round; 
 entities used in earlier rounds stay available (the engine already accepts
 `excludedActorIds`/`excludedMovieIds` for this).
 
-### 4.2 The typeahead — the least-designed, highest-traffic part of the system
+### 4.2 ~~The typeahead~~ — **DECIDED, [ADR 020](DECISIONS.md)**
 
-Nothing has been designed for it, and it is **the highest-frequency operation by a wide margin** —
-far above move submission. 89,074 actors and 47,624 movies to resolve names against, with
-same-title disambiguation already handled by the `year` field in `entities`.
+Resolved. Typeahead resolves **server-side** against the in-memory `entities` map with a debounced
+client; the client-side index is deferred behind a `suggest(prefix) -> Candidate[]` seam, its trigger
+being playtest evidence that latency is felt. Folded search keys derive at boot, never in the ETL.
+[ADR 021](DECISIONS.md) adds the filtering rule: by required type and the played set, never by
+adjacency.
 
-The open question is where it runs: server-side with debounce, or shipped to the client outright.
-The `entities` map is a few MB and compresses well, which makes the client option real and would
-remove the busiest endpoint from the server entirely. Worth deciding *before* the stack, since
-"ship the index to the client" changes what the server is for.
+**Do not re-open on the sequencing argument this section originally made.** It claimed that shipping
+the index to the client would shrink the server's job and make 3.1 and 3.2 easier. The server keeps the
+resolve endpoint either way — it must re-resolve any submitted QID regardless — so those decisions are
+unchanged by this one.
+
+One dependent item is still live and is **not** a planning question: sitelink counts are needed for
+result ranking and are currently dropped at `Edge`. Surfacing them is a `transform`+`emit` change
+against existing raw partitions — no re-extract, independent of Issue #19. Batch it with the actor
+disambiguator question if that is taken up.
 
 ---
 
@@ -125,11 +140,16 @@ From [`ENGINE_CONFORMANCE.md`](ENGINE_CONFORMANCE.md) § Open questions:
 
 | Question | Status |
 |---|---|
-| **Failure reason codes** | **Highest priority.** `RoundOver` cannot distinguish a repeat, a bad connection, a wrong type, a give-up, or a lapsed deadline. A match layer that penalizes them differently needs this, and it changes the `RoundOver` contract. |
-| Opening player index | Needed for replay with attribution. |
-| Deadline expiry ownership | Reduced by 018 to a reason-code question. |
+| ~~Failure reason codes~~ | **DECIDED, [ADR 021](DECISIONS.md).** Largely dissolved rather than answered: repeat and wrong type turned out not to be round outcomes at all — they are *rejections*, leaving the round unchanged — and `Unconnected` is the only outcome `playMove` can now produce. The surviving give-up/lapse pair became a `ForfeitReason` parameter. |
+| ~~Deadline expiry ownership~~ | **DECIDED, [ADR 021](DECISIONS.md).** Session layer adjudicates and calls `forfeit(state, DeadlineLapsed)`. Now carries an obligation instead: a rejected submission must not reset the deadline, which is the only bound on the retry loop. |
+| Opening player index | Needed for replay with attribution. **Still open.** |
 | Exhausted frontier | **Measured** ([ADR 019](DECISIONS.md)) — rare. Not blocking; current behaviour defensible. |
-| Chain length limits | A persistence and payload concern before an engine one. |
+| Chain length limits | A persistence and payload concern before an engine one. [ADR 021](DECISIONS.md)'s termination proof bounds the chain at ~95,000 moves, which does not help — it is a proof, not a usable cap. |
+
+**One question was added, not removed.** ADR 021 makes the round engine's termination guarantee
+*joint*: the engine bounds the chain, and the session layer's deadline bounds the rejection retry loop.
+That is a new obligation on whatever the session layer turns out to be, and it did not exist when this
+agenda was written.
 
 ---
 
@@ -139,23 +159,37 @@ From [`ENGINE_CONFORMANCE.md`](ENGINE_CONFORMANCE.md) § Open questions:
 |---|---|
 | [Issue #19](https://github.com/zws33/bacons_law/issues/19) — ETL query fidelity | Missing `?actor wdt:P31 wd:Q5`; documentary/TV-film exclusions leak. Needs a **full re-extract**, the expensive step — batch every query change into one rebuild and bump `QUERY_VERSION`. Not urgent: [ADR 019](DECISIONS.md) measured the confound at 0.02% of degree-1 actors. |
 | [Issue #17](https://github.com/zws33/bacons_law/issues/17) — engine test coverage | Six behaviours implemented but untested. Absorbed by the conformance suite; land it during engine work, not before. |
-| `:core` type reconciliation | Still `Int` / `Set<Int>` from the dropped TMDB source. Retyping to QID strings breaks eight call sites across `:backend` and `:app`. Only worth doing if Kotlin survives 3.1. |
+| `:core` **behavioural** delta — grew with [ADR 021](DECISIONS.md) | Was "retype `Int` → QID strings, fix eight call sites." Now also: the prototype resolves every repeat and wrong-type submission to a **round loss**, which ADR 021 inverts to a rejection. An engine ported from `:core` unchanged fails the whole of the suite's Group C. The conformance spec's coverage map marks these `no` under *Implemented*, not merely untested. |
+| `:core` type reconciliation | Still `Int` / `Set<Int>` from the dropped TMDB source. Only worth doing if Kotlin survives 3.1 — and if it does, fold it into the behavioural rewrite above rather than doing it separately. |
 | `:backend` | Still the TMDB proxy it started as. |
 
 ---
 
 ## 7. Suggested sequencing
 
-Not a decision — a proposal, offered because the dependencies are real.
+Not a decision — a proposal, offered because the dependencies are real. **Two of the original five
+steps are done**; what follows is the remainder, renumbered.
 
-1. **Typeahead placement (4.2)** — decide first. If the index ships to the client, the server's job
-   shrinks and 3.1 and 3.2 are both easier decisions.
-2. **Stack (3.1)** — unblocks everything in the engine and match layer. Front-load it: it is the
-   least reversible of the four, though the conformance spec keeps even this cheaper than it looks.
-3. **Failure reason codes (5)** — a `RoundOver` contract change, so decide before the match layer
-   is written, not after.
-4. **Match layer spec (4.1)** — then the engine reconciliation and issue #17 fold into building it.
-5. **Store and hosting (3.2, 3.3)** — genuinely deferrable. Both are now unconstrained, and neither
-   blocks writing the engine or the match layer.
+- ~~Typeahead placement~~ — **done, [ADR 020](DECISIONS.md)**. Note its stated rationale did not
+  survive: it was sequenced first on the theory that shipping the index would shrink the server's job,
+  and the server keeps the resolve endpoint either way. Deciding it first was still cheap and correct.
+- ~~Failure reason codes~~ — **done, [ADR 021](DECISIONS.md)**, and out of order. It was slotted after
+  the stack on the grounds that it is a `RoundOver` contract change; it turned out to be answerable
+  from the round/match seam alone, with no stack input at all.
+
+1. **Stack (3.1)** — now the front of the queue and the least reversible decision left. The conformance
+   spec keeps it cheaper than it looks, and it has grown slightly more opinionated:
+   [ADR 021](DECISIONS.md) lets type alternation be enforced statically (MAY, not MUST), which favours
+   languages with closed sum types. The spec phrases it as optional precisely so this does not decide
+   the stack by the back door.
+2. **Match layer spec (4.1)** — unblocked now that reason codes exist. `RoundEndReason` is the
+   vocabulary its penalty table is written against. The `:core` rewrite and issue #17 fold into
+   building it.
+3. **Store and hosting (3.2, 3.3)** — genuinely deferrable. Both unconstrained; neither blocks the
+   engine or the match layer.
+4. **Client (3.4)** — unchanged, still coupled to push via ADR 013's device-anchored identity.
 
 **What is not on the critical path:** issue #19's rebuild, `:app`, and `:backend`.
+
+**Still true, and now the main reason this file exists:** §1, §2, and §3 are untouched by ADRs 020 and
+021. The four decisions in §3 are the bulk of what the session has not done.

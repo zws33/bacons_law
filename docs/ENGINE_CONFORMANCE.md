@@ -19,8 +19,12 @@ is recorded in [Divergences from source material](#divergences-from-source-mater
 The system has two layers. This document specifies **only the lower one**.
 
 **The round engine** builds one chain. It accepts an opening move, rotates turns among N players,
-validates each submission against the previous move, and — when a player submits an invalid move or
-gives up — ends the round and reports **who failed**. That is the whole of its job.
+validates each submission against the previous move, and — when a player submits a move that does not
+connect, or gives up, or lets a deadline lapse — ends the round and reports **who failed**. That is the
+whole of its job.
+
+Not every refused submission ends the round. A repeat or a wrong-type submission is **rejected** and
+the round continues; only an unconnected move loses it. See [Move outcomes](#move-outcomes).
 
 **The match layer** owns everything after that: strike accounting, whether a strike limit eliminates a
 player or ends the match, standings across an ongoing series, game-mode configuration, who opens the
@@ -38,6 +42,27 @@ match layer can derive it (see [R8](#r8--loser-determination)); the engine must 
 This split is why multiplayer costs the engine almost nothing. Supporting N > 2 is a **day-one
 requirement**, and at the round layer it reduces to rotating turns modulo N and reporting an index.
 
+### Where the seam falls
+
+A rule belongs to the round engine when it is **constitutive** — when without it the thing being built
+is not a chain. It belongs to the match layer when it is **regulative** — when the connection is real
+and the rule merely forbids using it.
+
+Type alternation is constitutive: a movie following a movie is not a chain, whatever the IDs.
+What a failure *costs* is regulative: the same broken chain can be worth one strike, elimination, or
+nothing, and none of those change how the turn was evaluated.
+
+**The test is not purely mechanical, and [R5](#r5--availability-repeats-and-exclusions) is the worked
+example.** In-round repeat prohibition *looks* regulative — Leonardo DiCaprio was in *Shutter Island*
+whether or not either has already appeared, so the connection is factually real and forbidding it
+looks like policy. It is nonetheless constitutive, because it is the only thing that makes a round
+finite ([R17](#r17--every-round-terminates)). Without it a chain can cycle between two entities
+forever. A rule that the game cannot terminate without is not policy, however arbitrary it looks in
+isolation.
+
+Cross-round exclusions do not carry that justification and remain regulative — hence R5's two clauses
+have different modalities.
+
 ---
 
 ## How to use this document
@@ -48,8 +73,17 @@ requirement**, and at the round layer it reduces to rotating turns modulo N and 
 **To generate a test suite:** each `TC-nn` in [Conformance suite](#conformance-suite) becomes exactly
 one test. Translate the fixtures once into a shared fixture module, then translate each case's
 GIVEN/WHEN/THEN literally. Keep the `TC-nn` identifier in the test name so coverage stays traceable
-to this document. Cases marked **[static]** may be satisfied by the type system instead of a runtime
-test — see [TC-24](#tc-24--operations-are-inapplicable-to-a-terminal-state).
+to this document.
+
+Two markers exempt a case from being a runtime test, and they are not the same:
+
+- **[static]** — the type system enforces this in any implementation whose sum types are closed, so no
+  runtime test is expected. Only [TC-24](#tc-24--operations-are-inapplicable-to-a-terminal-state).
+- **[static-eligible]** — exempt *only* if the engine enforces type alternation statically
+  ([R4](#r4--same-type-consecutive-moves-are-rejected)); the case's WHEN clause will not compile there.
+  An engine that checks type at runtime must still test it. Either way, the `Rejected(WrongType)`
+  behavior is tested at the boundary that deserializes untyped input, because that is where a real
+  wrong-type submission arrives.
 
 **To evaluate a proposed design:** a design that cannot satisfy these cases without an I/O call,
 a network hop, or a per-turn external lookup violates the binding architecture boundaries in
@@ -78,6 +112,14 @@ here only so the old code is readable; prefer the **Spec term** column in new co
 
 **One round is one chain.** A match is a series of rounds; that layer exists but is specified
 elsewhere.
+
+Three terms are this document's own; the skill and the prototype have no equivalent.
+
+| Term | Meaning |
+|---|---|
+| **Rejected** | A submission refused without ending the round — a repeat or the wrong type. The state is unchanged and the player on turn may submit again ([R16](#r16--a-rejected-submission-leaves-the-round-unchanged)) |
+| **Unconnected** | A submission of the correct type, available, that has no edge to the previous move. This is the only way `playMove` ends a round |
+| **Available** | Not already played in this round and not in the match layer's exclusion set for its type ([R5](#r5--availability-repeats-and-exclusions)) |
 
 ---
 
@@ -121,18 +163,43 @@ InProgress:
 RoundOver:
     loserIndex:   Int                  # the player who failed
     chain:        List<Move>           # accepted moves; EXCLUDES the losing move
-    losingMove:   Move?                # null when the round ended by giving up
+    losingMove:   Move?                # null unless the round ended Unconnected
+    reason:       RoundEndReason
 
-RoundState = InProgress | RoundOver
+Rejected:
+    reason:       RejectionReason      # carries no state — the caller still holds the input
+
+RoundEndReason  = Unconnected | GaveUp | DeadlineLapsed
+RejectionReason = WrongType | Repeat
+ForfeitReason   = GaveUp | DeadlineLapsed      # the RoundEndReason values forfeit may produce
+
+RoundState  = InProgress | RoundOver           # what a caller persists
+MoveOutcome = InProgress | Rejected | RoundOver
 ```
+
+**`Rejected` is not a state.** It reports that the submission was refused; the round is still the
+`InProgress` value the caller passed in. Modelling it as a third `RoundState` variant would let a
+caller persist "rejected" as though it were a position in the game
+([R16](#r16--a-rejected-submission-leaves-the-round-unchanged)).
+
+**`ForfeitReason` is a proper subset of `RoundEndReason`.** `Unconnected` is unreachable through
+`forfeit`, and a type system that can express the subset should — passing `Unconnected` to `forfeit`
+is a caller error, not a round outcome.
 
 **`RoundOver` carries no winner.** See [R8](#r8--loser-determination) and
 [S3](#s3--the-round-result-names-no-winner-structural-not-a-test-case).
 
+**Why `reason` exists.** The match layer charges penalties, and the penalties differ. A correspondence
+player who lets a three-day deadline lapse has not made the same choice as one who taps "give up," and
+both differ from one who guessed wrong — yet all three produce `RoundOver` with the same loser. Only
+`Unconnected` is derivable from the rest of the record (`losingMove != null`); deriving it from a null
+would make the match layer's penalty table pattern-match on the absence of a field, so the reason is
+explicit for all three.
+
 **The exclusion sets are how a match forbids reuse across rounds.** Both default to empty, which is
 the default mode: a new round starts with every entity available again. A mode that forbids reuse for
 the whole match seeds them with everything played in earlier rounds. The engine does not know which
-mode is in play — it reads two sets and applies [R5](#r5--repeat-detection-is-per-type). Populating
+mode is in play — it reads two sets and applies [R5](#r5--availability-repeats-and-exclusions). Populating
 them is the match layer's job; see [Engine boundary](#engine-boundary).
 
 **Player indices are positions in a roster fixed for the round.** The engine never adds or removes
@@ -143,15 +210,49 @@ drops an eliminated player does so *between* rounds, by starting the next round 
 ## Operations
 
 ```
-playMove(state: InProgress, move: Move) -> RoundState    # InProgress or RoundOver
-forfeit(state: InProgress)              -> RoundOver
+playMove(state: InProgress, move: Move)            -> MoveOutcome   # InProgress, Rejected, or RoundOver
+forfeit(state: InProgress, reason: ForfeitReason)  -> RoundOver
 ```
 
 Both are pure functions of their arguments. Neither performs I/O. Neither mutates its input.
 
-`forfeit` means "the player on turn cannot continue this round" — an explicit give-up, or whatever the
-session layer maps a timeout to. It concedes **the round, not the match**; a player quitting the match
-outright is a match-layer event that happens to end the current round this way.
+`forfeit` means "the player on turn cannot continue this round" — an explicit give-up, or a deadline
+the session layer has adjudicated as lapsed. It concedes **the round, not the match**; a player
+quitting the match outright is a match-layer event that happens to end the current round this way.
+
+**`forfeit` takes the reason because the engine cannot infer it.** [R10](#r10--the-engine-is-pure)
+denies the engine a clock, so it cannot tell a give-up from a lapse; the session layer knows which one
+it is adjudicating and says so. This is the one piece of caller intent the engine records without
+verifying.
+
+### Move outcomes
+
+`playMove` either raises an error or returns exactly one of three outcomes. They differ in what the
+caller persists and in whether the player on turn keeps the turn. The error row is listed for
+completeness — it is raised, never returned
+([R15](#r15--malformed-input-is-an-error-never-a-round-outcome)).
+
+| Outcome | Cause | Turn advances | Caller persists | Round ends |
+|---|---|---|---|---|
+| **Error** | [R13](#r13--invalid-state-and-move-construction-is-rejected)/[R14](#r14--operations-are-inapplicable-to-terminal-states) violations — blank ID, terminal state | — | nothing | no — programming error ([R15](#r15--malformed-input-is-an-error-never-a-round-outcome)) |
+| **Rejected** | Wrong type ([R4](#r4--same-type-consecutive-moves-are-rejected)) or unavailable ([R5](#r5--availability-repeats-and-exclusions)) | no | nothing | no ([R16](#r16--a-rejected-submission-leaves-the-round-unchanged)) |
+| **InProgress** | Accepted | yes | the new state | no |
+| **RoundOver** | Unconnected ([R6](#r6--an-unconnected-move-ends-the-round)), or `forfeit` ([R7](#r7--forfeit-ends-the-round)) | — | the terminal state | yes |
+
+**Evaluation order is normative: type, then availability, then connection.** A submission failing more
+than one check resolves to the *first* failure in that order, so a rejection always wins over a round
+loss. This is why order matters rather than being an implementation detail: a player who submits an
+already-played entity that also would not have connected gets a retry, not a loss.
+
+*Rationale:* rejection means "the client should never have sent this." A repeat is that regardless of
+whether it also fails to connect, and the client-side prevention that normally catches it would have
+fired before any connection was evaluated. Resolving such a submission to a loss would charge a player
+for a defect in their client — the same reasoning as
+[R15](#r15--malformed-input-is-an-error-never-a-round-outcome), one category out.
+
+**A rejection is not a game event.** It is not a miss, not a strike, not a turn. The match layer never
+sees one; a conforming session layer returns it to the submitting client as an error and leaves the
+stored state untouched.
 
 ---
 
@@ -160,13 +261,14 @@ outright is a match-layer event that happens to end the current round this way.
 ### R1 — The opening move is not connection-checked
 
 When `moves` is empty, `playMove` performs no connection check and no type check: an opening move may
-be either an Actor or a Movie, and any entity is a legal opener.
+be either an Actor or a Movie. In the default mode every entity is a legal opener; the availability
+check still runs and is what makes that qualified rather than absolute (below).
 
 *Rationale:* there is no predecessor to connect to, and no earlier move to alternate from.
 "The first move must be an Actor" is not a rule of this game; if some mode wants it, that is a
 caller-layer constraint — see [Engine boundary](#engine-boundary).
 
-**[R5](#r5--repeat-detection-is-per-type) still applies.** On an empty chain with empty exclusion sets
+**[R5](#r5--availability-repeats-and-exclusions) still applies.** On an empty chain with empty exclusion sets
 it is vacuous — nothing has been played, so nothing can be a repeat — which is why the opener is
 accepted unconditionally in the default mode. It is *not* vacuous when the match layer has seeded
 exclusions: an entity banned for the match cannot be smuggled in as a round's opening move. R1
@@ -188,54 +290,86 @@ A `Movie` following an `Actor` is a valid connection iff:
 previousMove.id ∈ move.castIds
 ```
 
-### R4 — Same-type consecutive moves are always invalid
+### R4 — Same-type consecutive moves are rejected
 
-`Actor` after `Actor`, or `Movie` after `Movie`, is invalid regardless of IDs. The chain strictly
+`Actor` after `Actor`, or `Movie` after `Movie`, is refused regardless of IDs. The chain strictly
 alternates.
 
-### R5 — Repeat detection is per-type
+The outcome is `Rejected(WrongType)`, **not** a round loss: the required type is fully determined by
+the chain, the player can see it, and a client that offers the wrong one has malfunctioned. Charging a
+loss for that would penalize the player for their client's defect.
 
-A move is a repeat iff a move **of the same type** with the same `id` already appears anywhere in the
-chain, or its `id` appears in the exclusion set for its type:
+**This rule may be enforced by the type system instead of at runtime.** An engine whose `InProgress`
+is split by required type — so that `playMove` on a state awaiting an Actor accepts only an `Actor` —
+makes a wrong-type submission a compile error, and needs no runtime branch for it. It must still
+produce `Rejected(WrongType)` at the boundary where untyped input becomes a `Move`; static enforcement
+relocates the check, it does not remove it. The same MAY/MUST split as
+[R14](#r14--operations-are-inapplicable-to-terminal-states).
+
+### R5 — Availability: repeats and exclusions
+
+A move is **available** iff no move **of the same type** with the same `id` already appears anywhere in
+the chain, and its `id` does not appear in the exclusion set for its type:
 
 ```
-isRepeat(move, state) =
+isAvailable(move, state) =
     match move:
-        Actor -> move.id ∈ state.excludedActorIds
-                 or any(m.id == move.id for m in state.moves where m is Actor)
-        Movie -> move.id ∈ state.excludedMovieIds
-                 or any(m.id == move.id for m in state.moves where m is Movie)
+        Actor -> move.id ∉ state.excludedActorIds
+                 and none(m.id == move.id for m in state.moves where m is Actor)
+        Movie -> move.id ∉ state.excludedMovieIds
+                 and none(m.id == move.id for m in state.moves where m is Movie)
 ```
 
-**Within a round, the same move may never appear twice.** This is a game rule, not a bug.
+An unavailable move is `Rejected(Repeat)`.
 
 Uniqueness is scoped within a type, for both the chain and the exclusion sets. An Actor and a Movie
 sharing an `id` do not collide, and an id in `excludedMovieIds` does not bar an Actor with that id.
 
-**Across rounds, reuse is allowed by default.** Empty exclusion sets mean a fresh round makes every
-entity available again. A mode that forbids reuse for the whole match seeds the sets from earlier
-rounds; the engine's rule is unchanged either way. Which mode applies is chosen in game settings
-before play and is not the engine's concern.
+**The two clauses have different modalities. They share an implementation, not a justification.**
 
-### R6 — An invalid move ends the round
+**Clause 1 — in-round repeats: MUST.** Within a round the same entity may never appear twice, in every
+mode, with no way to turn it off. This is not a difficulty setting: it is the sole guarantee that a
+round is finite ([R17](#r17--every-round-terminates)). An engine that makes it configurable admits
+non-terminating rounds.
 
-The round ends immediately if the move is a repeat ([R5](#r5--repeat-detection-is-per-type)), **or** —
-when the chain is non-empty — is not a valid connection
-([R2](#r2--actor-after-movie)/[R3](#r3--movie-after-actor)/[R4](#r4--same-type-consecutive-moves-are-always-invalid)).
+**Clause 2 — exclusion sets: MAY, default empty.** A fresh round makes every entity from earlier rounds
+available again. A mode that forbids reuse across a whole match seeds the sets; the engine's check is
+unchanged either way and it does not know which mode is in play. Cross-round reuse threatens no
+termination guarantee — clause 1 still forces each round's chain outward — so this clause is genuine
+match-layer policy and is chosen in game settings before play.
+
+Unlike [R4](#r4--same-type-consecutive-moves-are-rejected), **this rule cannot be enforced by a type
+system.** Availability is a predicate over a runtime set; no type discipline available in a practical
+implementation language can express "this id is not in that collection." It is always a runtime check.
+
+### R6 — An unconnected move ends the round
+
+The round ends immediately when a move of the correct type ([R4](#r4--same-type-consecutive-moves-are-rejected))
+that is available ([R5](#r5--availability-repeats-and-exclusions)) is nonetheless not a valid connection
+to the previous move ([R2](#r2--actor-after-movie)/[R3](#r3--movie-after-actor)). `RoundOver.reason` is
+`Unconnected`.
+
+**This is the only way `playMove` ends a round.** Wrong type and unavailability are rejections
+([R16](#r16--a-rejected-submission-leaves-the-round-unchanged)); malformed input is an error
+([R15](#r15--malformed-input-is-an-error-never-a-round-outcome)). A player loses a round by naming
+something plausible that turns out not to connect — which is the failure the game is about.
 
 Note the asymmetry, which follows from [R1](#r1--the-opening-move-is-not-connection-checked): the
-connection check requires a predecessor and so is skipped on an empty chain, while the repeat check
-always runs. On an empty chain with no exclusions the repeat check cannot fail, so an opening move is
-rejected only in a mode that seeded exclusions
-([TC-30](#tc-30--exclusions-apply-to-the-opening-move)).
+connection check requires a predecessor and so is skipped on an empty chain, while the availability
+check always runs. **An opening move can therefore be rejected but never lose the round** — in a mode
+that seeded exclusions ([TC-30](#tc-30--exclusions-apply-to-the-opening-move)).
 
-`RoundOver.losingMove` is the rejected move. `RoundOver.chain` holds the moves accepted **before** it —
-the losing move is never appended.
+`RoundOver.losingMove` is the unconnected move. `RoundOver.chain` holds the moves accepted **before**
+it — the losing move is never appended.
 
-### R7 — Giving up ends the round
+### R7 — Forfeit ends the round
 
-`forfeit` ends the round immediately. `RoundOver.losingMove` is null and `RoundOver.chain` is the chain
-unchanged.
+`forfeit` ends the round immediately. `RoundOver.losingMove` is null, `RoundOver.chain` is the chain
+unchanged, and `RoundOver.reason` is the `ForfeitReason` the caller supplied — `GaveUp` or
+`DeadlineLapsed`.
+
+The engine does not distinguish the two itself and must not try: [R10](#r10--the-engine-is-pure) leaves
+it no clock. It records what the session layer tells it.
 
 ### R8 — Loser determination
 
@@ -243,9 +377,12 @@ unchanged.
 loserIndex = currentPlayerIndex
 ```
 
-The player on turn is the player who failed, whether by an invalid move
-([R6](#r6--an-invalid-move-ends-the-round)) or by giving up ([R7](#r7--giving-up-ends-the-round)).
+The player on turn is the player who failed, whether by an unconnected move
+([R6](#r6--an-unconnected-move-ends-the-round)) or by forfeit ([R7](#r7--forfeit-ends-the-round)).
 This holds at every `playerCount` — there is no arithmetic and no special case for N > 2.
+
+A rejected submission names no loser, because it ends nothing
+([R16](#r16--a-rejected-submission-leaves-the-round-unchanged)).
 
 **The engine names no winner and no runner-up, and imposes no ordering on the players who did not
 fail.** A mode that wants "the player who made the last valid move wins" can compute
@@ -305,10 +442,65 @@ on a `RoundOver` must raise a programming error.
 
 Violations of [R13](#r13--invalid-state-and-move-construction-is-rejected) and
 [R14](#r14--operations-are-inapplicable-to-terminal-states) must surface as errors distinguishable
-from normal results. They must never be reported as a `RoundOver`.
+from normal results. They must never be reported as **any** `MoveOutcome` — not a `RoundOver`, and not
+a `Rejected` either.
 
 *Rationale:* a malformed input silently resolving to a loss would end real rounds incorrectly and
-charge a strike to a player who did nothing wrong.
+charge a strike to a player who did nothing wrong. Reporting one as `Rejected` is the subtler version
+of the same fault: it converts a programming error into a routine, retryable response, and the defect
+is never surfaced.
+
+[R16](#r16--a-rejected-submission-leaves-the-round-unchanged) extends the same reasoning one category
+out, to submissions that are well-formed but should never have been sent.
+
+### R16 — A rejected submission leaves the round unchanged
+
+When `playMove` returns `Rejected`, **nothing about the round changes**: the chain does not grow, the
+turn does not advance, `currentPlayerIndex` is untouched, and no round result exists. The player on
+turn may submit again.
+
+`Rejected` carries no state. The caller still holds the `InProgress` value it passed in and must
+continue from that value — a session layer persists nothing and returns an error to the submitting
+client.
+
+*Rationale:* the two rejection causes ([R4](#r4--same-type-consecutive-moves-are-rejected),
+[R5](#r5--availability-repeats-and-exclusions)) describe submissions a correct client cannot produce.
+Both are prevented client-side and re-checked server-side; the engine is the last of three lines, not
+the first. A round outcome at that position would mean a player loses because their client, not their
+recall, failed.
+
+**The engine imposes no limit on rejections.** A player may submit rejected moves indefinitely and the
+engine will refuse each one, timelessly. What bounds this is the turn deadline, which the engine cannot
+see — see [R17](#r17--every-round-terminates).
+
+### R17 — Every round terminates
+
+Two guarantees, held by different layers. **Neither alone is sufficient**, and only the first belongs
+to the engine.
+
+**The chain is finite — the engine guarantees this.** Every accepted move permanently consumes one
+entity of its type from a finite corpus ([R5](#r5--availability-repeats-and-exclusions), clause 1), and
+[R4](#r4--same-type-consecutive-moves-are-rejected) forces the types to alternate, so the set of
+available entities strictly decreases with each accepted move and the chain cannot exceed
+`2 × min(|actors|, |movies|) + 1`.
+
+Without clause 1 that bound does not exist: a chain can cycle between the same two entities forever.
+This is the whole reason clause 1 is not configurable, and it is why "repeats are on" is a property of
+the engine rather than a setting a mode may choose.
+
+**The turn is bounded — the session layer guarantees this.** The engine cannot bound a round on its
+own, because a rejected submission consumes nothing
+([R16](#r16--a-rejected-submission-leaves-the-round-unchanged)) and the engine has no clock
+([R10](#r10--the-engine-is-pure)). A player who submits repeats forever is refused forever. Only the
+turn deadline ends that, and it lives in the session layer, which resolves a lapse to
+`forfeit(state, DeadlineLapsed)`.
+
+**A rejected submission must not extend or reset the deadline.** Resetting it would remove the only
+bound on the retry loop and make a round genuinely non-terminating. This is a session-layer obligation;
+it is stated here because the engine change that introduced rejections is what created the need for it.
+
+*The bound is a proof, not a limit.* Roughly 95,000 moves is not a useful cap on a real round — see
+[Chain length limits](#open-questions), which this does not settle.
 
 ---
 
@@ -323,11 +515,15 @@ Required by the game, enforced elsewhere. An engine that enforces these is over-
 | Game-mode configuration, fixed before the round starts | Match layer |
 | Naming a winner, if the mode defines one | Match layer ([R8](#r8--loser-determination)) |
 | Who opens the next round, and with which roster | Match layer; it passes the next round a `playerCount` |
-| Whether entities reuse across rounds — and seeding `excludedActorIds` / `excludedMovieIds` accordingly | Match layer; the engine applies the sets it is given ([R5](#r5--repeat-detection-is-per-type)) |
+| Whether entities reuse across rounds — and seeding `excludedActorIds` / `excludedMovieIds` accordingly | Match layer; the engine applies the sets it is given ([R5](#r5--availability-repeats-and-exclusions)) |
 | Requiring the opening move to be an Actor, if a mode wants it | Caller (session / UI layer) |
-| The player is offered the correct entity type each turn | Caller presents the right search mode; [R4](#r4--same-type-consecutive-moves-are-always-invalid) is the engine's backstop |
+| The player is offered the correct entity type each turn | Caller filters its typeahead to the required type; [R4](#r4--same-type-consecutive-moves-are-rejected) is the engine's backstop, and a wrong type reaching it means the client malfunctioned |
+| The player is not offered an entity already played, or excluded | Caller filters its typeahead against the chain and the exclusion sets; [R5](#r5--availability-repeats-and-exclusions) is the backstop |
 | `castIds` is accurate and complete | Caller populates from the in-memory graph before constructing the move |
 | Name resolution, typos, disambiguation | Caller, before a `Move` exists |
+| **Bounding the turn, so the round terminates** | **Session layer, via the deadline. The engine bounds the chain but not the retry loop — [R17](#r17--every-round-terminates)** |
+| **Deciding whether a forfeit is `GaveUp` or `DeadlineLapsed`** | **Session layer; it passes the reason to `forfeit`. The engine has no clock ([R10](#r10--the-engine-is-pure))** |
+| **Rate-limiting rejected submissions** | **Session layer / transport. Rejections are unbounded at the engine by design ([R16](#r16--a-rejected-submission-leaves-the-round-unchanged))** |
 | Mapping a deadline expiry or an abandonment onto a round result | Session layer; it calls `forfeit` ([ADR 012](DECISIONS.md), as amended by [ADR 018](DECISIONS.md) — one deadline model, no running clock) |
 | Detecting that the player on turn has no legal move at all | Session layer; it holds the graph. The engine cannot see it when the chain head is an Actor — see [Open questions](#open-questions) |
 | Persistence, transport, presence | Session layer |
@@ -335,6 +531,15 @@ Required by the game, enforced elsewhere. An engine that enforces these is over-
 **"Appeared in" is defined by the graph, not by the engine.** `castIds` reflects what the ETL
 artifact carries — truthy `wdt:P161`, capped at `cast_cap`. A real but absent cast member is not a
 legal move. That is a data dial, not an engine rule.
+
+**The caller's two filters are what make rejections rare, and they do not disclose an answer.** The
+required type and the played set are both information the player already holds — the rules dictate the
+type, and the chain is on their screen. Filtering the typeahead by them is a UX affordance, not a hint.
+Filtering by the previous entity's *neighbours* would hand over the answer and is forbidden
+([ADR 020](DECISIONS.md), [AGENTS.md](../AGENTS.md)). The line: **filter on what the player already
+knows; never filter on what only the graph knows.** The engine is indifferent either way — it re-checks
+both — but a caller that skips the filters turns [R4](#r4--same-type-consecutive-moves-are-rejected)
+and [R5](#r5--availability-repeats-and-exclusions) from backstops into a routine failure path.
 
 **Move attribution is derivable, not stored.** `RoundOver.chain` records moves, not who played them.
 A caller that needs per-move attribution computes it from the round's opening player index and
@@ -372,7 +577,12 @@ LONG_CHAIN = [TOM_HANKS, CAST_AWAY, HELEN_HUNT, TWISTER, BILL_PAXTON, APOLLO]
 ```
 
 Every case asserting `RoundOver` must also assert that `chain` excludes the losing move
-([R6](#r6--an-invalid-move-ends-the-round)).
+([R6](#r6--an-unconnected-move-ends-the-round)) and that `reason` is the expected `RoundEndReason`.
+
+Every case asserting `Rejected` must also assert that the round is unchanged — same chain, same
+`currentPlayerIndex` ([R16](#r16--a-rejected-submission-leaves-the-round-unchanged)). The cases below
+state the reason and leave the unchanged-state assertion implied by
+[TC-32](#tc-32--a-rejection-leaves-the-round-unchanged), which pins it once in full.
 
 **Two properties hold across the suite; preserve both when translating.**
 
@@ -382,12 +592,18 @@ asserts behavior from an unreachable chain proves nothing about a real round. `c
 independent: the engine keeps no record of who played which move, so any in-range index is a valid
 state to test, and several cases set one that does not match the chain's length.
 
-*Each case isolates one rule.* Where a move could be rejected for more than one reason, the fixtures
-are chosen so exactly one applies — a repeat case is a valid connection of the correct type, so an
-engine with no repeat detection fails it rather than passing by accident.
-[TC-20](#tc-20--repeat-and-connection-failure-produce-identical-outcomes) is the sole exception, and
-stacking two causes is the behavior it exists to pin. Do not "simplify" a fixture during translation;
-the specific IDs are load-bearing.
+*Each case isolates one rule.* Where a move could fail more than one check, the fixtures are chosen so
+exactly one applies — a repeat case is a valid connection of the correct type, so an engine with no
+availability check fails it rather than passing by accident.
+[TC-20](#tc-20--rejection-precedence-type-before-availability) and
+[TC-33](#tc-33--rejection-takes-precedence-over-a-round-loss) are the two exceptions; stacking causes
+is precisely the behavior they exist to pin. Do not "simplify" a fixture during translation; the
+specific IDs are load-bearing.
+
+**Cases marked [static-eligible]** may be satisfied by the type system rather than a runtime test, per
+[R4](#r4--same-type-consecutive-moves-are-rejected) — an engine that splits `InProgress` by required
+type cannot express the WHEN clause. Record such a case as satisfied statically, and test the
+`Rejected(WrongType)` behavior at the boundary that deserializes untyped input instead.
 
 ---
 
@@ -456,6 +672,10 @@ THEN   every intermediate result is InProgress
 
 ### Group B — Connection validation
 
+Every case in this group ends the round. A move reaching the connection check has already passed the
+type and availability checks ([Move outcomes](#move-outcomes)), so `Unconnected` is the only outcome
+left.
+
 #### TC-03 — Movie whose cast excludes the previous actor
 
 ```
@@ -465,6 +685,7 @@ THEN   result is RoundOver
        result.loserIndex == 0
        result.losingMove == TOY_STORY
        result.chain == [HELEN_HUNT]
+       result.reason == Unconnected
 ```
 
 #### TC-04 — Actor absent from the previous movie's cast
@@ -476,33 +697,8 @@ THEN   result is RoundOver
        result.loserIndex == 0
        result.losingMove == OUTSIDER
        result.chain == [TOM_HANKS, CAST_AWAY]
+       result.reason == Unconnected
 ```
-
-#### TC-09 — Actor after actor
-
-```
-GIVEN  state = InProgress(moves=[TOM_HANKS], currentPlayerIndex=1, playerCount=2)
-WHEN   result = playMove(state, HELEN_HUNT)
-THEN   result is RoundOver
-       result.loserIndex == 1
-       result.losingMove == HELEN_HUNT
-       result.chain == [TOM_HANKS]
-```
-
-#### TC-10 — Movie after movie
-
-```
-GIVEN  state = InProgress(moves=[TOM_HANKS, CAST_AWAY], currentPlayerIndex=0, playerCount=2)
-WHEN   result = playMove(state, TOY_STORY)
-THEN   result is RoundOver
-       result.loserIndex == 0
-       result.losingMove == TOY_STORY
-       result.chain == [TOM_HANKS, CAST_AWAY]
-```
-
-Note this case is invalid on type grounds ([R4](#r4--same-type-consecutive-moves-are-always-invalid))
-even though `TOY_STORY.castIds` contains `"Q1"`. An implementation that checked cast membership
-without checking type would wrongly accept it.
 
 #### TC-14 — Connection is evaluated against the immediately preceding move only
 
@@ -525,6 +721,7 @@ THEN   result is RoundOver                           # "Q98" ∈ UNRELATED.castI
        result.loserIndex == 0
        result.losingMove == EARLY_ONLY
        result.chain == [OUTSIDER, UNRELATED, TOM_HANKS, CAST_AWAY]
+       result.reason == Unconnected
 ```
 
 #### TC-17 — A movie with an empty cast connects to nothing
@@ -535,12 +732,14 @@ WHEN   result = playMove(state, EMPTY_CAST)
 THEN   result is RoundOver                           # "Q1" ∉ {}
        result.loserIndex == 0
        result.losingMove == EMPTY_CAST
+       result.reason == Unconnected
 
 GIVEN  state = InProgress(moves=[EMPTY_CAST], currentPlayerIndex=0, playerCount=2)
 WHEN   result = playMove(state, TOM_HANKS)
 THEN   result is RoundOver                           # "Q1" ∉ {}
        result.loserIndex == 0
        result.losingMove == TOM_HANKS
+       result.reason == Unconnected
 ```
 
 Constructing `EMPTY_CAST` must succeed — an empty cast set is legal data
@@ -548,12 +747,40 @@ Constructing `EMPTY_CAST` must succeed — an empty cast set is legal data
 
 ---
 
-### Group C — Repeat detection
+### Group C — Rejections: type and availability
+
+**No case in this group ends the round.** Each pins that a refused submission leaves the round exactly
+as it was, per [R16](#r16--a-rejected-submission-leaves-the-round-unchanged). This is the group that
+changed most against the prototype, which resolved every one of these to a loss.
+
+#### TC-09 — Actor after actor
+
+**[static-eligible]**
+
+```
+GIVEN  state = InProgress(moves=[TOM_HANKS], currentPlayerIndex=1, playerCount=2)
+WHEN   result = playMove(state, HELEN_HUNT)
+THEN   result is Rejected
+       result.reason == WrongType
+```
+
+#### TC-10 — Movie after movie
+
+**[static-eligible]** Refused on type grounds ([R4](#r4--same-type-consecutive-moves-are-rejected))
+even though `TOY_STORY.castIds` contains `"Q1"`. An implementation that checked cast membership without
+checking type would wrongly *accept* it.
+
+```
+GIVEN  state = InProgress(moves=[TOM_HANKS, CAST_AWAY], currentPlayerIndex=0, playerCount=2)
+WHEN   result = playMove(state, TOY_STORY)
+THEN   result is Rejected
+       result.reason == WrongType
+```
 
 #### TC-05 — Repeat actor
 
-The submitted move is the correct type for the turn and a valid connection. The repeat is the only
-thing that can reject it, so an engine missing [R5](#r5--repeat-detection-is-per-type) fails here
+The submitted move is the correct type for the turn and a valid connection. Availability is the only
+thing that can refuse it, so an engine missing [R5](#r5--availability-repeats-and-exclusions) fails here
 rather than passing incidentally.
 
 ```
@@ -561,16 +788,14 @@ GIVEN  state = InProgress(moves=[TOM_HANKS, CAST_AWAY], currentPlayerIndex=0, pl
 WHEN   result = playMove(state, TOM_HANKS)
        # Actor after Movie -> type alternation holds
        # "Q1" ∈ CAST_AWAY.castIds -> connection holds
-THEN   result is RoundOver
-       result.loserIndex == 0
-       result.losingMove == TOM_HANKS
-       result.chain == [TOM_HANKS, CAST_AWAY]
+THEN   result is Rejected
+       result.reason == Repeat
 ```
 
 #### TC-06 — Repeat movie
 
 Same isolation as [TC-05](#tc-05--repeat-actor), for the `Movie` branch of
-[R5](#r5--repeat-detection-is-per-type). `TWISTER` reappears while still being a legal continuation of
+[R5](#r5--availability-repeats-and-exclusions). `TWISTER` reappears while still being a legal continuation of
 `BILL_PAXTON`.
 
 ```
@@ -580,15 +805,13 @@ GIVEN  state = InProgress(
 WHEN   result = playMove(state, TWISTER)
        # Movie after Actor -> type alternation holds
        # "Q3" ∈ TWISTER.castIds -> connection holds
-THEN   result is RoundOver
-       result.loserIndex == 1
-       result.losingMove == TWISTER
-       result.chain == [TOM_HANKS, CAST_AWAY, HELEN_HUNT, TWISTER, BILL_PAXTON]
+THEN   result is Rejected
+       result.reason == Repeat
 ```
 
 #### TC-11 — A cross-type ID collision is not a repeat
 
-Pins [R5](#r5--repeat-detection-is-per-type)'s per-type scoping. This fixture **cannot occur in
+Pins [R5](#r5--availability-repeats-and-exclusions)'s per-type scoping. This fixture **cannot occur in
 production data** — a Wikidata QID identifies exactly one entity, so no real actor and movie share
 one. It is a semantic test of the rule, not a data scenario. Keep it: an implementation that scoped
 uniqueness by ID alone would pass every other case and fail this one.
@@ -610,14 +833,12 @@ THEN   result is InProgress
 GIVEN  RENAMED = Actor(id="Q1", displayText="T. Hanks", imagePath="/other.jpg")
        state = InProgress(moves=[TOM_HANKS, CAST_AWAY], currentPlayerIndex=0, playerCount=2)
 WHEN   result = playMove(state, RENAMED)
-       # connection holds ("Q1" ∈ CAST_AWAY.castIds); only identity-by-id can reject it
-THEN   result is RoundOver                           # same id as TOM_HANKS -> repeat
-       result.loserIndex == 0
-       result.losingMove == RENAMED
-       result.chain == [TOM_HANKS, CAST_AWAY]
+       # connection holds ("Q1" ∈ CAST_AWAY.castIds); only identity-by-id can refuse it
+THEN   result is Rejected                            # same id as TOM_HANKS -> unavailable
+       result.reason == Repeat
 ```
 
-#### TC-16 — Repeat detection scans the entire chain
+#### TC-16 — Availability scans the entire chain
 
 The repeat is at index 0 of a six-move chain, five moves behind the one being checked — not a recent
 move. An engine comparing only against the tail passes [TC-05](#tc-05--repeat-actor) and fails here.
@@ -626,59 +847,87 @@ move. An engine comparing only against the tail passes [TC-05](#tc-05--repeat-ac
 GIVEN  state = InProgress(moves=LONG_CHAIN, currentPlayerIndex=0, playerCount=2)
 WHEN   result = playMove(state, TOM_HANKS)
        # previous move is APOLLO and "Q1" ∈ APOLLO.castIds -> the connection is valid
-THEN   result is RoundOver
-       result.loserIndex == 0
-       result.losingMove == TOM_HANKS
-       result.chain == LONG_CHAIN
+THEN   result is Rejected
+       result.reason == Repeat
 ```
 
-#### TC-20 — Repeat and connection failure produce identical outcomes
+#### TC-20 — Rejection precedence: type before availability
 
-The one case that deliberately stacks failure causes: `CAST_AWAY` here is *both* a repeat and a
-same-type-consecutive move. It resolves exactly as either cause alone would. This pins the current
-contract — `RoundOver` carries no reason code, so all failure paths are observationally identical. If
-a future engine adds a reason field, repeat detection takes priority
-([R6](#r6--an-invalid-move-ends-the-round)) and this case gains an assertion.
+**[static-eligible]** The first of two cases that deliberately stack causes. `CAST_AWAY` here is *both*
+unavailable and the wrong type. Both are rejections, so the round survives either way; what this pins
+is the **reason** the caller is told, and therefore the evaluation order in
+[Move outcomes](#move-outcomes) — type is checked first.
+
+The reason is not cosmetic: it is what the client shows the player, and "you already used that" for a
+submission that was actually the wrong type sends them looking for the wrong mistake.
 
 ```
 GIVEN  state = InProgress(
            moves=[TOM_HANKS, CAST_AWAY, HELEN_HUNT, TWISTER],
            currentPlayerIndex=0, playerCount=2)
 WHEN   result = playMove(state, CAST_AWAY)
-       # repeat  ("Q10" already in the chain)                     -> R5
-       # AND same-type-consecutive (Movie after TWISTER, a Movie) -> R4
-THEN   result is RoundOver
-       result.loserIndex == 0
-       result.losingMove == CAST_AWAY
-       result.chain == [TOM_HANKS, CAST_AWAY, HELEN_HUNT, TWISTER]
+       # same-type-consecutive (Movie after TWISTER, a Movie) -> R4
+       # AND unavailable ("Q10" already in the chain)         -> R5
+THEN   result is Rejected
+       result.reason == WrongType                    # R4 is evaluated before R5
 ```
 
-#### TC-28 — An excluded entity is a repeat even though the chain is clean
+Under static enforcement this case is unreachable — the WHEN clause will not compile — and the
+precedence it pins is enforced by construction. Record it as satisfied statically.
+
+#### TC-33 — Rejection takes precedence over a round loss
+
+The second stacked case, and the one that decides whether a player keeps the round. `TWISTER` is the
+correct type for the turn, is **already in the chain**, and **would not have connected** either.
+Availability is evaluated before connection, so the submission is refused and the round survives.
+
+An engine that evaluated the connection first would end the round here — charging a loss for a
+submission a working client would never have sent. This is the case that makes the evaluation order in
+[Move outcomes](#move-outcomes) observable.
+
+```
+GIVEN  state = InProgress(
+           moves=[HELEN_HUNT, TWISTER, BILL_PAXTON, APOLLO, TOM_HANKS],
+           currentPlayerIndex=1, playerCount=2)
+       # Q2 -> {Q2,Q3} -> Q3 -> {Q1,Q3} -> Q1 : valid at every step
+
+WHEN   result = playMove(state, TWISTER)
+       # Movie after Actor                    -> R4 passes, type is correct
+       # "Q50" already in the chain           -> R5 fails
+       # "Q1" ∉ TWISTER.castIds {"Q2","Q3"}   -> R6 would also have failed
+
+THEN   result is Rejected                     # availability precedes connection
+       result.reason == Repeat
+       # NOT RoundOver — the player keeps both the round and the turn
+```
+
+#### TC-28 — An excluded entity is unavailable even though the chain is clean
 
 Hard mode: the match layer has seeded entities played in earlier rounds. Neither move below appears in
 this round's chain, and both are valid connections — the exclusion set is the only thing that can
-reject them.
+refuse them.
 
 ```
 GIVEN  state = InProgress(moves=[TOM_HANKS], currentPlayerIndex=0, playerCount=2,
                           excludedMovieIds={"Q10"})
 WHEN   result = playMove(state, CAST_AWAY)      # "Q1" ∈ castIds, and Q10 is not in the chain
-THEN   result is RoundOver
-       result.loserIndex == 0
-       result.losingMove == CAST_AWAY
-       result.chain == [TOM_HANKS]
+THEN   result is Rejected
+       result.reason == Repeat
 
 GIVEN  state = InProgress(moves=[TOM_HANKS, CAST_AWAY], currentPlayerIndex=1, playerCount=2,
                           excludedActorIds={"Q2"})
 WHEN   result = playMove(state, HELEN_HUNT)     # "Q2" ∈ CAST_AWAY.castIds, not in the chain
-THEN   result is RoundOver
-       result.loserIndex == 1
-       result.losingMove == HELEN_HUNT
+THEN   result is Rejected
+       result.reason == Repeat
 ```
+
+Both clauses of [R5](#r5--availability-repeats-and-exclusions) produce the same `RejectionReason`. The
+engine does not distinguish "played this round" from "banned for the match" — the match layer knows
+which sets it seeded, and a caller that wants distinct copy derives it.
 
 #### TC-29 — Exclusions are per-type
 
-Pins that the exclusion sets carry [R5](#r5--repeat-detection-is-per-type)'s per-type scoping rather
+Pins that the exclusion sets carry [R5](#r5--availability-repeats-and-exclusions)'s per-type scoping rather
 than collapsing into one id set. An implementation storing a single set of excluded ids fails here.
 
 ```
@@ -692,18 +941,20 @@ THEN   result is InProgress                            # the Movie is not barred
 #### TC-30 — Exclusions apply to the opening move
 
 [R1](#r1--the-opening-move-is-not-connection-checked) exempts the opener from the connection and type
-checks, not from [R5](#r5--repeat-detection-is-per-type). Without this, hard mode leaks: every round
+checks, not from [R5](#r5--availability-repeats-and-exclusions). Without this, hard mode leaks: every round
 could open on a banned entity.
 
 ```
 GIVEN  state = InProgress(moves=[], currentPlayerIndex=0, playerCount=3,
                           excludedActorIds={"Q1"})
 WHEN   result = playMove(state, TOM_HANKS)
-THEN   result is RoundOver
-       result.loserIndex == 0
-       result.losingMove == TOM_HANKS
-       result.chain == []                              # nothing was ever accepted
+THEN   result is Rejected
+       result.reason == Repeat
 ```
+
+**An opening move can be rejected but can never lose the round.** The only round-ending outcome from
+`playMove` is `Unconnected` ([R6](#r6--an-unconnected-move-ends-the-round)), and an empty chain has no
+predecessor to connect to. A round cannot end on its first submission.
 
 #### TC-31 — Exclusion sets default to empty
 
@@ -734,12 +985,62 @@ it.
 
 ```
 GIVEN  state = InProgress(moves=[TOM_HANKS], currentPlayerIndex=1, playerCount=2)
-WHEN   result = forfeit(state)
+WHEN   result = forfeit(state, GaveUp)
 THEN   result is RoundOver
        result.loserIndex == 1
        result.losingMove is null
        result.chain == [TOM_HANKS]
+       result.reason == GaveUp
 ```
+
+#### TC-34 — The forfeit reason reaches the result unchanged
+
+Both `ForfeitReason` values produce an otherwise identical `RoundOver`. The reason is the *only*
+observable difference, which is the point: the match layer can charge a lapsed deadline differently
+from a deliberate give-up, and nothing else in the record distinguishes them.
+
+```
+GIVEN  state = InProgress(moves=[TOM_HANKS], currentPlayerIndex=1, playerCount=2)
+WHEN   a = forfeit(state, GaveUp)
+       b = forfeit(state, DeadlineLapsed)
+THEN   a.reason == GaveUp
+       b.reason == DeadlineLapsed
+       a.loserIndex == b.loserIndex == 1
+       a.chain == b.chain == [TOM_HANKS]
+       a.losingMove is null and b.losingMove is null
+```
+
+The engine performs no validation on the reason and consults no clock
+([R7](#r7--forfeit-ends-the-round), [R10](#r10--the-engine-is-pure)). If a type system can express
+`ForfeitReason` as a proper subset of `RoundEndReason`, passing `Unconnected` here must not compile;
+otherwise it raises a programming error under
+[R15](#r15--malformed-input-is-an-error-never-a-round-outcome), never a `RoundOver`.
+
+#### TC-32 — A rejection leaves the round unchanged
+
+Pins [R16](#r16--a-rejected-submission-leaves-the-round-unchanged) once, in full, for both rejection
+reasons — the assertion every other case in
+[Group C](#group-c--rejections-type-and-availability) implies. The turn does **not** advance: the same
+player is still on turn and may submit again.
+
+```
+GIVEN  state = InProgress(moves=[TOM_HANKS, CAST_AWAY], currentPlayerIndex=0, playerCount=3)
+       before = deep_copy(state)
+
+WHEN   result = playMove(state, TOM_HANKS)      # unavailable: already in the chain
+THEN   result is Rejected
+       state == before                          # input untouched (R10)
+       # the caller's state is still `before`; no new InProgress was produced
+
+WHEN   the caller continues from the same state and submits a legal move
+       result = playMove(state, HELEN_HUNT)     # "Q2" ∈ CAST_AWAY.castIds, not yet played
+THEN   result is InProgress
+       result.moves == [TOM_HANKS, CAST_AWAY, HELEN_HUNT]
+       result.currentPlayerIndex == 1           # advanced from 0 exactly once, not twice
+```
+
+The second WHEN is what makes the case meaningful: an engine that advanced the turn on the rejection
+would produce `currentPlayerIndex == 2` here, silently skipping a player.
 
 #### TC-24 — Operations are inapplicable to a terminal state
 
@@ -750,14 +1051,17 @@ case needs no runtime test. Record it as satisfied statically and move on.
 Otherwise:
 
 ```
-GIVEN  terminal = RoundOver(loserIndex=1, chain=[TOM_HANKS], losingMove=null)
+GIVEN  terminal = RoundOver(loserIndex=1, chain=[TOM_HANKS], losingMove=null, reason=GaveUp)
 WHEN   playMove(terminal, CAST_AWAY)
 THEN   raises a programming error
-       does NOT return a RoundState             # R15
+       does NOT return a MoveOutcome            # R15 — not a RoundOver, and not a Rejected either
 
-WHEN   forfeit(terminal)
+WHEN   forfeit(terminal, GaveUp)
 THEN   raises a programming error
 ```
+
+Note `Rejected` is included in what must not be returned. An engine that answered "rejected" for a
+call on a terminal state would convert a programming error into a routine, retryable response.
 
 ---
 
@@ -775,10 +1079,11 @@ THEN   result is InProgress
        result.currentPlayerIndex == 0           # (2 + 1) % 3
 
 GIVEN  the same state
-WHEN   result = forfeit(state)
+WHEN   result = forfeit(state, GaveUp)
 THEN   result is RoundOver
        result.loserIndex == 2                   # the player on turn, not a neighbor
        result.chain == [TOM_HANKS]
+       result.reason == GaveUp
 ```
 
 #### TC-26 — Rotation visits every player once per cycle at N = 4
@@ -804,9 +1109,11 @@ THEN   result is RoundOver
        result.loserIndex == <index>
        result.losingMove == OUTSIDER
        result.chain == [TOM_HANKS, CAST_AWAY]
+       result.reason == Unconnected
 ```
 
-The same must hold for `forfeit(state)` at each index, with `losingMove` null.
+The same must hold for `forfeit(state, GaveUp)` at each index, with `losingMove` null and `reason`
+`GaveUp`.
 
 ---
 
@@ -819,8 +1126,9 @@ GIVEN  state = InProgress(moves=[TOM_HANKS], currentPlayerIndex=1, playerCount=2
        before = deep_copy(state)
 WHEN   playMove(state, CAST_AWAY)
        playMove(state, OUTSIDER)
-       forfeit(state)
-THEN   state == before                          # unchanged after all three calls
+       playMove(state, TOM_HANKS)               # a rejection mutates nothing either
+       forfeit(state, GaveUp)
+THEN   state == before                          # unchanged after all four calls
 ```
 
 In a language with immutable-by-default structures this is inherent; assert it anyway — the test
@@ -919,24 +1227,24 @@ prototype, not the test.
 |---|---|---|---|---|
 | 01 | Valid movie after actor | R2, R9 | yes | yes |
 | 02 | Valid actor after movie | R3, R9 | yes | yes |
-| 03 | Movie excludes previous actor | R3, R6 | yes | yes ² |
-| 04 | Actor absent from cast | R2, R6 | yes | yes ² |
-| 05 | Repeat actor | R5, R6 | yes | partial ¹ |
-| 06 | Repeat movie | R5, R6 | yes | no |
-| 07 | Giving up | R7, R8 | yes | yes ² |
+| 03 | Movie excludes previous actor | R3, R6 | yes | yes ² ⁴ |
+| 04 | Actor absent from cast | R2, R6 | yes | yes ² ⁴ |
+| 05 | Repeat actor | R5, R16 | **no** ⁵ | partial ¹ |
+| 06 | Repeat movie | R5, R16 | **no** ⁵ | no |
+| 07 | Giving up | R7, R8 | partial ⁴ | yes ² |
 | 08 | Opening move accepted | R1 | yes | no |
-| 09 | Actor after actor | R4, R6 | yes | no |
-| 10 | Movie after movie | R4, R6 | yes | no |
+| 09 | Actor after actor | R4, R16 | **no** ⁵ | no |
+| 10 | Movie after movie | R4, R16 | **no** ⁵ | no |
 | 11 | Cross-type ID collision | R5 | yes | no |
 | 12 | Rotation wraps, N > 2 | R8, R9 | partial ² | no |
 | 13 | Opening move may be a movie | R1 | yes | no |
 | 14 | Connection vs. last move only | R11 | yes | no |
-| 15 | Identity is the ID | R12 | yes | no |
-| 16 | Repeat scans whole chain | R5 | yes | no |
+| 15 | Identity is the ID | R12, R16 | **no** ⁵ | no |
+| 16 | Availability scans whole chain | R5, R16 | **no** ⁵ | no |
 | 17 | Empty cast connects to nothing | R2, R3 | yes | no |
 | 18 | Input not mutated | R10 | yes | no |
 | 19 | Determinism | R10 | yes | no |
-| 20 | Failure paths indistinguishable | R6 | yes | no |
+| 20 | Rejection precedence: type first | R4, R5 | **no** ⁵ | no |
 | 21 | Reject `playerCount < 2` | R13, R15 | **no** | no |
 | 22 | Reject out-of-range index | R13, R15 | **no** | no |
 | 23 | Reject blank entity ID | R13, R15 | **no** | no |
@@ -944,32 +1252,46 @@ prototype, not the test.
 | 25 | Full round from an empty chain | R1, R2, R3, R9 | yes | no |
 | 26 | Rotation cycle at N = 4 | R9 | yes | no |
 | 27 | Loser is the player on turn | R8 | **no** ² | no |
-| 28 | Excluded entity is a repeat | R5 | **no** ³ | no |
+| 28 | Excluded entity is unavailable | R5, R16 | **no** ³ | no |
 | 29 | Exclusions are per-type | R5 | **no** ³ | no |
-| 30 | Exclusions apply to the opener | R1, R5, R6 | **no** ³ | no |
+| 30 | Exclusions apply to the opener | R1, R5, R16 | **no** ³ | no |
 | 31 | Exclusions default to empty | R5 | n/a ³ | no |
+| 32 | Rejection leaves round unchanged | R16 | **no** ⁵ | no |
+| 33 | Rejection precedes a round loss | R5, R6, R16 | **no** ⁵ | no |
+| 34 | Forfeit reason reaches the result | R7 | **no** ⁴ | no |
 | S1 | No I/O dependency | R10 | yes | structural |
 | S2 | IDs opaque end to end | — | **no** — `:core` declares `Int` | structural |
 | S3 | Result names no winner | R8 | **no** ² | structural |
 
-¹ `GameEngineTest.kt:72` submits a repeat actor directly after another actor, so the move is rejected
-by [R4](#r4--same-type-consecutive-moves-are-always-invalid) whether or not repeat detection exists.
-It asserts the right outcome for the wrong reason. [TC-05](#tc-05--repeat-actor) here replaces the
-fixture with one that isolates [R5](#r5--repeat-detection-is-per-type).
+¹ `GameEngineTest.kt:72` submits a repeat actor directly after another actor, so the move fails
+[R4](#r4--same-type-consecutive-moves-are-rejected) whether or not any availability check exists.
+It asserts the right outcome for the wrong reason. Under this document the fixture is worse than
+imprecise: type precedes availability ([Move outcomes](#move-outcomes)), so it would yield
+`Rejected(WrongType)` and never reach [R5](#r5--availability-repeats-and-exclusions) at all —
+the shape [TC-20](#tc-20--rejection-precedence-type-before-availability) now exists to pin.
+[TC-05](#tc-05--repeat-actor) replaces it with a fixture that isolates R5.
 
 ² The prototype reports `winnerIndex = (currentPlayerIndex - 1 + playerCount) % playerCount` instead
 of a loser. At `playerCount == 2` that value coincides with "the player who did not fail," so the
 two-player cases pass under either contract; above two players it is wrong, and the contract itself is
 wrong at every N ([S3](#s3--the-round-result-names-no-winner-structural-not-a-test-case)).
 
-³ The prototype has no exclusion sets; `isRepeat` scans the chain only. Its behavior is equivalent to
-the default mode, so TC-31 is satisfied by construction while TC-28/29/30 are unimplementable against
-it.
+³ The prototype has no exclusion sets; its repeat check scans the chain only. Its behavior is
+equivalent to the default mode, so TC-31 is satisfied by construction while TC-28/29/30 are
+unimplementable against it.
 
-Four deltas against the prototype: **the winner/loser contract** (R8, S3, and every `RoundOver`
-assertion), **cross-round exclusions** (R5's second clause, TC-28–30), **Group G** (R13 construction
-validation is absent), and **S2** (`:core` types IDs as `Int`, a TMDB-era leftover —
-[AGENTS.md](../AGENTS.md)).
+⁴ The prototype's `RoundOver` equivalent carries no `reason`, and its forfeit takes no argument. Every
+case asserting a `RoundEndReason` is a delta, including ones the prototype otherwise passes.
+
+⁵ **The rejection taxonomy is entirely absent from the prototype**, which resolves a repeat or a
+wrong-type submission to a round loss. These cases do not merely lack tests — the prototype implements
+the opposite outcome, and an engine ported from it unchanged fails them.
+
+Six deltas against the prototype: **the rejection taxonomy** (R4, R5, R16 and Group C — the largest,
+and the one that inverts existing behavior), **round-end reasons** (R7, `RoundOver.reason`, TC-34),
+**the winner/loser contract** (R8, S3, and every `RoundOver` assertion), **cross-round exclusions**
+(R5's second clause, TC-28–30), **Group G** (R13 construction validation is absent), and **S2**
+(`:core` types IDs as `Int`, a TMDB-era leftover — [AGENTS.md](../AGENTS.md)).
 
 ---
 
@@ -1005,14 +1327,36 @@ form. This document uses the final `state3` shape, and adds the note that QIDs m
 impossible in real data — which is why the case survives as a semantics test rather than being cut.
 
 **Repeat-case fixtures are not the Kotlin suite's.** The existing repeat test submits the repeated
-actor immediately after another actor, so [R4](#r4--same-type-consecutive-moves-are-always-invalid)
-rejects it before [R5](#r5--repeat-detection-is-per-type) is ever consulted — an engine with repeat
-detection deleted still passes. [TC-05](#tc-05--repeat-actor), [TC-06](#tc-06--repeat-movie), and
-[TC-15](#tc-15--identity-is-the-id-display-metadata-is-ignored) use fixtures where the move is a legal
-continuation in every other respect, so only the repeat rule can reject it.
+actor immediately after another actor, so [R4](#r4--same-type-consecutive-moves-are-rejected) fires
+before [R5](#r5--availability-repeats-and-exclusions) is ever consulted — an engine with the
+availability check deleted still passes. [TC-05](#tc-05--repeat-actor), [TC-06](#tc-06--repeat-movie),
+and [TC-15](#tc-15--identity-is-the-id-display-metadata-is-ignored) use fixtures where the move is a
+legal continuation in every other respect, so only R5 can refuse it.
 
 **Defensive validation.** [R13](#r13--invalid-state-and-move-construction-is-rejected)/[R15](#r15--malformed-input-is-an-error-never-a-round-outcome)
 are new requirements, not a record of existing behavior — see Group G.
+
+**Rejections are new, and they invert prior behavior.** Every source — the skill, the prototype, and
+the retired spec — treats a repeat and a wrong-type submission as ways to lose a round. This document
+makes both `Rejected`: the round continues and the player retries. The reasoning is in
+[R16](#r16--a-rejected-submission-leaves-the-round-unchanged), and it is the same reasoning
+[R15](#r15--malformed-input-is-an-error-never-a-round-outcome) already applied to malformed input — a
+player should not lose because their client sent something a correct client cannot send. Both
+conditions are prevented client-side and re-checked server-side before the engine sees them; the engine
+is the last line, not the first. This is the largest behavioral delta in the document.
+
+**R5's clauses were separated after being briefly unified.** An earlier framing treated in-round
+repeats and cross-round exclusions as one policy, on the grounds that both are "entities unavailable to
+this round" and both look like match-layer configuration. That is wrong: in-round repeat prohibition is
+the sole guarantee that a round terminates ([R17](#r17--every-round-terminates)), so it cannot be
+configurable, while cross-round exclusions carry no such load and remain optional. They share an
+implementation and a `RejectionReason`, not a justification. Recorded because the unified framing is
+the more natural-looking one and will be re-proposed.
+
+**Round termination was never stated.** No source document asserts that a round ends. The property was
+implicit in repeat detection and became load-bearing only once rejections made it possible to submit
+indefinitely without advancing the chain. [R17](#r17--every-round-terminates) states it, and splits it
+between the engine and the session layer.
 
 ---
 
@@ -1021,37 +1365,33 @@ are new requirements, not a record of existing behavior — see Group G.
 Unresolved. Each needs a decision before the area it touches is built. None of them block the round
 engine — they are match-layer and contract questions the round engine's output feeds.
 
-**Failure reason codes — the highest-priority question here.** `RoundOver` records *that* a move lost,
-not *why* — a repeat, a bad connection, a wrong type, and a give-up are indistinguishable to the
-caller. This matters more now that a match layer consumes round results: a mode that charges a
-different penalty for giving up than for a wrong answer, or a UI that says "you already used that,"
-needs the distinction. Adding it changes the `RoundOver` contract and gives
-[TC-20](#tc-20--repeat-and-connection-failure-produce-identical-outcomes) real assertions.
-
-[ADR 018](DECISIONS.md) raised this question's priority. With a per-turn deadline now the *only* time
-mechanism in the product, **"ran out of time" and "gave up" are the same `RoundOver`** — and they are
-the pair most likely to warrant different treatment, since a correspondence player who lets a
-three-day deadline lapse has not made the same choice as one who taps "give up." Two of the other open
-questions below also resolve into this contract rather than into new operations.
+> **Failure reason codes are no longer open.** They were this section's highest-priority question and
+> are settled by [ADR 021](DECISIONS.md), which introduced the outcome taxonomy above. The question
+> dissolved more than it was answered: two of the causes it sought to distinguish — repeat and wrong
+> type — turned out not to be round outcomes at all ([R16](#r16--a-rejected-submission-leaves-the-round-unchanged)),
+> and `Unconnected` is the only one `playMove` can now produce. What survived was the give-up/lapse
+> pair, resolved by [R7](#r7--forfeit-ends-the-round)'s `ForfeitReason` parameter.
 
 **Whether the match layer needs the round's opening player index.** Move attribution is derivable from
 it ([Engine boundary](#engine-boundary)) and the match layer holds it — but nothing yet specifies that
 the match layer records it, and without it a persisted round result cannot be replayed with
 attribution.
 
-**Deadline expiry ownership.** [ADR 012](DECISIONS.md) puts time controls in scope;
-[ADR 018](DECISIONS.md) **simplified this question** by dropping the running chess clock — there is now
-one time model, not two. A turn carries a `deadline_at` timestamp, and expiry is adjudicated by the
-session layer (lazily on next read, or by a sweeper), which resolves it to a `forfeit` call.
-
-What remains open is narrower than before: the engine stays timeless ([R10](#r10--the-engine-is-pure)),
-so a lapsed deadline and a deliberate give-up produce identical `RoundOver` values. That is now purely
-a **reason-code** question (above), not a clock-architecture one. Note also that the adjudicator is not
-a player, which is one of the three writers the session layer's optimistic concurrency exists to
-serialize (`AGENTS.md`, [ADR 018](DECISIONS.md) §4).
+> **Deadline expiry ownership is no longer open either.** [ADR 018](DECISIONS.md) reduced it to a
+> reason-code question by dropping the running chess clock, and [ADR 021](DECISIONS.md) then answered
+> that: a turn carries a `deadline_at` timestamp, the session layer adjudicates expiry (lazily on next
+> read, or by a sweeper) and resolves it to `forfeit(state, DeadlineLapsed)`. The engine stays timeless
+> ([R10](#r10--the-engine-is-pure)) and records the reason it is given
+> ([R7](#r7--forfeit-ends-the-round)).
+>
+> One consequence survives as an obligation rather than a question: the deadline is now the **only**
+> bound on the rejection retry loop ([R17](#r17--every-round-terminates)), so it must not be reset by a
+> rejected submission. Note also that the adjudicator is not a player, which is one of the three
+> writers the session layer's optimistic concurrency exists to serialize (`AGENTS.md`,
+> [ADR 018](DECISIONS.md) §4).
 
 **An exhausted frontier is indistinguishable from a player's failure.** Nothing in this spec expresses
-"the player on turn had *no* legal move." [R6](#r6--an-invalid-move-ends-the-round) and
+"the player on turn had *no* legal move." [R6](#r6--an-unconnected-move-ends-the-round) and
 [R8](#r8--loser-determination) both assume the player on turn is at fault; a player who arrives at an
 entity whose every graph neighbour is already in the chain (or excluded) is named the loser exactly as
 if they had guessed wrong.
@@ -1091,9 +1431,11 @@ right policy: if knowing an actor has one credit is the knowledge the game tests
 arguably should take the strike. Two things remain unmeasured: whether players find these moves at
 all, and how the rate rises mid-chain as degree-2+ actors exhaust their alternatives.
 
-**Chain length limits.** Nothing bounds chain growth. With correspondence the only mode
-([ADR 018](DECISIONS.md)), a round spanning weeks is the normal case rather than an edge case, so an
-unbounded `moves` list is a persistence and payload concern before it is an engine one.
+**Chain length limits.** [R17](#r17--every-round-terminates) bounds the chain at roughly
+`2 × min(|actors|, |movies|) + 1` — about 95,000 moves against `graph/v1`. That is a termination proof,
+not a usable limit, and it leaves this question exactly where it was. With correspondence the only mode
+([ADR 018](DECISIONS.md)), a round spanning weeks is the normal case rather than an edge case, so a
+practically unbounded `moves` list is a persistence and payload concern before it is an engine one.
 
 ---
 
@@ -1102,7 +1444,7 @@ unbounded `moves` list is a persistence and payload concern before it is an engi
 | Document | Relationship |
 |---|---|
 | [AGENTS.md](../AGENTS.md) | Architecture boundaries; which of these rules are binding vs. provisional |
-| [docs/DECISIONS.md](DECISIONS.md) | ADRs 008–018 — the reasoning behind the data source, deployment, and mode decisions. [ADR 018](DECISIONS.md) is the one that touches this spec: it drops the running chess clock, leaving a single deadline model |
+| [docs/DECISIONS.md](DECISIONS.md) | ADRs 008–021. Two touch this spec directly: [ADR 018](DECISIONS.md) drops the running chess clock, leaving a single deadline model; **[ADR 021](DECISIONS.md) is the source of the outcome taxonomy** — rejections, round-end reasons, and R16/R17 |
 | `movie-actor-chain-game` skill | Domain rules and vocabulary; implementation-agnostic, leaves repeats/opener/"appeared in" open — answered here and in AGENTS.md |
 | [etl/AGENTS.md](../etl/AGENTS.md) | How `castIds` is produced; `cast_cap` and `min_cast` define what "appeared in" means in practice |
 | [issue #17](https://github.com/zws33/bacons_law/issues/17) | The coverage gap this document supersedes |

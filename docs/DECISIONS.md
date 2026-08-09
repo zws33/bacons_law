@@ -15,7 +15,11 @@ Lightweight ADR-style record of key technical and product decisions.
 > population is acceptable and cap rescue is rejected — and its evidence is
 > [investigation 001](investigations/001-actor-degree-distribution.md). **020** is the first decision
 > out of the planning session: typeahead resolves server-side, with the client-side index deferred
-> behind a `suggest()` seam.
+> behind a `suggest()` seam. **[021](#021-a-refused-move-is-rejected-not-lost-the-round-engine-gains-an-outcome-taxonomy)
+> amends the round engine's contract** — a repeat or wrong-type submission is rejected rather than
+> losing the round, `forfeit` carries a reason, and round termination is stated as a joint guarantee
+> across the engine and the session layer. It resolves the conformance spec's highest-priority open
+> question and is the largest behavioral change that spec has taken.
 > The archived Python/FastAPI showcase kept its own log; it was deleted along with that effort's plans
 > — see [`HISTORY.md`](HISTORY.md).
 >
@@ -525,6 +529,10 @@ silently choosing where the rules live.
   validation, and has repeat tests whose fixtures don't isolate the repeat rule.
 - The spec's own **Open questions** (failure reason codes, opening-player index, clock-expiry
   ownership, chain-length limits) are live inputs to the planning session, not oversights.
+  *(Two of those four — failure reason codes and clock-expiry ownership — were closed by
+  [ADR 021](#021-a-refused-move-is-rejected-not-lost-the-round-engine-gains-an-outcome-taxonomy) on
+  2026-08-09. This ADR's decision is unaffected; the list is left as written, being a record of what
+  was open at the time.)*
 
 ---
 
@@ -819,3 +827,95 @@ and the fallback that keeps it open is the same endpoint being built now.
   arithmetic); and whether actor name collisions need a disambiguator. Movies got `year` in schema
   v2 and actors have none — at 89,068 actors the collision count is not zero. Adding one is an ETL
   schema change and should be batched with the sitelink change above.
+
+---
+
+## 021: A refused move is rejected, not lost; the round engine gains an outcome taxonomy
+
+**Date:** 2026-08-08
+
+**Context:** [`ENGINE_CONFORMANCE.md`](ENGINE_CONFORMANCE.md) named failure reason codes its
+highest-priority open question. `RoundOver` recorded *that* a move lost, not *why*, so a repeat, a bad
+connection, a wrong type, a give-up and a lapsed deadline were indistinguishable to a match layer that
+must charge different penalties for them.
+
+The question dissolved rather than being answered. Two of those five causes turned out not to be round
+outcomes at all.
+
+**Decision:**
+
+1. **A repeat or a wrong-type submission is `Rejected`, not a round loss.** The round is unchanged, the
+   turn does not advance, and the player submits again. Neither is a game event; the match layer never
+   sees one.
+2. **An unconnected move is the only way `playMove` ends a round.** Correct type, available, no edge —
+   which is the failure the game is actually about.
+3. **`forfeit` takes a reason** — `GaveUp` or `DeadlineLapsed`. The engine cannot infer it, having no
+   clock, so the session layer supplies it. `RoundOver.reason` is one of `Unconnected | GaveUp |
+   DeadlineLapsed`.
+4. **Evaluation order is normative: type, then availability, then connection.** A rejection always wins
+   over a round loss. A player who submits an already-played entity that also would not have connected
+   gets a retry, not a loss.
+5. **In-round repeat prohibition is not configurable.** It is the sole guarantee that a round is finite.
+   Cross-round exclusion sets remain optional match-layer policy.
+6. **Round termination is stated explicitly and split across two layers** — the engine bounds the
+   chain; the session layer's deadline bounds the retry loop.
+
+**Rationale — why rejections are not losses.** The required type is fully determined by the chain and
+visible to the player; the played set is on their screen. Both conditions are prevented client-side,
+re-checked server-side, and only then reach the engine, which is the last of three lines rather than
+the first. A submission that fails either one is a client defect, and resolving it to a round loss
+charges a player for their client's malfunction. [R15](ENGINE_CONFORMANCE.md) already applied exactly
+this reasoning to malformed input — *"a malformed input silently resolving to a loss would end real
+rounds incorrectly and charge a strike to a player who did nothing wrong."* This extends the existing
+line one category out rather than drawing a new one.
+
+**Rationale — why repeats stay in the engine and stay mandatory.** Two intermediate positions were
+considered and rejected:
+
+- *Move the check to a server-side pre-pass.* Rejected: the engine runs in-process with the graph, so
+  the pre-pass and the engine are the same process reading the same chain twice, and `playMove` is left
+  with an unenforced precondition. A caller that skips it appends a duplicate and corrupts the chain
+  silently — the opposite of R13's "an invalid state must not be representable." It would also strand
+  eight conformance cases at a layer with no spec.
+- *Make it match-layer policy, configurable per mode.* This was actively adopted and then reversed. The
+  constitutive/regulative test appears to classify it as policy — Leonardo DiCaprio was in *Shutter
+  Island* whether or not either has already appeared, so the connection is factually real and
+  forbidding it looks arbitrary. But **it is the only thing that makes a round terminate**: without it
+  a chain cycles between two entities forever. A rule the game cannot terminate without is not a
+  difficulty dial. Cross-round exclusions carry no such load, which is why R5's two clauses share an
+  implementation and a `RejectionReason` but not a modality.
+
+**Rationale — the termination guarantee is now joint, and that is new.** Before this change every
+submission either advanced the chain or ended the round, so the engine alone bounded a round. A
+rejection consumes nothing, and [R10](ENGINE_CONFORMANCE.md) denies the engine a clock, so a player can
+submit repeats indefinitely and be refused forever. The engine now guarantees only that the *chain* is
+finite; the turn deadline, in the session layer, is what bounds the round. Neither is sufficient alone.
+**A rejected submission must not reset the deadline** — that would remove the only bound on the retry
+loop.
+
+**Consequences:**
+
+- **This is the largest behavioral delta in the conformance suite**, and it *inverts* prior behavior
+  rather than adding to it. The Kotlin prototype resolves every one of these cases to a loss; an engine
+  ported from it unchanged fails them. Group C is renamed and rewritten, TC-09/TC-10 move into it, and
+  TC-32/33/34 are new.
+- **The typeahead's filters are specified by implication.** The client filters by required type and
+  against the played set — both information the player already holds. This refines
+  [ADR 020](#020-typeahead-resolves-server-side-the-client-index-is-a-deferred-fast-follow) without
+  weakening it: the prohibition there is on scoping to the previous entity's *neighbours*, which would
+  disclose the answer. The line is **filter on what the player already knows; never filter on what only
+  the graph knows.** Type-filtering also halves the candidate set, which is incidental.
+- **Rejections are unbounded at the engine**, so rate limiting becomes a transport concern. It was not
+  one before, when a bad submission ended the round.
+- **Wrong type MAY be enforced by the type system; repeat MUST NOT be.** An engine splitting
+  `InProgress` by required type makes a wrong-type submission a compile error. Availability is a
+  predicate over a runtime set and admits no such encoding. Static enforcement relocates the check to
+  the boundary that deserializes untyped input; it does not remove it. Same MAY/MUST split as R14.
+- **This narrows the stack decision slightly.** Agenda §3.1 already weighs how cleanly a language
+  expresses the sealed-union state machine; static alternation enforcement is a further point for
+  Kotlin and TypeScript over Python. The spec phrases it as MAY precisely so the two decisions stay
+  independent.
+- **`RoundOver.reason` is a persisted contract.** It is written into stored round results a match layer
+  replays, so widening the enum later is cheap and changing its shape is not.
+- **Not settled by this:** chain length limits. R17's bound of ~95,000 moves is a proof, not a usable
+  cap, and the persistence and payload concern behind that question is untouched.

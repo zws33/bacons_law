@@ -233,11 +233,18 @@ interface — `suggest(prefix) -> Candidate[]` — never a `fetch` inlined into 
 server keeps the resolve endpoint either way, because it must re-resolve any submitted QID regardless:
 a client's claim that a QID exists and is of the type it says is not trustworthy.
 
-**The typeahead searches the whole corpus, never the legal moves.** Scoping suggestions to the previous
-entity's neighbours (~15 actors per film, ~5 films per actor) would be trivially fast and would hand
-the player the answer. The game tests recall — a typeahead that only suggests valid moves is not a
-faster typeahead, it is a different game. This is why name resolution is a 136,689-record search
-problem and not a 15-record one.
+**The typeahead never scopes to the legal moves.** Scoping suggestions to the previous entity's
+neighbours (~15 actors per film, ~5 films per actor) would be trivially fast and would hand the player
+the answer. The game tests recall — a typeahead that only suggests valid moves is not a faster
+typeahead, it is a different game. This is why name resolution is a ~89,000-record search problem and
+not a 15-record one.
+
+**It does filter by required type and by the played set**, and those are not the same thing. The line:
+**filter on what the player already knows; never filter on what only the graph knows.** The required
+type is dictated by the rules, the chain is on the player's screen; adjacency is the answer. Filtering
+by the first two is a UX affordance that also keeps [ADR 021](docs/DECISIONS.md)'s rejections rare —
+the client is the first of three lines preventing a wrong-type or repeated submission. On an empty
+chain either type is legal, so the opening move filters by neither.
 
 **Search keys are derived at boot, never in the ETL.** The artifact emits the neutral contract; folded
 search keys — Unicode case folding (*not* `toLowerCase`), NFD with combining marks stripped,
@@ -267,9 +274,13 @@ holding sockets and the locking half being CAS.
 > inheriting an answer. Do not reintroduce a named store here until that session picks one.
 
 **Round and match are separate layers.** The **round engine** builds one chain: opening move, turn
-rotation among N players, per-move validation, and — on an invalid move or a give-up — a round result
-naming the player who failed. That is its entire job, and it is specified in
-[docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md). The **match layer** owns everything after:
+rotation among N players, per-move validation, and — on an unconnected move, a give-up, or a lapsed
+deadline — a round result naming the player who failed and *why*. That is its entire job, and it is
+specified in [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md). The seam is drawn by whether a
+rule is **constitutive** (without it the thing is not a chain — the engine's) or **regulative** (the
+connection is real and the rule forbids it — the match layer's); in-round repeats are the instructive
+case, looking regulative but being constitutive via termination ([ADR 021](docs/DECISIONS.md)).
+The **match layer** owns everything after:
 strike accounting, whether a strike limit eliminates a player or ends the match, standings across an
 ongoing series, mode configuration, and who opens the next round. How a failure is punished is
 configurable per mode and must not leak into how a turn is evaluated. The match layer is unspecified —
@@ -279,16 +290,35 @@ writing it is a planning-session output.
 deliberately implementation-agnostic about repeats, the opening move, and "appeared in" policy;
 these are the answers this project has taken.
 
-**Repeat detection is on.** Within a round the same move may never appear twice: reusing an actor or
-movie already in the chain is rejected — a game rule, not a bug. Uniqueness is per type: an actor and
-a movie may share an ID without colliding.
+**Repeat detection is on, and it is not configurable.** Within a round the same entity may never
+appear twice. Uniqueness is per type: an actor and a movie may share an ID without colliding. This is
+**not a difficulty dial** — it is the only guarantee that a round terminates, since without it a chain
+can cycle between the same two entities forever ([ADR 021](docs/DECISIONS.md),
+[docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) R17). It looks like arbitrary policy and is
+not; expect that argument to recur.
+
+**A repeat does not lose the round — it is rejected.** So is a wrong-type submission. The round is
+unchanged, the turn does not advance, and the player submits again. Both conditions are prevented
+client-side and re-checked server-side before the engine sees them, so a submission that fails either
+is a client defect, and charging a round loss for it penalizes the player for their client. **Only an
+unconnected move loses a round** via `playMove` — correct type, available, no edge. See
+[ADR 021](docs/DECISIONS.md).
 
 **Across rounds, reuse is allowed by default, and configurable.** A fresh round makes every entity
 available again. A settings-level hard mode may forbid reuse for a whole match; the round engine
 supports it by accepting `excludedActorIds` / `excludedMovieIds` at round setup, which the match layer
 seeds and which default to empty. The engine does not know which mode is in play. Note that these
 exclusions bind the opening move too — otherwise every round could open on a banned entity
-([docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) R1/R5).
+([docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) R1/R5). **Unlike in-round repeats, this
+clause is genuine policy**: cross-round reuse threatens no termination guarantee, because the in-round
+check still forces each chain outward.
+
+**Round termination is a joint guarantee, and the engine holds only half.** The engine bounds the
+*chain* — every accepted move permanently consumes an entity, so the chain is finite. It does not bound
+the *round*: a rejected submission consumes nothing and the engine has no clock, so a player can submit
+repeats indefinitely. The turn deadline is what ends that, and it lives in the session layer.
+**A rejected submission must never reset or extend the deadline** — that would remove the only bound on
+the retry loop.
 
 **The opening move is not connection-checked.** On an empty chain `playMove` skips the connection and
 type checks — there is no predecessor — so either an actor or a movie may open. "The first move must
@@ -348,13 +378,20 @@ detection and the out-of-scope list are Current decisions, not Binding.
   line above, for the same reason: the artifact emits the neutral contract, and search shape is a
   consumer concern derived at boot ([ADR 020](docs/DECISIONS.md)). It is also what keeps the index
   format changeable without a graph rebuild.
-- **Scoping the typeahead to the legal moves.** Suggesting only the previous entity's neighbours is the
-  obvious "helpful" optimization, and it hands the player the answer. The typeahead searches all
-  136,689 entities precisely so that it discloses the answer *space* and never an answer.
+- **Scoping the typeahead to the legal moves** — i.e. to the previous entity's neighbours. That is the
+  obvious "helpful" optimization and it hands the player the answer. The typeahead discloses the answer
+  *space* and never an answer. Filtering by required type and by the played set is a different thing
+  and is correct: those are facts the player already holds. **Filter on what the player already knows;
+  never filter on what only the graph knows** ([ADR 021](docs/DECISIONS.md)).
 - **Inlining the suggest call into an input handler.** `suggest(prefix) -> Candidate[]` is an
   interface, and it is the only thing keeping the client-side index a cheap follow-up rather than a
   rewrite ([ADR 020](docs/DECISIONS.md)).
-- **Bypassing repeat detection.** It is a game rule.
+- **Bypassing repeat detection, or making it configurable.** It is what makes a round terminate, not a
+  difficulty setting ([ADR 021](docs/DECISIONS.md)).
+- **Resolving a repeat or a wrong-type submission to a round loss.** Both are rejections: the round is
+  unchanged and the player retries. Only an unconnected move loses a round.
+- **Resetting the turn deadline on a rejected submission.** The deadline is the only bound on the retry
+  loop; resetting it makes a round genuinely non-terminating.
 - **Out-of-scope mechanics.** Not to be introduced unasked: pass/skip, challenge or dispute flow,
   difficulty settings and obscurity filters, single-player/quiz-master mode, open matchmaking pools,
   and credentialed accounts (email/OAuth, cross-device, recovery — [ADR 013](docs/DECISIONS.md)).
