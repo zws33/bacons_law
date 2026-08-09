@@ -19,7 +19,13 @@ Lightweight ADR-style record of key technical and product decisions.
 > amends the round engine's contract** — a repeat or wrong-type submission is rejected rather than
 > losing the round, `forfeit` carries a reason, and round termination is stated as a joint guarantee
 > across the engine and the session layer. It resolves the conformance spec's highest-priority open
-> question and is the largest behavioral change that spec has taken.
+> question and is the largest behavioral change that spec has taken. **022 and 023 settle identity and
+> the client together**, and are best read as one decision: web is the primary client and native is a
+> showcase follow-up (023), which is what makes a device-anchored token insufficient and replaces it
+> with a third-party authenticated account (022, superseding 013). A consequence worth knowing: 018
+> addressed "it's your turn" to a push token on a device, and identity is no longer a device, so
+> **the notification channel is reopened** — 022 records the two facts that bound it and leaves the
+> choice undecided.
 > The archived Python/FastAPI showcase kept its own log; it was deleted along with that effort's plans
 > — see [`HISTORY.md`](HISTORY.md).
 >
@@ -355,6 +361,14 @@ notification, and clocks.
 ---
 
 ## 013: Persistent player identity, device-anchored first
+
+> **Superseded by [ADR 022](#022-identity-is-a-third-party-authenticated-account).**
+> The **requirement survives** — identity must outlive a room, span days, and back a "my games" inbox.
+> The *mechanism* does not. Device-anchored-only was chosen to avoid building auth before the game was
+> playable; that constraint was lifted once a third-party provider removed the build cost, and
+> [ADR 023](#023-web-is-the-real-client-native-is-a-showcase-artifact) made web the primary client,
+> where a device-anchored token is not durable enough to hold a correspondence player's games.
+> The deferred "account upgrade path" described below is no longer deferred — it is the design.
 
 **Date:** 2026-07-06
 
@@ -919,3 +933,151 @@ loop.
   replays, so widening the enum later is cheap and changing its shape is not.
 - **Not settled by this:** chain length limits. R17's bound of ~95,000 moves is a proof, not a usable
   cap, and the persistence and payload concern behind that question is untouched.
+
+---
+
+## 022: Identity is a third-party authenticated account
+
+**Date:** 2026-08-09
+
+**Supersedes [ADR 013](#013-persistent-player-identity-device-anchored-first).**
+**Amends [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture)** on
+the notification path.
+
+**Context:** ADR 013 chose a device-anchored token to avoid building an auth system before the game was
+playable. That was a constraint from a period of prioritising a quick MVP, and it no longer applies.
+
+**Stated reason:** auth avoidance is not required. A third-party implementation will be used; rolling
+custom auth is explicitly not wanted.
+
+**The durability problem.** A device-anchored token on web lives in script-writable storage. Safari's
+tracking prevention clears that after roughly a week without user interaction for sites not installed
+to the home screen. Correspondence play is the pattern that goes a week between visits, so under ADR
+013's design on web, what ADR 013 listed as a rare accepted limitation ("a lost/wiped device loses that
+player's games") becomes the routine case. **The current behaviour of that storage cap should be
+verified before designing against its specifics** — the exact number of days is not the point, and this
+claim has not been checked against current Safari behaviour.
+
+**Decision:**
+
+1. **Identity is an authenticated account, from a third-party provider.** No rolled auth: no password
+   hashing, no session-token minting, no reset flows, no credential storage in this project.
+2. **The provider issues a JWT; the server verifies it against the provider's JWKS.** That is the whole
+   integration surface on the server side.
+3. **A Player record remains in this project's own store**, keyed to the provider's subject claim. The
+   provider owns credentials; this project owns player state.
+4. **Provider selection is deferred** and is coupled to the durable-store decision — see Consequences.
+
+**Supporting analysis** — not the reason the decision was made, recorded because it bears on later
+work:
+
+- **ADR 013's two accepted limitations do not ship.** It accepted that a lost device loses its games
+  and that one identity cannot play on two devices, and named an upgrade path to fix both. That path is
+  now the design.
+- **This does not constrain the stack.** JWKS verification exists in every ecosystem under
+  consideration. The provider's frontend SDK is where quality varies, and that is a web/TypeScript
+  concern regardless of what the server is written in.
+- **A non-push notification channel becomes possible.** An authenticated account carries a verified
+  email address. What to do with that is not decided here — see below.
+
+**Consequences:**
+
+- **Auth and the durable store may be one decision.** Several providers bundle them (Postgres + auth;
+  auth + document store). This collapses agenda §3.2 and this ADR into a single vendor choice if
+  desired — with the caveat below.
+- **Polling makes per-read pricing a store-selection criterion.** ADR 018 commits to ~2s adaptive
+  polling while a game view is foregrounded, which is a read generator by construction. A store billing
+  per document read converts the notification design into a running cost; a store on a fixed instance
+  does not. Noted as a criterion for the store decision; no store is chosen here.
+- **ADR 018's push token is no longer where a notification is addressed.** ADR 018 routes "it's your
+  turn" to a push token on a device; identity is no longer a device. **ADR 018's seam #2 already
+  anticipated the shape of this** — "move handling emits a notification event rather than calling the
+  notifier" — so whatever the delivery layer does, the change lands there and touches nothing in the
+  move path. That seam was described as the one item genuinely expensive to retrofit.
+- **This adds identity, not a player-directory.** Open matchmaking pools were out of scope before this
+  ADR and remain so; nothing here is an argument for changing that.
+
+**Not decided here.** Both follow from this ADR and neither has been chosen:
+
+- **Which notification channel is primary.** Two facts bear on it. An authenticated account carries a
+  verified email address, so a channel exists that needs no install, service worker, or APNs
+  relationship. And web push on iOS requires a home-screen install
+  ([ADR 023](#023-web-is-the-real-client-native-is-a-showcase-artifact) makes web the primary client),
+  so push does not reach every player on the platform this project is shipping to. What follows from
+  that pair — email as the floor with push as an upgrade, push with an email fallback, or something
+  else — is open.
+- **Whether signing in is required to play.** ADR 013's design let a player start immediately. Requiring
+  an account at first run is one option; anonymous play with a prompt to claim the games later is
+  another, and ADR 013's own "non-destructive upgrade" requirement already describes the machinery for
+  it. The trade is first-run friction against players silently losing match history, and it has not
+  been weighed. Provider choice interacts with this: magic-link and passkey sign-in cost less at first
+  run than password creation.
+
+---
+
+## 023: Web is the real client; native is a showcase artifact
+
+**Date:** 2026-08-09
+
+**Amends [ADR 002](#002-androidkotlincompose-for-mvp-client)** (Android as *the* client) and settles
+planning agenda §3.4.
+
+**Context:** The client platform was fully open. In the tree sits an unmaintained Android/Compose app
+built for the dropped pass-the-phone model — 18 source files, most of them written against assumptions
+that no longer hold. Web was untried. The agenda flagged that push is straightforward on mobile and
+clunkier on web, and that this coupled the client decision to notification design more tightly than it
+looked.
+
+**Decision:**
+
+1. **Web is the primary client.** It is the easiest to deploy to real users, and it ships first.
+2. **Native clients are follow-ups built primarily for showcase purposes**, not to acquire users.
+3. **No app-store deployment for now.** The obstacles in deploying to the Apple and Play stores are
+   being avoided deliberately. If the project takes off after a real launch such that the cost — in
+   money and in attention — is justified, app-store deployment gets revisited then. A native client
+   can exist and be demonstrated without being published.
+
+**Stated reason:** web is the easiest way to get this in front of real users, and the app-store
+deployment process is not worth navigating before there is evidence anyone wants the game.
+
+**Supporting analysis** — not the reason the decision was made, recorded because it bears on later
+work:
+
+- **Install friction is paid per player, and multiplayer at N > 2 ships day one.** Getting three
+  friends into a match over the web is one link; natively it is three installs.
+- **Two decisions already taken are waiting on playtests.**
+  [ADR 020](#020-typeahead-resolves-server-side-the-client-index-is-a-deferred-fast-follow) defers the
+  client-side typeahead index with the trigger "playtest evidence that the latency is felt," and
+  [ADR 019](#019-the-graphs-degree-1-population-is-acceptable-cap-rescue-is-rejected) leaves open
+  whether players find dead-end moves at all. Both need players.
+- **A client cannot share the engine in any useful way.** The connection check requires the 21 MB graph
+  and graph co-location is a binding boundary. What a client *can* validate — correct type, not already
+  played — is [ADR 021](#021-a-refused-move-is-rejected-not-lost-the-round-engine-gains-an-outcome-taxonomy)'s
+  typeahead filtering, which needs the chain and nothing else. `AGENTS.md`'s "shareable across server
+  and clients" is a true statement about purity and a weak argument for code reuse. This matters
+  because it removes a reason to prefer a native client, and a criterion from the stack decision.
+
+**Consequences:**
+
+- **This is what forces [ADR 022](#022-identity-is-a-third-party-authenticated-account).**
+  Device-anchored identity is durable on native and is not on web. Choosing web is what turned ADR 013's
+  deferred account upgrade into a requirement.
+- **Web push does not reach every player.** It works on most browsers and requires a home-screen
+  install on iOS. Which channel is primary is not decided — see ADR 022, *Not decided here*.
+- **The stack decision is now nearly free of client constraints.** Client language is decoupled, engine
+  sharing is worth little, and auth is provider-issued JWTs verifiable anywhere. Agenda §3.1 should be
+  evaluated on ecosystem maturity, how cleanly the language expresses the round engine's sealed-union
+  state machine, deployment simplicity, and — from ADR 021 — whether static enforcement of type
+  alternation is wanted. **Shared types with the client is no longer a meaningful criterion.**
+- **Stated alongside this decision: single-language velocity is a non-factor.** A mix of languages is
+  acceptable where it suits the project's goals; TypeScript/JavaScript, Kotlin, Java, and Python are
+  all comfortable. This removes "one language end to end" as an argument in the stack decision, in
+  either direction.
+- **`:app` is not the starting point for the native client.** It was built for pass-the-phone play
+  against a per-turn TMDB call; both are gone. It remains reference-only per `AGENTS.md`.
+- **ADR 020's cross-runtime fold consistency is deferred with native.** Search-key folding must agree
+  across JS, Kotlin, and Swift, mitigated by a shared fixture list. ADR 020 already says this is not
+  needed for the first client.
+- **A native client's own decisions are not made here.** Which platform, whether it shares an engine,
+  and what it is built with are open. This ADR settles only that native is a follow-up and is not
+  store-deployed for now.

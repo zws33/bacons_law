@@ -8,14 +8,16 @@
 > a document is how a project ends up with two sources of truth. Nothing should ever link to it.
 >
 > Prepared 2026-08-06, after [ADR 018](DECISIONS.md) and [ADR 019](DECISIONS.md).
-> **Amended 2026-08-09** for [ADR 020](DECISIONS.md) and [ADR 021](DECISIONS.md), which consumed
-> §4.2 and two of §5's five questions. Resolved items are struck through and point at the ADR that
-> settled them rather than being deleted, so that a reader who remembers the open question finds the
-> answer instead of a silent gap — **the ADR is the source of truth in every case, never the summary
-> here.** The file still records no decisions of its own.
+> **Amended 2026-08-09** for [ADR 020](DECISIONS.md), [ADR 021](DECISIONS.md),
+> [ADR 022](DECISIONS.md) and [ADR 023](DECISIONS.md), which consumed §3.4, §4.2, and two of §5's five
+> questions. Resolved items are struck through and point at the ADR that settled them rather than
+> being deleted, so that a reader who remembers the open question finds the answer instead of a silent
+> gap — **the ADR is the source of truth in every case, never the summary here.** The file still
+> records no decisions of its own.
 >
-> **The deletion trigger has not fired.** §3's four decisions — stack, store, hosting, client — are
-> untouched, and they are now most of what is left. Delete this once they are made.
+> **The deletion trigger has not fired**, but it is close. Three decisions remain: **stack (§3.1),
+> store (§3.2), hosting (§3.3)** — plus the match-layer spec (§4.1), which is a writing task rather
+> than a decision. Delete this file once those three are made.
 
 ---
 
@@ -66,9 +68,20 @@ the single most likely source of a wrong turn in this session.
 
 ### 3.1 Server language and framework
 
-**Criteria, post-018:** ecosystem and library maturity; how cleanly the language expresses the
-round engine's sealed-union state machine (`Move = Actor | Movie`, exhaustive matching); deployment
-simplicity; familiarity; and whether types can be shared with the client.
+**Criteria, post-018 and post-023:** ecosystem and library maturity; how cleanly the language expresses
+the round engine's sealed-union state machine (`Move = Actor | Movie`, exhaustive matching); deployment
+simplicity; and familiarity. ~~Whether types can be shared with the client~~ — **struck by
+[ADR 023](DECISIONS.md)**: the client is decoupled, and a client cannot run the connection check
+regardless, because that needs the graph.
+
+**Added by [ADR 021](DECISIONS.md):** whether you want type alternation enforced *statically*. The spec
+permits it (MAY, not MUST) and it favours languages with closed sum types. Phrased as optional
+precisely so it does not decide this by the back door — but if you want it, it is a criterion.
+
+**Removed by [ADR 023](DECISIONS.md):** single-language velocity. Stated explicitly alongside the
+client decision — a mix of languages is acceptable where it suits the project's goals, and
+TypeScript/JavaScript, Kotlin, Java, and Python are all comfortable. "One language end to end" is not
+an argument here in either direction.
 
 **What makes this reversible:** [`ENGINE_CONFORMANCE.md`](ENGINE_CONFORMANCE.md) is language- and
 framework-agnostic and generates a conformance suite in any stack. The rules do not live in the
@@ -87,20 +100,36 @@ restarts; spans days for correspondence; compare-and-swap on a version; **never 
 **Worth weighing:** with polling as the notification mechanism, reads substantially outnumber
 writes. The store's read path matters more than its write path.
 
+**Sharpened by [ADR 022](DECISIONS.md):** that read imbalance has a price tag. A ~2s poll loop is a
+read generator by construction, so a store billing **per read** converts the notification design into
+a running cost while a store on a fixed instance does not. Structural, not a tuning detail.
+
+**Newly coupled:** several providers bundle auth with storage, so this may be one decision with ADR
+022's deferred provider choice rather than two. Weigh the bundling against the per-read point above —
+they can pull in opposite directions.
+
 ### 3.3 Hosting
 
 Fully open. Cold start is not an obstacle (§2). Decide on cost, operational simplicity, and
 familiarity.
 
-### 3.4 Client
+### 3.4 ~~Client~~ — **DECIDED, [ADR 023](DECISIONS.md)**
 
-**In the tree:** an unmaintained Android/Compose app built for the dropped pass-the-phone design.
-Web is untried.
+Resolved. **Web is the primary client** and the one real users get; native clients are follow-ups
+built primarily to demonstrate capability, with no app-store deployment until traction justifies the
+cost. The stated reason: web is the easiest way to reach real users, and the app-store deployment
+process is not worth navigating before there is evidence anyone wants the game.
 
-**Constraint worth surfacing early:** [ADR 013](DECISIONS.md)'s identity is device-anchored and
-carries push tokens, and push is the correspondence notification path. Push is straightforward on
-mobile and clunkier on web. This couples the client decision to the notification design more
-tightly than it looks.
+**The constraint this section raised turned out to run the other way.** It flagged that device-anchored
+push couples the client to notification design. True — but the resolution was to change the identity
+model, not the client: [ADR 022](DECISIONS.md) supersedes ADR 013. **The notification channel itself is
+now reopened rather than settled** — identity is no longer a device, so ADR 018's push-token addressing
+no longer applies, and ADR 022 leaves the replacement undecided.
+
+**Consequence for §3.1 — this section is no longer an input to the stack.** Client language is
+decoupled, auth is provider-issued JWTs verifiable in any ecosystem, and a client cannot run the
+connection check anyway because that needs the 21 MB graph. **"Whether types can be shared with the
+client" should be struck from §3.1's criteria** — it was doing more work there than it could support.
 
 ---
 
@@ -167,7 +196,7 @@ agenda was written.
 
 ## 7. Suggested sequencing
 
-Not a decision — a proposal, offered because the dependencies are real. **Two of the original five
+Not a decision — a proposal, offered because the dependencies are real. **Three of the original five
 steps are done**; what follows is the remainder, renumbered.
 
 - ~~Typeahead placement~~ — **done, [ADR 020](DECISIONS.md)**. Note its stated rationale did not
@@ -176,20 +205,22 @@ steps are done**; what follows is the remainder, renumbered.
 - ~~Failure reason codes~~ — **done, [ADR 021](DECISIONS.md)**, and out of order. It was slotted after
   the stack on the grounds that it is a `RoundOver` contract change; it turned out to be answerable
   from the round/match seam alone, with no stack input at all.
+- ~~Client~~ — **done, [ADRs 022–023](DECISIONS.md)**, and it was never on this list. It was filed as
+  §3.4, a decision with no sequencing position; it turned out to *unblock* the stack by removing a
+  criterion from it, and to force an identity change along the way.
 
-1. **Stack (3.1)** — now the front of the queue and the least reversible decision left. The conformance
-   spec keeps it cheaper than it looks, and it has grown slightly more opinionated:
-   [ADR 021](DECISIONS.md) lets type alternation be enforced statically (MAY, not MUST), which favours
-   languages with closed sum types. The spec phrases it as optional precisely so this does not decide
-   the stack by the back door.
+1. **Stack (3.1)** — the front of the queue and the least reversible decision left. Now easier than
+   when this agenda was written: the client no longer constrains it at all (§3.4). Two criteria moved —
+   shared types struck, static type-alternation enforcement added.
 2. **Match layer spec (4.1)** — unblocked now that reason codes exist. `RoundEndReason` is the
    vocabulary its penalty table is written against. The `:core` rewrite and issue #17 fold into
-   building it.
-3. **Store and hosting (3.2, 3.3)** — genuinely deferrable. Both unconstrained; neither blocks the
-   engine or the match layer.
-4. **Client (3.4)** — unchanged, still coupled to push via ADR 013's device-anchored identity.
+   building it. **Worth noting the precedent:** reason codes were expected to need the stack and did
+   not. Check whether this one does before sequencing it behind §3.1.
+3. **Store (3.2)** — now partly coupled to ADR 022's deferred auth-provider choice, since some
+   providers bundle the two. Weigh the bundle against the per-read pricing point in §3.2.
+4. **Hosting (3.3)** — genuinely deferrable and unconstrained.
 
 **What is not on the critical path:** issue #19's rebuild, `:app`, and `:backend`.
 
-**Still true, and now the main reason this file exists:** §1, §2, and §3 are untouched by ADRs 020 and
-021. The four decisions in §3 are the bulk of what the session has not done.
+**Still true:** §1 and §2 are untouched by ADRs 020–023. §3's remaining three decisions are the bulk of
+what the session has not done.

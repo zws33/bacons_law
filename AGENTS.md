@@ -85,9 +85,10 @@ Still the thin TMDB proxy it started as (movie/person search, credits). The grap
 session server has not been built; whether it is built here, in Kotlin, at all, is open. It depends on
 `:core`, never the reverse. For the session-layer design as currently reasoned (durable store,
 transport-agnostic move pipeline, identity, and the correspondence build order), see
-[ADR 012](docs/DECISIONS.md) and [ADR 013](docs/DECISIONS.md) — both as amended by
-[ADR 018](docs/DECISIONS.md), which drops the WebSocket transport and the real-time mode. Move
-submission is request/response; there are no sockets to build.
+[ADR 012](docs/DECISIONS.md) as amended by [ADR 018](docs/DECISIONS.md), which drops the WebSocket
+transport and the real-time mode. Move submission is request/response; there are no sockets to build.
+**Identity is [ADR 022](docs/DECISIONS.md)**, not ADR 013 — a third-party provider issues a JWT and the
+server verifies it against the provider's JWKS.
 
 ### `etl/` — the offline graph build (Python) — **the durable part**
 
@@ -100,8 +101,14 @@ split is allowed across the offline/online seam only (see ADR 011). Its own oper
 ### `:app` — Android client (reference only)
 
 Compose UI built for the old pass-the-phone, TMDB-backed model. It depends on `:core` and never holds
-data-source credentials. It is not maintained, and the eventual client — Android, web, or otherwise —
-is a planning-session question.
+data-source credentials. It is not maintained, and **it is not the starting point for any future
+client** — both of its founding assumptions are gone.
+
+**The client is decided: web first** ([ADR 023](docs/DECISIONS.md)). Web is the real client and the one
+real users get; native clients are follow-ups built primarily to demonstrate capability, and no
+app-store deployment happens until traction justifies the cost. The web client does not live in
+`kotlin/` — per the repository layout above, it is a new self-contained top-level directory with its
+own toolchain.
 
 ---
 
@@ -208,10 +215,21 @@ channel; do not evaluate stacks on connection-holding, idle-socket memory, or br
 game rewards recall and strategy, not reaction time, so the budget for delivering an opponent's move is
 seconds.
 
-**Opponents learn of a move by polling + push.** Adaptive polling (~2s while the game view is
-foregrounded and it is not your turn; stopped when backgrounded), plus push notification to the
-device-anchored token (ADR 013). The player who moved sees the result in their own response. This is
-stateless — any instance can serve it.
+**Opponents learn of a move by polling + notification.** Adaptive polling (~2s while the game view is
+foregrounded and it is not your turn; stopped when backgrounded), plus a notification to the player
+whose turn it now is. The player who moved sees the result in their own response. This is stateless —
+any instance can serve it.
+
+**The notification channel is undecided** ([ADR 022](docs/DECISIONS.md), *Not decided here*). ADR 018
+routed this to a push token on a device, and identity is no longer a device. Two facts constrain the
+choice: web push requires a home-screen install on iOS, and web is the primary client
+([ADR 023](docs/DECISIONS.md)); and an authenticated account carries a verified email address, so a
+channel exists that needs no install. **Do not treat push as settled** — move handling emits a
+notification event (ADR 018's seam #2) and the delivery layer is where this gets decided.
+
+**Polling makes per-read pricing a store-selection criterion.** A ~2s poll loop is a read generator by
+construction; a store billing per read turns the notification design into a running cost, while a store
+on a fixed instance does not. Structural, not a tuning detail.
 
 **Store a deadline, not a mode.** A turn deadline is `turn_duration` plus a `deadline_at` timestamp; a
 60-second turn and a 3-day turn are the same field at different values. **Do not introduce a
@@ -393,13 +411,19 @@ detection and the out-of-scope list are Current decisions, not Binding.
 - **Resetting the turn deadline on a rejected submission.** The deadline is the only bound on the retry
   loop; resetting it makes a round genuinely non-terminating.
 - **Out-of-scope mechanics.** Not to be introduced unasked: pass/skip, challenge or dispute flow,
-  difficulty settings and obscurity filters, single-player/quiz-master mode, open matchmaking pools,
-  and credentialed accounts (email/OAuth, cross-device, recovery — [ADR 013](docs/DECISIONS.md)).
-  **Now in scope:** time controls and durable game-state persistence and persistent identity
-  ([ADR 012](docs/DECISIONS.md)); **multiplayer at N > 2**; and **strike-based scoring at the match
+  difficulty settings and obscurity filters, single-player/quiz-master mode, and open matchmaking
+  pools. **Credentialed accounts have left this list** — they moved into scope with
+  [ADR 022](docs/DECISIONS.md), which supersedes ADR 013.
+  **Now in scope:** time controls and durable game-state persistence
+  ([ADR 012](docs/DECISIONS.md)); **authenticated identity via a third-party provider**
+  ([ADR 022](docs/DECISIONS.md)); **multiplayer at N > 2**; and **strike-based scoring at the match
   layer** — accumulating strikes across rounds, ranked lowest-first, with an optional strike limit
   that eliminates a player or ends the match. Scoring was formerly out of scope; it is now the match
   layer's purpose. Within a round there is still no miss tolerance: the first failure ends the round.
+- **Rolling your own auth.** No password hashing, no session-token minting, no reset flows, no
+  credential storage in this project. A third-party provider issues a JWT; the server verifies it
+  against the provider's JWKS, and that is the entire server-side surface
+  ([ADR 022](docs/DECISIONS.md)).
 - **Scoring, strikes, or elimination inside the round engine.** They belong to the match layer, and
   which one a mode uses is player-configurable before the match starts.
 - **A winner field on the round result.** The round names a loser; any winner convention is a
