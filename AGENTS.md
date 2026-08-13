@@ -9,9 +9,10 @@ authoritative game state and validates every move against a **precomputed actor�
 memory (O(1) set membership — no per-turn external API call).
 
 A **round** ends when a player can't name a valid connection — that player is the round's loser. A
-**match** is a series of rounds in which players accumulate strikes, lowest score best; how a strike
-limit resolves (elimination, match end, or an open-ended series) is a per-mode configuration chosen
-before play. Multiplayer is a day-one requirement, not a later extension.
+**match** is a series of rounds in which players accumulate strikes; a strike limit is **required**,
+and whether reaching it removes that player or ends the match is a per-mode configuration chosen
+before play. Multiplayer is a day-one requirement, not a later extension. The match layer is specified
+in [docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md).
 
 > **`etl/` is the only durable source code and the only fixed contract.** It is a working pipeline
 > that builds the graph the game engine validates moves against. Everything else in this repo —
@@ -54,8 +55,9 @@ The round state machine: `GameState`, `Move` (`Move.Actor` / `Move.Movie`), `pla
 has no platform or I/O dependencies and **must stay that way** — that property is the requirement, not
 this particular implementation of it.
 
-It builds **one chain** and reports who failed. Strikes, elimination, match end, and standings are the
-match layer's, which does not exist yet. `GameState` is misnamed for this reason: it is round state.
+It builds **one chain** and reports who failed. Strikes, removal from play, match end, and standings
+are the match layer's, specified in [docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md).
+`GameState` is misnamed for this reason: it is round state.
 
 The engine checks set membership (`castIds.contains(...)`) and makes no network calls. **The identifiers
 are Wikidata QID strings** (`"Q23844"`) — that's what the graph artifact emits and what any engine must
@@ -298,11 +300,20 @@ specified in [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md). The seam 
 rule is **constitutive** (without it the thing is not a chain — the engine's) or **regulative** (the
 connection is real and the rule forbids it — the match layer's); in-round repeats are the instructive
 case, looking regulative but being constitutive via termination ([ADR 021](docs/DECISIONS.md)).
-The **match layer** owns everything after:
-strike accounting, whether a strike limit eliminates a player or ends the match, standings across an
-ongoing series, mode configuration, and who opens the next round. How a failure is punished is
-configurable per mode and must not leak into how a turn is evaluated. The match layer is unspecified —
-writing it is a planning-session output.
+The **match layer** owns everything after: strike accounting, removal from play, match end,
+standings, mode configuration, and who opens the next round. How a failure is punished is configurable
+per mode and must not leak into how a turn is evaluated. **It is specified in
+[docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md)** — rules M1–M16 plus a numbered conformance
+suite, pure and language-agnostic exactly as the engine spec is. That document is a **draft**: read it
+as the current position, not as a settled contract.
+
+Four of its rules are worth holding without opening it. **A strike limit is required** — an
+open-ended series has no terminal state derivable from round results, so it is not a mode. **A lapsed
+deadline removes the player from the match**, not just the round, while a give-up and an unconnected
+move each cost one strike; the line is between playing and not playing. **Withdrawal costs exactly
+what a lapse costs**, because stopping mid-match is always available by simply not responding, and any
+other price makes one of the two the smarter way to quit. **A seat index is round-local** — see the
+failure mode in [What to Avoid](#what-to-avoid).
 
 **The three questions `movie-actor-chain-game` leaves open, answered.** The domain skill is
 deliberately implementation-agnostic about repeats, the opening move, and "appeared in" policy;
@@ -417,15 +428,23 @@ detection and the out-of-scope list are Current decisions, not Binding.
   **Now in scope:** time controls and durable game-state persistence
   ([ADR 012](docs/DECISIONS.md)); **authenticated identity via a third-party provider**
   ([ADR 022](docs/DECISIONS.md)); **multiplayer at N > 2**; and **strike-based scoring at the match
-  layer** — accumulating strikes across rounds, ranked lowest-first, with an optional strike limit
-  that eliminates a player or ends the match. Scoring was formerly out of scope; it is now the match
-  layer's purpose. Within a round there is still no miss tolerance: the first failure ends the round.
+  layer** — accumulating strikes across rounds, with a required strike limit that either removes that
+  player or ends the match ([docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md)). Scoring was
+  formerly out of scope; it is now the match layer's purpose. Within a round there is still no miss tolerance: the first failure ends the round.
 - **Rolling your own auth.** No password hashing, no session-token minting, no reset flows, no
   credential storage in this project. A third-party provider issues a JWT; the server verifies it
   against the provider's JWKS, and that is the entire server-side surface
   ([ADR 022](docs/DECISIONS.md)).
-- **Scoring, strikes, or elimination inside the round engine.** They belong to the match layer, and
-  which one a mode uses is player-configurable before the match starts.
+- **Scoring, strikes, or removal from play inside the round engine.** They belong to the match layer,
+  and which one a mode uses is player-configurable before the match starts.
+- **Resolving a round result's `loserIndex` against the match order.** It is a *seat index* into the
+  roster of the round that produced it, and that roster shrinks and rotates as players are removed —
+  so the same index names different players in different rounds. Getting this wrong charges strikes to
+  a player who may not even be in the round, passes every other test, and corrupts silently
+  ([docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md) M9).
+- **Pricing a withdrawal differently from an abandoned match.** Ghosting is always available, so a
+  gap in either direction makes one of the two the smarter way to quit
+  ([docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md) M16).
 - **A winner field on the round result.** The round names a loser; any winner convention is a
   match-layer overlay ([docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) S3).
 - **Assuming two players.** Multiplayer ships day one; `playerCount` has no upper bound at the engine.
@@ -441,7 +460,8 @@ detection and the out-of-scope list are Current decisions, not Binding.
 | [docs/investigations/](docs/investigations/) | **Records, never rules.** Investigation write-ups and design retrospectives, including hypotheses that were falsified. Non-normative *by location* — never cite one as authority for a change; binding outcomes are promoted out into ADRs, this file, or a spec. Read [its README](docs/investigations/README.md) before using anything inside |
 | [docs/investigations/000-system-design-case-study.md](docs/investigations/000-system-design-case-study.md) | System-design reasoning behind this architecture (a retrospective, not a build spec). **§2, §5, and §6 are superseded by [ADR 018](docs/DECISIONS.md)** and carry inline markers — they assume a WebSocket transport this project no longer has |
 | `movie-actor-chain-game` skill | Domain rules and vocabulary (implementation-agnostic; leaves project-specific rules open) |
-| [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) | **The round-engine spec of record.** Rules R1–R15 + a numbered conformance suite; language-agnostic, generates a test suite in any stack. Defines the round/match seam |
+| [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) | **The round-engine spec of record.** Rules R1–R17 + a numbered conformance suite; language-agnostic, generates a test suite in any stack. Defines the round/match seam |
+| [docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md) | **The match-layer spec**, and a **draft** — strikes, removal, match end, standings, opener rotation, cross-round exclusions. Rules M1–M16 + a conformance suite. Takes precedence over the summaries in this file |
 | `kotlin/core/.../GameEngine.kt` + tests | Prototype implementation — subordinate to the conformance spec, which records where it diverges |
 | [etl/AGENTS.md](etl/AGENTS.md) | ETL operating rules and the load-bearing facts of the graph build |
 | [docs/HISTORY.md](docs/HISTORY.md) | The two prior efforts (Kotlin pass-the-phone MVP, Python/FastAPI showcase) — what they were, why they ended, where the code lives. Reference only; neither is guidance |
