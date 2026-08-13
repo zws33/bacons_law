@@ -121,6 +121,15 @@ Three terms are this document's own; the skill and the prototype have no equival
 | **Unconnected** | A submission of the correct type, available, that has no edge to the previous move. This is the only way `playMove` ends a round |
 | **Available** | Not already played in this round and not in the match layer's exclusion set for its type ([R5](#r5--availability-repeats-and-exclusions)) |
 
+**Graph membership defines validity, not real-world truth.** An edge the artifact does not carry is
+not a legal move, however true it is off-graph. The engine tests `castIds` and nothing else
+([R12](#r12--identity-is-the-id-alone)), and `castIds` comes from a graph built offline with a cast
+cap, so a real but obscure cast member is absent from the graph and is therefore not a valid move.
+This is a property of the data the engine is handed, not a rule the engine applies — it is stated here
+because it is the one place a reader is likely to mistake a correct rejection for a bug. The cap is a
+dial (`cast_cap`, `min_cast` — [etl/AGENTS.md](../etl/AGENTS.md)), and expect the argument to recur in
+playtests.
+
 ---
 
 ## Data model
