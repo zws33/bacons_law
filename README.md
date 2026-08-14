@@ -28,15 +28,20 @@ that it should be **precomputed, not looked up per turn**:
 
 - An offline **Python ETL** builds a bipartite movie↔actor graph from **CC0 Wikidata** data
   (`movie_qid → set(actor_qid)`, `actor_qid → set(movie_qid)`), capped to top-billed cast.
-- The **server** loads that graph **read-only, in-process** at boot and validates a move with an O(1)
-  set-membership check — no per-turn external API call.
+- That graph is loaded into **Postgres**, in its own schema, next to authoritative game state
+  ([ADR 026](docs/DECISIONS.md)). A move is validated by one indexed lookup — no per-turn external
+  API call, ever.
 - A **pure round engine** owns the rules, specified by
   [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md). It never reads the graph itself; the
-  session layer passes the cast in as data. A **durable store** holds authoritative game state — it
-  must survive restarts and span days. Which store is an open planning question.
+  session layer passes the cast in as data.
 
-The graph and the validation logic must stay in the same process — that co-location is what makes
-validation cheap.
+**The insight is that validation is precomputed, not that it is in memory.** The project held those
+together for a while — the graph used to be loaded read-only into the server's process, and the
+engine/data seam was forbidden to cross a network hop. That constraint protected a latency budget that
+[ADR 018](docs/DECISIONS.md) and [ADR 025](docs/DECISIONS.md) established this game does not have: a
+turn takes minutes to days. Co-location cost a 21 MB artifact shipped to every instance, a resident
+memory footprint that set the instance size, and a fleet redeploy for every graph version bump. Moving
+the graph into the store removes all three.
 
 The second design crux is one the project got wrong first and corrected
 ([ADR 018](docs/DECISIONS.md)): **the game is turn-based, and real-time is a time control rather than
@@ -55,17 +60,16 @@ number, not a second system.
   Kotlin modules in the tree are superseded prototypes, not a starting point.
 - **Web** — the primary client ([ADR 023](docs/DECISIONS.md)), its own top-level directory. Native is a
   showcase follow-up. Not written yet.
-- **Identity** — a third-party authenticated account, a JWT verified against the provider's JWKS
-  ([ADR 022](docs/DECISIONS.md)). The provider itself is not picked.
+- **Supabase** — Postgres for game state *and* the graph, plus the identity provider
+  ([ADRs 026 and 027](docs/DECISIONS.md)). The server holds the service key and stays authoritative;
+  clients never touch the database. Identity is a JWT verified against the provider's JWKS
+  ([ADR 022](docs/DECISIONS.md)).
 
 **Open — nothing below is chosen:**
 
-- **Durable store** for authoritative game state. There is no presence/broadcast layer to choose —
-  see [ADR 018](docs/DECISIONS.md). Possibly one decision with the identity provider, since several
-  vendors bundle the two.
 - **Hosting.** Open on cost and operational simplicity; cold start is measured and is not an obstacle.
-  The graph is read-only and identical on every instance, so it constrains **cold start**, not
-  instance count.
+  One constraint: the server must run in the same region as the database, because typeahead is the
+  only latency-sensitive path and it now takes a round trip.
 
 ## Project Structure
 
@@ -97,9 +101,9 @@ gitignored, so the artifact is not in this tree — see [etl/README.md](etl/READ
 numbered rules plus a conformance suite, language-agnostic and authoritative over any implementation.
 They are what made the stack a reversible choice.
 
-**The server and the client do not exist yet.** The stack, the client, and identity are decided
-(ADRs 022, 023, 025); the store and hosting are not. Nothing in `kotlin/` is a starting point — it is
-reference for a design that was superseded.
+**The server and the client do not exist yet.** The stack, the client, identity, and storage are
+decided (ADRs 022, 023, 025, 026, 027); hosting is the only one left. Nothing in `kotlin/` is a
+starting point — it is reference for a design that was superseded.
 
 Two prior efforts are preserved as reference, not maintained: the Kotlin/Compose Android client and a
 Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag `python-fastapi-showcase`).

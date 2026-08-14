@@ -33,6 +33,13 @@ Lightweight ADR-style record of key technical and product decisions.
 > language is the load-bearing half; the runtime and framework are recorded there as the reversible
 > half, decided on separate criteria.
 >
+> **026 and 027 settle storage, and 026 is the larger of the two.** It moves the graph out of the
+> server's memory and into Postgres alongside game state, superseding the "in-process" half of 009 —
+> 009's *precomputed offline* insight is untouched, and it was 018's demotion of latency that removed
+> the reason for co-location. 027 then picks Supabase for the store and, with it, 022's deferred
+> identity provider. Read 026 before acting on anything in 009, 011, or 018 about where the graph
+> lives or what the server holds in memory.
+>
 > The archived Python/FastAPI showcase kept its own log; it was deleted along with that effort's plans
 > — see [`HISTORY.md`](HISTORY.md).
 >
@@ -213,6 +220,16 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 ---
 
 ## 009: Validation is precomputed offline and served in-process — no per-turn external API
+
+> **The "in-process" half is superseded by
+> [ADR 026](#026-the-graph-lives-in-the-durable-store-not-in-process-the-store-is-postgres); the
+> "precomputed offline" half is this ADR's durable core and holds unchanged.** Validation is still
+> built once by the ETL and never fetched from an external API per turn. It is no longer served from
+> the server's own memory: the graph is loaded into Postgres alongside game state, and the check is an
+> indexed lookup rather than a set membership test. **Void below:** "loaded read-only, in-process,"
+> `castIds.contains(...)`, and the consequence that "the engine/data seam must not cross a network
+> hop." That constraint existed to protect a latency budget
+> [ADR 025](#025-the-server-is-typescript-on-node-with-fastify) established this system does not have.
 
 **Date:** 2026-06-29
 
@@ -672,6 +689,12 @@ apart.
 - **Unchanged:** server-authoritative state, the precomputed in-process graph, the engine/data
   co-location, the pure round engine, the durable-store requirement set (serializable, survives
   restarts, spans days, CAS-able, never behind a TTL), and device-anchored identity.
+  *(Two entries in that list did not survive.
+  [ADR 026](#026-the-graph-lives-in-the-durable-store-not-in-process-the-store-is-postgres) moves the
+  graph into the store, voiding "the precomputed in-process graph" and "the engine/data co-location" —
+  and it is this ADR's own demotion of latency that removed their justification.
+  [ADR 022](#022-identity-is-a-third-party-authenticated-account) replaced device-anchored identity.
+  The requirement set and the pure engine hold.)*
 
 ---
 
@@ -799,7 +822,12 @@ endpoint.
 3. **One seam is required now:** the client's suggestion call is an interface —
    `suggest(prefix) -> Candidate[]` — never a `fetch` inlined into an input handler. This is the
    entire cost of the deferral, and it is a fourth seam of the kind ADR 018 established.
-4. **The search-optimised shape is derived server-side at boot, never in the ETL.** The artifact
+4. **The search-optimised shape is derived server-side at boot, never in the ETL.** *(Amended by
+   [ADR 026](#026-the-graph-lives-in-the-durable-store-not-in-process-the-store-is-postgres): the
+   corpus now lives in Postgres, so the keys are derived **at load** rather than at boot and are
+   stored as rows. Still server-side, still not in the ETL, and the reason below is preserved — the
+   fold is a TypeScript function in `server/`, so changing it is a reload, not a graph rebuild.)* The
+   artifact
    emits the neutral contract; folded search keys are a consumer concern exactly as ID adaptation is
    under [ADR 016](#016-cast-ids-are-wikidata-qid-strings-id-adaptation-is-loader-side). This also
    means the index format can change without a graph rebuild.
@@ -948,6 +976,13 @@ loop.
 
 ## 022: Identity is a third-party authenticated account
 
+> **The deferred provider choice in item 4 is settled by
+> [ADR 027](#027-supabase-is-the-durable-store-and-the-identity-provider): Supabase, bundled with the
+> store exactly as the first consequence below anticipated.** Everything else here holds — JWKS
+> verification is still the whole server-side surface, and the Player record still keys to the
+> subject claim. **The two questions under "Not decided here" remain open**: which notification
+> channel is primary, and whether signing in is required to play.
+
 **Date:** 2026-08-09
 
 **Supersedes [ADR 013](#013-persistent-player-identity-device-anchored-first).**
@@ -1061,7 +1096,11 @@ work:
   [ADR 019](#019-the-graphs-degree-1-population-is-acceptable-cap-rescue-is-rejected) leaves open
   whether players find dead-end moves at all. Both need players.
 - **A client cannot share the engine in any useful way.** The connection check requires the 21 MB graph
-  and graph co-location is a binding boundary. What a client *can* validate — correct type, not already
+  and graph co-location is a binding boundary. *(The conclusion survives
+  [ADR 026](#026-the-graph-lives-in-the-durable-store-not-in-process-the-store-is-postgres); the reason
+  changed. Co-location is no longer a boundary — the graph is in Postgres, which a client reaches even
+  less than it reached the server's heap, since the server holds the only credentials.)* What a client
+  *can* validate — correct type, not already
   played — is [ADR 021](#021-a-refused-move-is-rejected-not-lost-the-round-engine-gains-an-outcome-taxonomy)'s
   typeahead filtering, which needs the chain and nothing else. `AGENTS.md`'s "shareable across server
   and clients" is a true statement about purity and a weak argument for code reuse. This matters
@@ -1212,7 +1251,10 @@ false economy that hand-rolls error handling, CORS, and rate limiting.
   absorb, and it is the strongest argument the losing option had.
 - **Edge and isolate runtimes are ruled out**, language-independently: the in-memory graph exceeds
   per-isolate memory limits. §3.3 chooses among containers, scale-to-zero included. Recorded here
-  because TypeScript is what makes this the easy wrong turn.
+  because TypeScript is what makes this the easy wrong turn. *(This exclusion lost its premise to
+  [ADR 026](#026-the-graph-lives-in-the-durable-store-not-in-process-the-store-is-postgres) — the
+  graph is no longer resident. It is not being reopened: doing so would reopen the Fastify choice,
+  which is Node-first, for no benefit.)*
 - **Scale-to-zero is unaffected and ADR 018's cold-start measurement now transfers** — Node starts
   faster than CPython and the artifact parse is the dominant term in that figure. Had Kotlin won, it
   would have needed re-measuring.
@@ -1236,3 +1278,161 @@ false economy that hand-rolls error handling, CORS, and rate limiting.
 - **Memory sizing is unmeasured and belongs to §3.3.** A naive `Map<string, Set<string>>` over 456,129
   edges plausibly lands in the hundreds of MB; a QID → index representation over typed arrays cuts that
   several-fold. Neither figure was measured, and neither differentiated the candidates.
+  *(Dissolved by [ADR 026](#026-the-graph-lives-in-the-durable-store-not-in-process-the-store-is-postgres):
+  the graph is not resident, so there is nothing here for §3.3 to size. The "mature large-heap story"
+  sub-criterion in the Node row above goes with it; vendor-SDK compatibility was the primary reason
+  and is unaffected.)*
+
+---
+
+## 026: The graph lives in the durable store, not in process; the store is Postgres
+
+**Date:** 2026-08-14
+
+**Settles the store-class half of planning agenda §3.2.**
+**Supersedes the in-process clause of
+[ADR 009](#009-validation-is-precomputed-offline-and-served-in-process--no-per-turn-external-api).**
+**Amends [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture)** (its
+"Unchanged" list), **[ADR 020](#020-typeahead-resolves-server-side-the-client-index-is-a-deferred-fast-follow)**
+(item 4), and **[ADR 025](#025-the-server-is-typescript-on-node-with-fastify)** (two consequences).
+
+**Context:** ADR 009 fused two claims — validation is *precomputed offline* rather than fetched per
+turn, and the precomputed graph is held *in the same process* as the validation logic. The first is
+the insight the project rests on. The second was a deployment consequence assumed to follow from it,
+justified by latency. ADR 018 retracted the "connection-bound" premise underneath it, and ADR 025
+found no throughput-, latency-, or concurrency-bound path anywhere in the server. With latency
+demoted, co-location has no remaining benefit — and three costs it had been carrying silently became
+visible.
+
+| Cost of in-process | Where it landed |
+|---|---|
+| Artifact distribution at deploy time | ADR 009: "this constrains deployment." How was never decided — bake 21 MB into the image, or fetch it at boot |
+| Resident memory sets the instance size | ADR 025 left it unmeasured and handed it to §3.3 as an open blocker |
+| A graph version bump is a fleet redeploy | `v2` reaches players only by rebuilding and redeploying every instance |
+
+**What was checked before deciding:** whether anything needs graph *traversal*, which is the query
+shape SQL is bad at. Nothing does. Every access is a bounded indexed lookup — one index probe for "is
+(actor, movie) an edge?", a btree range scan for typeahead, a single-row lookup for QID → label. ADR
+020 is what keeps it that way: typeahead searches the full corpus and **never the legal moves**, so
+the search path never touches an edge. Search and validation are independent datasets that happened
+to ship in one file.
+
+**Decision:**
+
+1. **The durable store is Postgres.** ADR 012's requirement set — serializable, survives restarts,
+   spans days, compare-and-swap on a version, never behind a TTL — is a `version` column and
+   `UPDATE … WHERE version = $n`.
+2. **The graph is loaded into that same database**, in its own schema separate from game state. A
+   version bump loads a new schema and flips a view: no redeploy, no artifact shipping.
+3. **Folded search keys are computed in `server/`, in TypeScript, at load time.** One fold
+   implementation serves both the corpus and the query, so the two cannot drift. This amends ADR 020
+   item 4 from "derived at boot" to "derived at load"; its stated reason — the index shape changes
+   without a graph rebuild — is preserved.
+4. **The loader is loader-side, in `server/`, and runs out of band.** It is an operator-invoked task
+   reading the artifact from wherever the operator holds it, not a step in the server's boot path.
+   **The deployed server never reads the artifact** — that is what makes item 2's "no artifact
+   shipping" true, and a loader on the boot path would silently reinstate the cost this ADR removes.
+   The ETL artifact contract is unchanged and keeps emitting the neutral shape. Precedent:
+   [ADR 016](#016-cast-ids-are-wikidata-qid-strings-id-adaptation-is-loader-side)
+   put ID adaptation loader-side, and ADR 020 item 4 already called folded keys "a consumer concern."
+5. **The round engine is untouched.** It receives `castIds` as data and never reads the graph, so this
+   lands entirely in the session layer — behind the `ConnectionChecker` seam
+   [the case study](investigations/000-system-design-case-study.md) §3 named for exactly this
+   substitution ("swap the backing store … without touching game logic").
+
+**Alternatives.** **Keep the graph in process and store only game state** — pays all three costs above
+for a latency benefit ADR 025 established nothing needs. **A document store (Firestore, DynamoDB)** —
+per-read billing against a poll loop and a 456,129-row corpus, plus weaker transactions for the CAS
+requirement. **Split the graph: edges in memory, entities in SQL** — optimises the wrong half, since
+the edges are ~3.6 MB as typed arrays and the labels are the bulk, and it reinstates artifact
+distribution. **SQLite on a volume** — reintroduces the single-instance constraint ADR 018 removed.
+
+**Consequences:**
+
+- **Agenda §1's "validation is co-located with the graph, in-process; the engine/data seam must never
+  cross a network hop" is void.** It was filed under "Settled — do not re-litigate" and should not
+  have been: it followed from a latency assumption, not from the ETL contract, and every other item in
+  that list follows from the contract.
+- **Typeahead is the one path that gets worse.** It is the only human-perceptible budget in the system
+  (ADR 020: 200–400 ms p50 estimated) and now takes a database round trip. Same region is ~1–3 ms and
+  is noise; cross-region is 50–150 ms and is a 30–50% regression. **Server and database in the same
+  region is therefore a binding §3.3 constraint**, not a preference.
+- **A store that bills per read is now disqualifying, not merely a criterion.** ADR 022 and agenda
+  §3.2 flagged the poll loop as a read generator; adding the graph makes flat pricing structural.
+- **ADR 025's edge/isolate exclusion loses its premise** — the memory limit was the whole argument.
+  Not being chased: reopening it reopens the Fastify choice for no gain.
+- **ADR 025's memory-sizing unknown dissolves**, and its "mature large-heap story" sub-criterion for
+  Node evaporates with it. Vendor-SDK compatibility was the primary reason and is unaffected.
+- **Sizing, estimated and not measured:** ~90–110 MB with QIDs stored as text — edges plus one unique
+  index ≈ 45 MB, entities ≈ 10 MB, ~350K word-start key rows plus index ≈ 35 MB. Integer QIDs are a
+  several-fold lever if that ever binds; ADR 016 permits it because adaptation is loader-side, but the
+  artifact, the API, and the engine keep speaking QID strings.
+- **Fold consistency is unchanged from ADR 025's reading.** One TypeScript implementation covers
+  corpus and query; it becomes cross-runtime only when a native client lands. ADR 025's warning
+  stands — `toLowerCase` is not case folding, and ß is the known divergence.
+- **The word-start expansion is a table, not a column.** One entity yields a row per word start
+  (`The Matrix` → `the matrix`, `matrix`), so ~136,689 entities produce ~350K key rows against a btree.
+  Ranking still needs the sitelink counts ADR 020 flagged as an ETL schema bump; that change is
+  independent of this one and unaffected by it.
+
+---
+
+## 027: Supabase is the durable store and the identity provider
+
+**Date:** 2026-08-14
+
+**Settles the vendor half of planning agenda §3.2 and
+[ADR 022](#022-identity-is-a-third-party-authenticated-account)'s deferred provider choice.**
+
+**Context:** ADR 022 deferred the provider and recorded that the choice was coupled to the store,
+because several vendors bundle both. [ADR 026](#026-the-graph-lives-in-the-durable-store-not-in-process-the-store-is-postgres)
+fixes the store class as Postgres and requires flat pricing. What remains is which Postgres, and
+whether identity comes with it.
+
+**Decision:**
+
+1. **Supabase provides both** — Postgres for the durable store and the graph, Supabase Auth for
+   identity.
+2. **The server stays authoritative and clients never touch the database.** The server holds the
+   service key; the client's only Supabase contact is the sign-in flow.
+3. **The Player record foreign-keys to `auth.users`**, satisfying ADR 022 item 3 with a referential
+   guarantee rather than a convention.
+4. **JWT verification against the provider's JWKS is unchanged** (ADR 022 item 2). That remains the
+   entire server-side auth surface.
+
+| Finding | Effect |
+|---|---|
+| Auth lands in the same Postgres, so `players` can foreign-key `auth.users` | The bundling buys a referential guarantee, not just one vendor and one bill |
+| Pricing is compute + storage, not per operation | Satisfies ADR 022's per-read criterion and ADR 026's flat-pricing requirement structurally |
+| Managed Postgres with no operational surface | Server-side integration is a connection string and a JWKS URL |
+
+**Be precise about what is being bought: managed Postgres plus auth.** Server-authoritative play makes
+PostgREST, Row Level Security, and Realtime irrelevant — they are most of the product's surface and
+none of them count in its favour here. Any replacement is evaluated on the same two axes.
+
+**Alternatives.** **Neon + Clerk** — plausibly better at each half separately; costs mirroring identity
+across two systems and reconciling it forever. **Managed Postgres alone (RDS, Cloud SQL) plus a
+separate auth provider** — the same split with more operational surface. **Firebase/Firestore with
+Firebase Auth** — bundled and mature, but excluded by ADR 026's flat-pricing requirement.
+
+**Consequences:**
+
+- **§3.3 inherits a hard constraint** — the server must be hosted in the same region as the Supabase
+  project, per ADR 026. This narrows hosting more than any other input to it.
+- **Free-tier projects pause after inactivity, and correspondence play is the pattern that triggers
+  it.** A quiet week is normal for this game. Current terms should be verified before relying on the
+  free tier; paid projects do not pause. **Not resolved here** — it is a §3.3 cost input.
+- **Verify storage headroom on the same pass, not just pausing.** ADR 026 estimates the graph at
+  ~90–110 MB, which makes it the dominant consumer of whatever storage the tier includes — a second
+  way the free tier can fail to fit, and one that does not appear until the loader runs. The current
+  limit is not recorded here deliberately; look it up rather than trusting a figure in a doc.
+- **Scale-to-zero needs the connection pooler.** Transaction-mode pooling disables prepared statements
+  and session state. A §3.3 interaction, not a blocker.
+- **Vendor stickiness is bounded but real.** ADR 022's JWKS abstraction keeps verification portable;
+  foreign keys into `auth.users` do not migrate for free, and a move means re-issuing identities.
+- **ADR 022's two open questions are untouched.** Which notification channel is primary, and whether
+  signing in is required to play, are both still open. Supabase supports magic-link and passkey
+  sign-in, which ADR 022 named as cheaper at first run — that informs the second question without
+  answering it.
+- **The environment gains credentials.** A database URL and a service key, injected from the
+  environment and never committed. AGENTS.md's Environment section had no entries and now does.

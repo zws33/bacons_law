@@ -4,7 +4,7 @@ A trivia game based on "Six Degrees of Kevin Bacon." Two or more players on sepa
 turns naming movies and actors to build a chain of connections, each answer connecting factually to
 the one before it. Play is **correspondence** — async, move-when-you-can, with a per-turn deadline. A
 server owns authoritative game state and validates every move against a precomputed actor↔movie graph
-held in memory.
+held in Postgres alongside that state.
 
 > **This file is navigation, not rules.** It holds repository layout, build commands, environment, and
 > conventions — the things that are true every session and change rarely.
@@ -22,7 +22,8 @@ held in memory.
 >
 > **The system to be built is not in the tree yet:** a `server/` directory
 > ([ADR 025](docs/DECISIONS.md)) and a web client directory ([ADR 023](docs/DECISIONS.md)). Neither is
-> started. Storage and hosting are the two decisions still open.
+> started. Storage is Supabase Postgres and the graph lives in it, not in the server's memory
+> ([ADRs 026 and 027](docs/DECISIONS.md)); hosting is the one decision still open.
 >
 > **Prior efforts are preserved as reference, not maintained** — the Kotlin/Compose Android client
 > (`:app`) and the Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag
@@ -43,7 +44,7 @@ experiment is *adding a directory*, not restructuring the root.
 | Path | What it is | Status |
 |---|---|---|
 | `etl/` | Offline Wikidata graph build (Python, `uv`/`ruff`). Produces the versioned artifact everything else is written against. Own rules in [etl/AGENTS.md](etl/AGENTS.md) | **Durable.** The one fixed contract |
-| `server/` | The session server — TypeScript on Node, Fastify ([ADR 025](docs/DECISIONS.md)). Holds the round engine, the match layer, and the session layer | **Not started.** Where new server work goes |
+| `server/` | The session server — TypeScript on Node, Fastify ([ADR 025](docs/DECISIONS.md)). Holds the round engine, the match layer, the session layer, and the loader that populates Postgres from the ETL artifact ([ADR 026](docs/DECISIONS.md)) | **Not started.** Where new server work goes |
 | *(unnamed)* | The web client — the primary client ([ADR 023](docs/DECISIONS.md)), a **separate top-level directory** with its own toolchain | Not started |
 | `kotlin/core` (`:core`) | The pure round engine prototype. Superseded by ADR 025 and not ported; the spec it was graded against, [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md), outlives it | **Reference only — do not modify** |
 | `kotlin/backend` (`:backend`) | Still the thin TMDB proxy it started as. Never became the session server | **Reference only — do not modify** |
@@ -71,8 +72,9 @@ there is **no `:core:test` task**.
 There is no TMDB key and no API key of any kind — validation data is CC0 Wikidata, built offline.
 
 - **ETL** runs offline; its Wikidata access needs no secret.
-- **Server** storage dependencies are undecided, so there are no environment variables to document
-  yet. Whatever is chosen, inject credentials from the environment; never commit them.
+- **Server** talks to Supabase ([ADR 027](docs/DECISIONS.md)) and needs a Postgres connection string
+  and a service key, plus the provider's JWKS URL for token verification. Inject all three from the
+  environment; never commit them. The service key is server-only — clients never reach the database.
 
 ---
 
@@ -90,8 +92,10 @@ There is no TMDB key and no API key of any kind — validation data is CC0 Wikid
 
 ## Where the rules live
 
-Specs are authoritative and this file defers to them. ADRs record reasoning — read them for *why*, and
-treat 008–020 as reasoned positions the planning session may replace, not as commitments.
+Specs are authoritative and this file defers to them. ADRs record reasoning — read them for *why*.
+021–027 are commitments from the planning session; earlier ADRs are reasoned positions that several
+of those have since overtaken. **Where an ADR has been overtaken it says so inline at the top** — read
+that marker before acting on its contents rather than treating any range as wholesale provisional.
 
 **Read the relevant document before changing behavior in its area.** These are not summaries to be
 skimmed; each one carries rules that are not obvious and that have already been argued once.
@@ -100,7 +104,7 @@ skimmed; each one carries rules that are not obvious and that have already been 
 |----------|------|
 | [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) | **The round-engine spec of record.** Move validation, turn rotation, repeats, the opening move, rejections vs. round losses, termination. Rules R1–R17 + a numbered conformance suite; language-agnostic. Authoritative over `kotlin/core/.../GameEngine.kt` and its tests, which are prototype code it records the divergences from |
 | [docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md) | **The match-layer spec of record** ([ADR 024](docs/DECISIONS.md)). Strikes, removal from play, match end, standings, opener rotation, cross-round exclusions. Rules M1–M16 + a numbered conformance suite; language-agnostic. Nothing implements it yet |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | **The ADR log — and the project's scope.** Architecture, data source, transport, identity, client, typeahead, and what is deliberately *not* being built. **Read [ADR 018](docs/DECISIONS.md) first**; it amends 008, 011, and 012 on transport, hosting, and modes. Check it before adding any game mechanic |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | **The ADR log — and the project's scope.** Architecture, data source, transport, identity, client, typeahead, and what is deliberately *not* being built. **Read [ADR 026](docs/DECISIONS.md) before anything in 009, 011, or 018 about where the graph lives or what the server holds in memory**, and **[ADR 018](docs/DECISIONS.md) before anything in 008–012 about transport, presence, or modes.** Check it before adding any game mechanic |
 | [etl/AGENTS.md](etl/AGENTS.md) | ETL operating rules and the load-bearing facts of the graph build — including what the cast cap does to "appeared in" |
 | [docs/PLANNING_AGENDA.md](docs/PLANNING_AGENDA.md) | Open decisions, known debt, and what is already settled. The current state of play |
 | `movie-actor-chain-game` skill | Domain rules and vocabulary. Implementation-agnostic — it deliberately leaves repeats, the opening move, and "appeared in" policy open, and the conformance specs answer them |

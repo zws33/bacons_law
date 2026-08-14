@@ -1,6 +1,6 @@
 # etl — the offline graph build
 
-Builds the versioned actor↔movie graph artifact that the Bacon's Law server loads read-only at boot.
+Builds the versioned actor↔movie graph artifact that the Bacon's Law server loads into Postgres.
 Source is CC0 Wikidata over SPARQL (QLever). Runs **offline** — it is never in the request path, and
 there is no API key.
 

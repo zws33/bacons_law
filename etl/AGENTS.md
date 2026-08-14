@@ -2,7 +2,7 @@
 
 Scope: this directory is the **offline graph build** — a self-contained Python toolchain
 (`uv` + `ruff`, Python 3.14) with no coupling to the Kotlin project. It runs **offline**, produces the
-versioned graph artifact the server loads at boot, and is **never** in the request path. (The root
+versioned graph artifact the server loads into its database, and is **never** in the request path. (The root
 `AGENTS.md` still applies; this file adds the ETL-specific focus so a session here doesn't have to
 reason about the whole backend.)
 
@@ -89,9 +89,16 @@ re-pull.
 
 ## The one architectural reason this pipeline exists
 
-The server validates every move with an **O(1) in-memory set-membership check** against this graph,
-loaded read-only at boot — no per-turn API call. So this pipeline's entire job is to produce a
-**correct, reproducible, deterministic** bipartite artifact. Everything above is downstream of that.
+The server validates every move with a **single indexed lookup** against this graph — no per-turn API
+call, ever. So this pipeline's entire job is to produce a **correct, reproducible, deterministic**
+bipartite artifact. Everything above is downstream of that.
+
+**Where the artifact gets loaded is not this pipeline's concern and changed once already.** It used to
+be read into the server's memory at boot; [ADR 026](../docs/DECISIONS.md) loads it into Postgres
+instead. The artifact contract did not change and is not expected to: the ETL emits the neutral shape,
+and consumer-side reshaping — ID adaptation ([ADR 016](../docs/DECISIONS.md)), folded search keys
+([ADR 020](../docs/DECISIONS.md)) — stays loader-side by rule. **Do not add a database-shaped export
+target here.**
 
 ## Operational note
 

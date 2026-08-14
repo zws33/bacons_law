@@ -19,23 +19,28 @@
 > consumed §4.1 and one of §5's questions.
 >
 > **Amended 2026-08-14** for [ADR 025](DECISIONS.md), which consumed §3.1 and voided three of §6's
-> five debt rows.
+> five debt rows; then for [ADRs 026 and 027](DECISIONS.md), which consumed §3.2 and **struck an item
+> from §1** — the first time a "do not re-litigate" entry has been overturned rather than confirmed.
 >
-> **The deletion trigger has not fired.** Two decisions remain: **store (§3.2), hosting (§3.3)**.
-> Nothing else in this file is outstanding. Delete it once those are made.
+> **The deletion trigger has not fired.** One decision remains: **hosting (§3.3)**, and ADR 026 hands
+> it a binding constraint it did not have. Nothing else in this file is outstanding. Delete it once
+> that is made.
 
 ---
 
 ## 1. Settled — do not re-litigate
 
 These follow from the ETL contract and hold across any rewrite in any language. Discarding one
-discards the reason `etl/` exists. Full statements in [`../AGENTS.md`](../AGENTS.md) under
-Architecture Boundaries → Binding.
+discards the reason `etl/` exists.
 
-- Validation data is **precomputed offline** into a versioned artifact, loaded read-only at boot.
-  No per-turn external API call, ever.
-- **Validation is co-located with the graph, in-process.** The engine/data seam must never cross a
-  network hop.
+- Validation data is **precomputed offline** into a versioned artifact. No per-turn external API
+  call, ever. *(Where it is loaded **to** changed — see [ADR 026](DECISIONS.md) — but that it is built
+  once, offline, did not.)*
+- ~~**Validation is co-located with the graph, in-process.** The engine/data seam must never cross a
+  network hop.~~ **Overturned, [ADR 026](DECISIONS.md).** The graph lives in Postgres with game
+  state; the seam crosses a network hop deliberately. This item did not belong in this list: every
+  other entry follows from the ETL contract, and this one followed from a latency assumption
+  [ADR 018](DECISIONS.md) and [ADR 025](DECISIONS.md) had already dismantled.
 - **Cast IDs are Wikidata QID strings.** ID adaptation is loader-side; never pre-map to integers.
 - **Movies only, CC0 Wikidata, no API key.**
 - **The engine is pure** — no I/O, no platform dependencies.
@@ -90,42 +95,45 @@ boundary in every language, and "Kotlin is already in the tree" amounts to 188 l
 conformance suite specifies as failing.
 
 **Three facts from it bear on §3.2 and §3.3.** Bundled auth + store providers ship first-class
-TypeScript SDKs, so §3.2 is unconstrained by this. ADR 018's
+TypeScript SDKs, so §3.2 is unconstrained by this — borne out, [ADR 027](DECISIONS.md). ADR 018's
 cold-start measurement transfers without re-measuring — every JavaScript runtime in play starts faster
 than CPython — so §3.3 keeps scale-to-zero for free. And **edge/isolate runtimes are ruled out** for
-§3.3 — the in-memory graph exceeds per-isolate memory limits, language-independently.
+§3.3 — the in-memory graph exceeds per-isolate memory limits, language-independently. *(That third
+fact lasted one decision: [ADR 026](DECISIONS.md) took the graph out of memory. Not being reopened —
+see §3.3.)*
 
-### 3.2 Durable store
+### 3.2 ~~Durable store~~ — **DECIDED, [ADRs 026 and 027](DECISIONS.md)**
 
-**Requirements** (from [ADR 012](DECISIONS.md), unaffected by 018): serializable state; survives
-restarts; spans days for correspondence; compare-and-swap on a version; **never behind a TTL.**
+Resolved, and it turned out to be two decisions rather than one. **[ADR 026](DECISIONS.md): the store
+is Postgres, and the graph moves into it** alongside game state — superseding ADR 009's in-process
+clause and striking §1's co-location item. **[ADR 027](DECISIONS.md): Supabase** provides that
+Postgres and, bundled with it, ADR 022's deferred identity provider.
 
-**Now simpler:** no cache or pub/sub layer to pair with it.
+**The section's own framing is what settled it.** The per-read point above ("structural, not a tuning
+detail") was recorded as a criterion; adding a 456,129-row graph to the same store promotes it to
+disqualifying, which excluded the document stores outright. The "newly coupled" note was correct — it
+was one vendor decision, not two.
 
-**Worth weighing:** with polling as the notification mechanism, reads substantially outnumber
-writes. The store's read path matters more than its write path.
-
-**Sharpened by [ADR 022](DECISIONS.md):** that read imbalance has a price tag. A ~2s poll loop is a
-read generator by construction, so a store billing **per read** converts the notification design into
-a running cost while a store on a fixed instance does not. Structural, not a tuning detail.
-
-**Newly coupled:** several providers bundle auth with storage, so this may be one decision with ADR
-022's deferred provider choice rather than two. Weigh the bundling against the per-read point above —
-they can pull in opposite directions.
-
-**Unconstrained by [ADR 025](DECISIONS.md):** the bundled auth + store providers all ship first-class
-TypeScript SDKs, so the stack decision does not narrow this one.
+**What this section did not anticipate:** that the graph's placement was on the table at all. It was
+filed under §1 as settled. Removing the latency justification is what reopened it.
 
 ### 3.3 Hosting
 
-Open. Cold start is not an obstacle (§2), and [ADR 025](DECISIONS.md) keeps that true without a
-re-measure — every JavaScript runtime in play starts faster than CPython. Decide on cost, operational
-simplicity, and familiarity.
+Open — **the last decision on this agenda.** Cold start is not an obstacle (§2), and
+[ADR 025](DECISIONS.md) keeps that true without a re-measure. Decide on cost, operational simplicity,
+and familiarity.
 
-**Two inputs from [ADR 025](DECISIONS.md).** Edge and isolate runtimes are ruled out — the in-memory
-graph exceeds per-isolate memory limits, language-independently — so the choice is among containers,
-scale-to-zero included. And the graph's resident memory is unmeasured; that number has to exist before
-an instance can be sized.
+**Now constrained by [ADR 026](DECISIONS.md): the server must run in the same region as the Supabase
+project.** Typeahead is the only human-perceptible latency budget in the system and now takes a
+database round trip — same-region is ~1–3 ms and is noise, cross-region is 50–150 ms against an
+estimated 200–400 ms p50. This narrows the candidate set more than any other input here.
+
+**Two inputs this section used to carry are gone.** The edge/isolate exclusion lost its premise — the
+graph is no longer resident — and is deliberately not being reopened, since Fastify is Node-first.
+The graph's resident memory is no longer a number to measure before sizing; the instance can be small.
+
+**Open cost input:** Supabase free-tier projects pause after inactivity, and a quiet week is normal
+for correspondence play. Verify current terms against the paid tier before sizing the bill.
 
 ### 3.4 ~~Client~~ — **DECIDED, [ADR 023](DECISIONS.md)**
 
@@ -164,11 +172,16 @@ criterion, alongside the round engine's `Move`.
 
 ### 4.2 ~~The typeahead~~ — **DECIDED, [ADR 020](DECISIONS.md)**
 
-Resolved. Typeahead resolves **server-side** against the in-memory `entities` map with a debounced
-client; the client-side index is deferred behind a `suggest(prefix) -> Candidate[]` seam, its trigger
-being playtest evidence that latency is felt. Folded search keys derive at boot, never in the ETL.
-[ADR 021](DECISIONS.md) adds the filtering rule: by required type and the played set, never by
-adjacency.
+Resolved. Typeahead resolves **server-side** with a debounced client; the client-side index is
+deferred behind a `suggest(prefix) -> Candidate[]` seam, its trigger being playtest evidence that
+latency is felt. [ADR 021](DECISIONS.md) adds the filtering rule: by required type and the played
+set, never by adjacency.
+
+**Amended by [ADR 026](DECISIONS.md) in two places.** The corpus is a Postgres table rather than an
+in-memory map, so folded keys derive **at load** rather than at boot — still server-side, still not in
+the ETL, and still one TypeScript fold covering both corpus and query. And this section's own
+framing — that typeahead searches the full corpus and never the legal moves — is what made the move to
+SQL clean, because it means the search path never touches an edge.
 
 **Do not re-open on the sequencing argument this section originally made.** It claimed that shipping
 the index to the client would shrink the server's job and make 3.1 and 3.2 easier. The server keeps the
@@ -217,8 +230,8 @@ when this agenda was written.
 
 ## 7. Suggested sequencing
 
-Not a decision — a proposal, offered because the dependencies are real. **Four of the original five
-steps are done**, leaving only the fifth; what follows is the remainder, renumbered.
+Not a decision — a proposal, offered because the dependencies are real. **All five of the original
+steps are done**; what follows is the remainder, renumbered.
 
 - ~~Typeahead placement~~ — **done, [ADR 020](DECISIONS.md)**. Note its stated rationale did not
   survive: it was sequenced first on the theory that shipping the index would shrink the server's job,
@@ -241,12 +254,19 @@ steps are done**, leaving only the fifth; what follows is the remainder, renumbe
   keeping: it turned out to be *two* decisions of very different weight, and separating them was what
   let the reversible half be decided quickly and the irreversible half slowly.
 
-1. **Store (3.2)** — coupled to ADR 022's deferred auth-provider choice, since some providers bundle
-   the two. Weigh the bundle against the per-read pricing point in §3.2. ADR 025 does not narrow it:
-   the bundled providers all ship first-class TypeScript SDKs.
-2. **Hosting (3.3)** — genuinely deferrable, and constrained only by ADR 025's edge/isolate exclusion.
+- ~~Store~~ — **done, [ADRs 026–027](DECISIONS.md)**, and it was the largest decision on this agenda,
+  which nothing here predicted. It was listed as a vendor choice; it turned out to contain an
+  architectural one, because asking what the store should hold reopened where the graph lives. The
+  coupling this list flagged (bundled auth) was real and resolved as predicted. The lesson from the
+  stack entry repeated: two decisions of different weight, separated.
+
+1. **Hosting (3.3)** — the last item, and no longer unconstrained. ADR 026 requires the server to run
+   in the same region as the Supabase project, which is a sharper constraint than the edge/isolate
+   exclusion it replaces. Decide on cost and operational simplicity; verify the free tier's inactivity
+   pause first.
 
 **What is not on the critical path:** issue #19's rebuild, `:app`, and `:backend`.
 
-**Still true:** §1 and §2 are untouched by ADRs 020–025. §3's remaining two decisions are the bulk of
-what the session has not done.
+**No longer true:** §1 is *not* untouched. [ADR 026](DECISIONS.md) struck its co-location item — the
+only "do not re-litigate" entry this session overturned, and it went because it rested on a latency
+assumption rather than on the ETL contract that justifies the rest of the list.

@@ -528,7 +528,7 @@ Required by the game, enforced elsewhere. An engine that enforces these is over-
 | Requiring the opening move to be an Actor, if a mode wants it | Caller (session / UI layer) |
 | The player is offered the correct entity type each turn | Caller filters its typeahead to the required type; [R4](#r4--same-type-consecutive-moves-are-rejected) is the engine's backstop, and a wrong type reaching it means the client malfunctioned |
 | The player is not offered an entity already played, or excluded | Caller filters its typeahead against the chain and the exclusion sets; [R5](#r5--availability-repeats-and-exclusions) is the backstop |
-| `castIds` is accurate and complete | Caller populates from the in-memory graph before constructing the move |
+| `castIds` is accurate and complete | Caller populates from the graph before constructing the move |
 | Name resolution, typos, disambiguation | Caller, before a `Move` exists |
 | **Bounding the turn, so the round terminates** | **Session layer, via the deadline. The engine bounds the chain but not the retry loop — [R17](#r17--every-round-terminates)** |
 | **Deciding whether a forfeit is `GaveUp` or `DeadlineLapsed`** | **Session layer; it passes the reason to `forfeit`. The engine has no clock ([R10](#r10--the-engine-is-pure))** |

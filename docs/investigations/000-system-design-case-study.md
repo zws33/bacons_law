@@ -70,6 +70,14 @@ This single sentence is the throughline of the entire project. Every section bel
 
 > One caveat worth stating early, because it constrains a later decision: the "sub-millisecond validation" property holds _only_ while the precomputed graph lives in the same process's memory as the validation logic. That co-location is load-bearing, and it quietly rules out some otherwise-tidy deployment shapes (see §6).
 
+> **Superseded by [ADR 026](../DECISIONS.md).** The caveat is technically correct and was acted on for
+> two months; what it got wrong was calling co-location load-bearing. Sub-millisecond validation was
+> never a requirement — a turn takes minutes to days — so the property it protects is not one this
+> game needs. The graph now lives in Postgres with game state. Note that §3's own table names the seam
+> that made the swap cheap: *"hide validation behind a `ConnectionChecker` interface — lets you swap
+> the backing store (in-process map → an external store → something else) without touching game
+> logic."* That advice held, and it is the reason this correction cost a loader rather than a rewrite.
+
 ---
 
 ## 3. Validation and the graph
