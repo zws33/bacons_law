@@ -25,7 +25,8 @@ Lightweight ADR-style record of key technical and product decisions.
 > with a third-party authenticated account (022, superseding 013). A consequence worth knowing: 018
 > addressed "it's your turn" to a push token on a device, and identity is no longer a device, so
 > **the notification channel is reopened** — 022 records the two facts that bound it and leaves the
-> choice undecided.
+> choice undecided. **024 gives the match layer a spec of record**, closing the half of 014 that was
+> left unwritten and extending 017's "the spec outranks the implementation" to it.
 > The archived Python/FastAPI showcase kept its own log; it was deleted along with that effort's plans
 > — see [`HISTORY.md`](HISTORY.md).
 >
@@ -435,8 +436,10 @@ is meaningless above that. If a mode wants a winner, the match layer derives one
   result ([ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md) R8/S3).
 - Within a round there is still **no miss tolerance** — the first failure ends it. ADR 003's principle
   survives at the round level; strikes accumulate at the match level.
-- The **match layer is unspecified** and writing it is a planning-session output.
-  [ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md) §Scope defines the seam it must attach to.
+- ~~The **match layer is unspecified**~~ — written and authoritative since
+  [ADR 024](#024-the-match-layer-has-a-spec-of-record):
+  [MATCH_CONFORMANCE.md](MATCH_CONFORMANCE.md). Note that ADR 024 drops the open-ended series named in
+  this ADR's context.
 - The prototype's `GameOver.winnerIndex` is the two-player convention generalized by modular
   arithmetic; it is wrong above two players and is a known divergence, not a contract.
 
@@ -543,10 +546,11 @@ silently choosing where the rules live.
   validation, and has repeat tests whose fixtures don't isolate the repeat rule.
 - The spec's own **Open questions** (failure reason codes, opening-player index, clock-expiry
   ownership, chain-length limits) are live inputs to the planning session, not oversights.
-  *(Two of those four — failure reason codes and clock-expiry ownership — were closed by
+  *(Three of those four are now closed: failure reason codes and clock-expiry ownership by
   [ADR 021](#021-a-refused-move-is-rejected-not-lost-the-round-engine-gains-an-outcome-taxonomy) on
-  2026-08-09. This ADR's decision is unaffected; the list is left as written, being a record of what
-  was open at the time.)*
+  2026-08-09, the opening-player index by
+  [ADR 024](#024-the-match-layer-has-a-spec-of-record) on 2026-08-13. This ADR's decision is unaffected;
+  the list is left as written, being a record of what was open at the time.)*
 
 ---
 
@@ -1081,3 +1085,50 @@ work:
 - **A native client's own decisions are not made here.** Which platform, whether it shares an engine,
   and what it is built with are open. This ADR settles only that native is a follow-up and is not
   store-deployed for now.
+
+---
+
+## 024: The match layer has a spec of record
+
+**Date:** 2026-08-13
+
+**Extends [ADR 017](#017-the-conformance-spec-is-authoritative-over-the-engine-implementation)** to the
+layer above the round engine. **Closes and amends
+[ADR 014](#014-round-and-match-are-separate-layers-the-round-engine-names-a-loser)**, whose match layer
+was left unspecified and whose mode list included an open-ended series.
+
+**Context:** ADR 014 split round from match and specified only the round. The match layer — strikes,
+removal, match end, standings, opener rotation, cross-round exclusions — existed as intent in prose and
+nowhere as rules. Nothing could be graded against it, in any stack.
+
+**Decision:** [`MATCH_CONFORMANCE.md`](MATCH_CONFORMANCE.md) is the **match layer's spec of record** —
+M1–M16 plus a numbered conformance suite, language- and framework-agnostic, on the same footing ADR 017
+gives the engine spec. Match-layer behavior changes go to the spec first.
+
+**Three things were decided in accepting it**, none of which the commissioning entry anticipated:
+
+| Decision | Why it was forced |
+|---|---|
+| `Removal.beforeRound` on every removal | Withdrawals advance no round, so removal order alone cannot say which rounds a player was in. Two legal histories otherwise produce identical match state and disagree about an earlier round's roster |
+| Round 0's opener is `matchOrder[0]` | Rotation replays only forward from a known origin, and `MatchOver` carries no `nextOpener` |
+| Standings use standard competition ranking (1, 2, 2, 4) | A presentation convention, chosen over dense ranking and pinned by the suite so implementations cannot differ silently |
+
+The first two are what make a stored round result interpretable, exposed as the `rosterAt(match, k)`
+projection.
+
+**Consequences:**
+
+- **The engine spec's opening-player-index question is closed and mostly dissolved.** The opener is
+  always seat 0, so there is no index to record; what replay needs is that round's roster, now
+  derivable.
+- **Agenda §4.1 and one §5 question are consumed.** Three decisions remain there: stack, store,
+  hosting.
+- **It adds an input to the stack decision, not a constraint.** Three more sealed unions
+  (`LimitPolicy`, `ReusePolicy`, `RemovalCause`) weigh under ADR 021's static-enforcement criterion.
+- **It places one requirement on the store:** every match is terminal, so terminal matches can be
+  archived out of the hot path.
+- **Two obligations land on the session layer**, both stated in the spec: voiding a round must be
+  atomic with the withdrawal that causes it, and a lapsed deadline is detected there, never here.
+- **The open-ended series is dropped as a mode.** ADR 014 listed it alongside eliminate and end-match;
+  `strikeLimit >= 1` is now required, because an unbounded series has no terminal state derivable from
+  round results. Revisited only on playtest evidence that players want it.

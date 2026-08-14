@@ -553,7 +553,10 @@ and [R5](#r5--availability-repeats-and-exclusions) from backstops into a routine
 **Move attribution is derivable, not stored.** `RoundOver.chain` records moves, not who played them.
 A caller that needs per-move attribution computes it from the round's opening player index and
 [R9](#r9--player-rotation): move `i` was played by `(openingPlayerIndex + i) % playerCount`. The match
-layer knows the opening index because it started the round.
+layer knows the opening index because it started the round — and in practice it is always zero, since
+the match layer builds every roster opener-first
+([MATCH_CONFORMANCE.md M8](MATCH_CONFORMANCE.md#m8--the-round-roster-is-derived-never-stored)), leaving
+`roster[i % playerCount]`.
 
 ---
 
@@ -1381,10 +1384,14 @@ engine — they are match-layer and contract questions the round engine's output
 > and `Unconnected` is the only one `playMove` can now produce. What survived was the give-up/lapse
 > pair, resolved by [R7](#r7--forfeit-ends-the-round)'s `ForfeitReason` parameter.
 
-**Whether the match layer needs the round's opening player index.** Move attribution is derivable from
-it ([Engine boundary](#engine-boundary)) and the match layer holds it — but nothing yet specifies that
-the match layer records it, and without it a persisted round result cannot be replayed with
-attribution.
+> **The opening player index is no longer open.** It is answered by
+> [`MATCH_CONFORMANCE.md`](MATCH_CONFORMANCE.md), and mostly dissolved: the match layer builds every
+> roster opener-first ([M8](MATCH_CONFORMANCE.md#m8--the-round-roster-is-derived-never-stored)), so the
+> opening index is always zero and there is nothing to record. What a persisted result actually needs
+> is *that round's roster*, which
+> [M9](MATCH_CONFORMANCE.md#m9--a-seat-index-is-round-local) derives from stored match state — via
+> `Removal.beforeRound` and a round-0 opener fixed at `matchOrder[0]`, both of which exist for this
+> purpose. `rosterAt(match, k)` is the projection that exposes it.
 
 > **Deadline expiry ownership is no longer open either.** [ADR 018](DECISIONS.md) reduced it to a
 > reason-code question by dropping the running chess clock, and [ADR 021](DECISIONS.md) then answered

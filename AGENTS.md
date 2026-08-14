@@ -89,7 +89,7 @@ skimmed; each one carries rules that are not obvious and that have already been 
 | Document | Owns |
 |----------|------|
 | [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) | **The round-engine spec of record.** Move validation, turn rotation, repeats, the opening move, rejections vs. round losses, termination. Rules R1–R17 + a numbered conformance suite; language-agnostic. Authoritative over `kotlin/core/.../GameEngine.kt` and its tests, which are prototype code it records the divergences from |
-| [docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md) | **The match-layer spec**, currently a **draft.** Strikes, removal from play, match end, standings, opener rotation, cross-round exclusions. Rules M1–M16 + a conformance suite |
+| [docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md) | **The match-layer spec of record** ([ADR 024](docs/DECISIONS.md)). Strikes, removal from play, match end, standings, opener rotation, cross-round exclusions. Rules M1–M16 + a numbered conformance suite; language-agnostic. Nothing implements it yet |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | **The ADR log — and the project's scope.** Architecture, data source, transport, identity, client, typeahead, and what is deliberately *not* being built. **Read [ADR 018](docs/DECISIONS.md) first**; it amends 008, 011, and 012 on transport, hosting, and modes. Check it before adding any game mechanic |
 | [etl/AGENTS.md](etl/AGENTS.md) | ETL operating rules and the load-bearing facts of the graph build — including what the cast cap does to "appeared in" |
 | [docs/PLANNING_AGENDA.md](docs/PLANNING_AGENDA.md) | Open decisions, known debt, and what is already settled. The current state of play |

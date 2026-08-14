@@ -15,9 +15,12 @@
 > gap — **the ADR is the source of truth in every case, never the summary here.** The file still
 > records no decisions of its own.
 >
+> **Amended 2026-08-13** for [`MATCH_CONFORMANCE.md`](MATCH_CONFORMANCE.md), now authoritative, which
+> consumed §4.1 and one of §5's questions.
+>
 > **The deletion trigger has not fired**, but it is close. Three decisions remain: **stack (§3.1),
-> store (§3.2), hosting (§3.3)** — plus the match-layer spec (§4.1), which is a writing task rather
-> than a decision. Delete this file once those three are made.
+> store (§3.2), hosting (§3.3)**. Nothing else in this file is outstanding. Delete it once those three
+> are made.
 
 ---
 
@@ -133,15 +136,20 @@ client" should be struck from §3.1's criteria** — it was doing more work ther
 
 ---
 
-## 4. Specs that do not exist
+## 4. Specs that did not exist — both now written
 
-### 4.1 The match layer — nothing is written
+### 4.1 ~~The match layer~~ — **WRITTEN, [`MATCH_CONFORMANCE.md`](MATCH_CONFORMANCE.md)**
 
-[`ENGINE_CONFORMANCE.md`](ENGINE_CONFORMANCE.md) defines the seam it must attach to and stops
-there. Needs specifying: strike accounting; whether a strike limit eliminates a player or ends the
-match; standings across a series; mode configuration; who opens the next round; and whether
-entities used in earlier rounds stay available (the engine already accepts
-`excludedActorIds`/`excludedMovieIds` for this).
+Resolved. M1–M16 and a conformance suite, authoritative and language-agnostic. Every item this section
+listed is specified: strike accounting, `LimitPolicy` (eliminate vs. end match), standings, mode
+configuration, opener rotation, and cross-round exclusions under `reuse == Forbidden`.
+
+**Two facts from it bear on decisions still open here.** A match is terminal
+([M12](MATCH_CONFORMANCE.md#m12--every-match-terminates)), so terminal matches can be archived out of
+the hot path — the one requirement the match layer places on §3.2. And the layer is pure, with five
+functions and no clock, store, or graph, so it constrains §3.1 only through sealed unions
+(`LimitPolicy`, `ReusePolicy`, `RemovalCause`) — a second data point for the static-enforcement
+criterion, alongside the round engine's `Move`.
 
 ### 4.2 ~~The typeahead~~ — **DECIDED, [ADR 020](DECISIONS.md)**
 
@@ -171,14 +179,16 @@ From [`ENGINE_CONFORMANCE.md`](ENGINE_CONFORMANCE.md) § Open questions:
 |---|---|
 | ~~Failure reason codes~~ | **DECIDED, [ADR 021](DECISIONS.md).** Largely dissolved rather than answered: repeat and wrong type turned out not to be round outcomes at all — they are *rejections*, leaving the round unchanged — and `Unconnected` is the only outcome `playMove` can now produce. The surviving give-up/lapse pair became a `ForfeitReason` parameter. |
 | ~~Deadline expiry ownership~~ | **DECIDED, [ADR 021](DECISIONS.md).** Session layer adjudicates and calls `forfeit(state, DeadlineLapsed)`. Now carries an obligation instead: a rejected submission must not reset the deadline, which is the only bound on the retry loop. |
-| Opening player index | Needed for replay with attribution. **Still open.** |
+| ~~Opening player index~~ | **DECIDED, [ADR 024](DECISIONS.md) / [`MATCH_CONFORMANCE.md`](MATCH_CONFORMANCE.md).** Dissolved: the opener is always seat 0 ([M8](MATCH_CONFORMANCE.md#m8--the-round-roster-is-derived-never-stored)), so there is no index to record. Replay needs that round's *roster*, which [M9](MATCH_CONFORMANCE.md#m9--a-seat-index-is-round-local) derives from `Removal.beforeRound` plus a round-0 opener fixed at `matchOrder[0]`. |
 | Exhausted frontier | **Measured** ([ADR 019](DECISIONS.md)) — rare. Not blocking; current behaviour defensible. |
 | Chain length limits | A persistence and payload concern before an engine one. [ADR 021](DECISIONS.md)'s termination proof bounds the chain at ~95,000 moves, which does not help — it is a proof, not a usable cap. |
 
-**One question was added, not removed.** ADR 021 makes the round engine's termination guarantee
+**Two obligations were added, not removed.** ADR 021 makes the round engine's termination guarantee
 *joint*: the engine bounds the chain, and the session layer's deadline bounds the rejection retry loop.
-That is a new obligation on whatever the session layer turns out to be, and it did not exist when this
-agenda was written.
+[ADR 024](DECISIONS.md) adds a second: voiding the round in flight must be atomic with the withdrawal
+that causes it, since a late result from a voided round is indistinguishable at the match layer from
+the replacement round's. Both fall on whatever the session layer turns out to be, and neither existed
+when this agenda was written.
 
 ---
 
@@ -196,7 +206,7 @@ agenda was written.
 
 ## 7. Suggested sequencing
 
-Not a decision — a proposal, offered because the dependencies are real. **Three of the original five
+Not a decision — a proposal, offered because the dependencies are real. **Four of the original five
 steps are done**; what follows is the remainder, renumbered.
 
 - ~~Typeahead placement~~ — **done, [ADR 020](DECISIONS.md)**. Note its stated rationale did not
@@ -208,17 +218,19 @@ steps are done**; what follows is the remainder, renumbered.
 - ~~Client~~ — **done, [ADRs 022–023](DECISIONS.md)**, and it was never on this list. It was filed as
   §3.4, a decision with no sequencing position; it turned out to *unblock* the stack by removing a
   criterion from it, and to force an identity change along the way.
+- ~~Match layer spec~~ — **done, [`MATCH_CONFORMANCE.md`](MATCH_CONFORMANCE.md)**, and the precedent
+  held: it was sequenced behind the stack in case it needed one, and needed no stack input at all. Two
+  rules were added while writing it that the commissioning entry did not anticipate —
+  `Removal.beforeRound` and a fixed round-0 opener, without which an earlier round's roster is not
+  recoverable and a stored result cannot be replayed with attribution.
 
 1. **Stack (3.1)** — the front of the queue and the least reversible decision left. Now easier than
    when this agenda was written: the client no longer constrains it at all (§3.4). Two criteria moved —
-   shared types struck, static type-alternation enforcement added.
-2. **Match layer spec (4.1)** — unblocked now that reason codes exist. `RoundEndReason` is the
-   vocabulary its penalty table is written against. The `:core` rewrite and issue #17 fold into
-   building it. **Worth noting the precedent:** reason codes were expected to need the stack and did
-   not. Check whether this one does before sequencing it behind §3.1.
-3. **Store (3.2)** — now partly coupled to ADR 022's deferred auth-provider choice, since some
+   shared types struck, static type-alternation enforcement added — and the match layer adds three more
+   sealed unions to weigh under that criterion (§4.1).
+2. **Store (3.2)** — now partly coupled to ADR 022's deferred auth-provider choice, since some
    providers bundle the two. Weigh the bundle against the per-read pricing point in §3.2.
-4. **Hosting (3.3)** — genuinely deferrable and unconstrained.
+3. **Hosting (3.3)** — genuinely deferrable and unconstrained.
 
 **What is not on the critical path:** issue #19's rebuild, `:app`, and `:backend`.
 

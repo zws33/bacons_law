@@ -1,28 +1,12 @@
 # Bacon's Law — Match Layer Conformance Spec
 
-**Status:** DRAFT. Authoritative for match-layer behavior once accepted. Language- and
-framework-agnostic.
+**Status:** Authoritative for match-layer behavior. Language- and framework-agnostic.
 
 This document specifies the layer above the round engine: what a round loss costs, when a match ends,
 who opens each round, and how players are ranked. It is the other half of the seam that
 [`ENGINE_CONFORMANCE.md`](ENGINE_CONFORMANCE.md) stops at.
 
-It takes precedence over the match-layer summaries in [`AGENTS.md`](../AGENTS.md), which are
-descriptions of intent rather than rules. Where the two disagree, this document is correct and
-`AGENTS.md` is stale.
-
-> **Draft status — read before implementing.**
->
-> | Item | Status |
-> |---|---|
-> | Rotation determines the next round's opener | Decided |
-> | No open-ended series mode; a strike limit is required | Decided — revisit only on playtest evidence of demand |
-> | Ranking: shared rank on equal strikes, removal order where players have been removed | Decided |
-> | A lapsed deadline removes the player from the match | Decided — see [M4](#m4--the-round-end-reason-determines-removal) |
-> | Withdrawal and a lapse are the same removal | Decided — see [M16](#m16--withdrawal) |
->
-> Lines marked **[draft default]** are choices made in writing this document rather than product
-> decisions. There is one, in [M10](#m10--standings).
+It is the sole source of match-layer rules. No other document restates them.
 
 ---
 
@@ -106,8 +90,9 @@ LimitPolicy = Eliminate | EndMatch
 ReusePolicy = Allowed | Forbidden
 
 Removal:
-    player:  PlayerId
-    cause:   RemovalCause
+    player:       PlayerId
+    cause:        RemovalCause
+    beforeRound:  Int           # index of the first round this player was not in
 
 RemovalCause = StrikeLimit | Lapsed | Withdrew
 
@@ -141,6 +126,18 @@ one case and multi-valued in the other is a projection, not state — see [M10](
 **`removed` is an ordered list, not a set.** Its order is load-bearing: it is the only thing that
 distinguishes two players who left at the same strike total ([M10](#m10--standings)). It carries the
 cause because standings display it, not because ranking depends on it — ranking uses order alone.
+
+**`beforeRound` is what makes an earlier round's roster recoverable.** Set to `roundsPlayed + 1` by
+`applyRoundResult` — the removed player was in the round just applied — and to `roundsPlayed` by
+[`withdraw`](#m16--withdrawal), which advances no round. Round *k*'s roster is `matchOrder` filtered to
+players who are either not removed or removed with `beforeRound > k` ([M9](#m9--a-seat-index-is-round-local)).
+Without it the stored state is ambiguous: withdrawals do not advance `roundsPlayed`, so removal order
+alone cannot say which rounds a withdrawn player was in, and two histories that disagree about an
+earlier round's roster produce identical match state ([MC-13](#mc-13--removed-players-rank-in-reverse-removal-order-whatever-the-cause)).
+
+**`beforeRound` does not replace removal order.** Two players can withdraw between the same pair of
+rounds and share a value, so it is not a total order. [M10](#m10--standings) ranks by list order, which
+always is one ([M5](#m5--removal-from-play)).
 
 **`matchOrder` retains removed players.** See [M2](#m2--the-match-order-is-fixed) for why, and what it
 costs to do otherwise.
@@ -177,8 +174,9 @@ The round index needed for duplicate detection is held by the match layer and pa
 applyRoundResult(match: MatchInProgress, roundIndex: Int, result: RoundOver) -> MatchOutcome
 withdraw(match: MatchInProgress, player: PlayerId)                           -> MatchOutcome
 
-nextRound(match: MatchInProgress) -> RoundSetup
-standings(match: MatchState)      -> List<Standing>
+roundSetup(match: MatchInProgress)        -> RoundSetup
+standings(match: MatchState)              -> List<Standing>
+rosterAt(match: MatchState, round: Int)   -> List<PlayerId>
 
 RoundSetup:
     roster:            List<PlayerId>  # opener at index 0
@@ -194,14 +192,25 @@ Standing:
     cause:   RemovalCause?    # null if and only if status == Active
 ```
 
-All four are pure functions of their arguments. None performs I/O. None mutates its input
+All five are pure functions of their arguments. None performs I/O. None mutates its input
 ([M13](#m13--the-match-layer-is-pure)).
 
-`nextRound` and `standings` are **projections** — derived from match state, never stored alongside it.
-Storing a projection is how a match acquires two sources of truth for the same fact.
+`roundSetup`, `standings`, and `rosterAt` are **projections** — derived from match state, never stored
+alongside it. Storing a projection is how a match acquires two sources of truth for the same fact.
+
+`rosterAt(match, k)` returns the roster of round `k`, opener first, for any `k` in
+`0 ..= roundsPlayed`. It is what makes a stored `RoundOver` from an earlier round interpretable
+([M9](#m9--a-seat-index-is-round-local)); `roundSetup(match).roster == rosterAt(match, roundsPlayed)`.
 
 `RoundSetup` is exactly the round engine's construction arguments. The match layer produces it; the
 session layer passes it to the engine and persists the resulting round state.
+
+**`roundSetup(match)` describes the round at index `match.roundsPlayed`** — the round about to be
+played, and therefore also the round whose result `applyRoundResult` is about to apply. Both readings
+are the same value, which is why [M3](#m3--a-round-loss-costs-exactly-one-strike) resolves seats
+through it. It is deliberately not named `nextRound`: a name that means only "the round after this
+one" invites resolving a completed round's `loserIndex` against a roster that has already changed,
+which is [M9](#m9--a-seat-index-is-round-local)'s failure mode.
 
 ---
 
@@ -229,8 +238,9 @@ shuffle. The match layer receives the order and does not choose it.
 **A shrinking ordered list of active players produces the same opener sequence** and is not wrong. It
 costs three things. Removed players stay in the match record for standings regardless, so nothing is
 saved — a shrinking list plus a removal log holds what one fixed list plus a strike table already
-holds. Per-round rosters stop being derivable, so interpreting a stored `RoundOver.loserIndex` from an
-earlier round requires having snapshotted that round's roster. And it is correct only when removal and
+holds. Reconstructing an earlier round's roster needs the order players occupied *then*, so a shrinking
+list has to rebuild the fixed order from the removal log before it can answer the question a fixed
+order answers directly ([M9](#m9--a-seat-index-is-round-local)). And it is correct only when removal and
 the opener advance happen as one operation: if the player being removed is `nextOpener`, the advance
 must be computed before the removal. That coupling holds at every removal site, including asynchronous
 withdrawal, and nothing enforces it. A fixed order has no such invariant.
@@ -241,12 +251,14 @@ withdrawal, and nothing enforces it. A fixed order has no such invariant.
 exactly one strike, with no exceptions and regardless of the round-end reason.
 
 ```
-loser = nextRound(match).roster[result.loserIndex]
+loser = roundSetup(match).roster[result.loserIndex]     # match as given, before any update
 strikes[loser] += 1
 ```
 
 The loser is resolved through **the roster of the round being applied**, never through `matchOrder`
-([M9](#m9--a-seat-index-is-round-local)).
+([M9](#m9--a-seat-index-is-round-local)). `roundSetup` is evaluated against the match value passed in,
+which is the round at index `roundsPlayed` — the one this result belongs to
+([M15](#m15--a-round-result-applies-once) enforces that).
 
 No other event charges a strike. [`withdraw`](#m16--withdrawal) charges none, and a lapse charges one
 because it lost a round, not because it removes the player. The invariant that follows —
@@ -262,6 +274,12 @@ because it lost a round, not because it removes the player. The invariant that f
 
 A player who lets a deadline lapse is removed from the match immediately, whatever their strike total
 and whichever `LimitPolicy` is in force.
+
+**`Lapsed` wins when both triggers fire.** Under `Eliminate`, a lapse whose strike also reaches
+`strikeLimit` produces one removal, cause `Lapsed`. An operation records at most one removal per player
+([M5](#m5--removal-from-play)) and cause never affects rank ([M10](#m10--standings) rule 5), so nothing
+downstream turns on it — it is pinned only because two implementations can otherwise disagree
+([MC-30](#mc-30--a-lapse-that-also-reaches-the-strike-limit-records-cause-lapsed)).
 
 **The line is between playing and not playing.** `GaveUp` is a move: the player is present, cannot find
 a connection, and ends the round deliberately at the cost of one strike. `DeadlineLapsed` is the
@@ -335,6 +353,15 @@ agrees ([MC-05](#mc-05--the-two-limit-policies-coincide-in-a-two-player-match)).
 nextOpener' = the first active player strictly after nextOpener in matchOrder, cyclically
 ```
 
+**Round 0's opener is `matchOrder[0]`.** A match is constructed with `nextOpener == matchOrder[0]`
+([M14](#m14--malformed-input-is-an-error-never-a-match-outcome)); a different starting player is
+expressed by ordering `matchOrder`, which the session layer already chooses
+([M2](#m2--the-match-order-is-fixed)). Fixing the start is what makes every *earlier* round's opener
+derivable: `MatchOver` carries no `nextOpener`, and rotation replays only forward from a known origin.
+With this and `Removal.beforeRound`, round *k*'s roster and opener are both recoverable from stored
+match state alone — which is what a persisted round result needs to be replayed with attribution
+([ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md#engine-boundary)).
+
 Rotation, not compensation: the opener advances by one active position after every round regardless of
 who lost. The opener cannot fail their move — an empty chain skips the connection and type checks
 ([ENGINE_CONFORMANCE.md R1](ENGINE_CONFORMANCE.md#r1--the-opening-move-is-not-connection-checked)) — so
@@ -358,6 +385,10 @@ active players ([M6](#m6--match-end)), so no round is ever constructed below tha
 Play order within a round is `matchOrder` cyclically — the roster *is* the play order. There is not a
 separate turn order and opener rule to keep consistent.
 
+**The opener is always seat 0**, so no opening index is stored anywhere. The engine's attribution
+formula — move `i` was played by `(openingPlayerIndex + i) % playerCount`
+([ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md#engine-boundary)) — reduces to `roster[i % playerCount]`.
+
 ### M9 — A seat index is round-local
 
 `RoundOver.loserIndex` is a position in the roster of **the round that produced it** and has no meaning
@@ -369,9 +400,29 @@ applying a stored result from an earlier round, charges strikes to the wrong pla
 failure mode the `PlayerId` / `SeatIndex` distinction exists to prevent, and
 [MC-10](#mc-10--a-seat-index-does-not-survive-a-roster-change) pins it.
 
-**Interpreting a stored round result requires that round's roster.** It is derivable from
-`matchOrder`, the removal history, and the round index — which is what
-[M2](#m2--the-match-order-is-fixed) buys.
+**Interpreting a stored round result requires that round's roster**, and that roster is derivable from
+stored match state:
+
+```
+activeAt(k)  = matchOrder filtered to players with no removal, or removal.beforeRound > k
+openerAt(0)  = matchOrder[0]
+openerAt(k)  = first player of activeAt(k) strictly after openerAt(k-1) in matchOrder, cyclically
+rosterAt(k)  = activeAt(k) rotated so openerAt(k) is at index 0
+```
+
+The `activeAt(k)` filter in `openerAt` is what reproduces
+[M7](#m7--the-next-opener-is-the-next-active-player-in-match-order)'s skip: anyone removed on the way
+into round `k` — the loser of round `k-1`, or a player who withdrew between the two — is absent from
+the scan while still holding their `matchOrder` position.
+
+This is the `rosterAt` projection in [Operations](#operations), stated as a rule so it has one
+definition rather than an implementation each.
+
+Both inputs are load-bearing and neither is optional. `Removal.beforeRound` is what anchors a removal
+to a round — removal order alone does not, because [`withdraw`](#m16--withdrawal) advances no round
+([Data model](#data-model)). `matchOrder[0]` as round 0's opener is what gives the rotation an origin
+([M7](#m7--the-next-opener-is-the-next-active-player-in-match-order)). Drop either and an earlier
+round's `loserIndex` cannot be resolved from the match record at all.
 
 ### M10 — Standings
 
@@ -384,7 +435,7 @@ failure mode the `PlayerId` / `SeatIndex` distinction exists to prevent, and
 ```
 
 Shared ranks use **standard competition ranking**: the next distinct rank skips by the size of the tie
-group (1, 2, 2, 4). **[draft default]** — a presentation convention, cheap to change.
+group (1, 2, 2, 4), not dense ranking (1, 2, 2, 3).
 
 **Why removal order and not strikes.** A player removed at the strike limit has exactly `strikeLimit`
 strikes by definition, so ranking the removed by strike total ties all of them and erases the
@@ -407,7 +458,7 @@ active players sharing a rank.
 ### M11 — Cross-round exclusions accumulate under hard mode
 
 Under `reuse == Forbidden`, after each round the entities of `result.chain` are unioned into
-`excludedActorIds` / `excludedMovieIds` by type, and `nextRound` passes them to the engine.
+`excludedActorIds` / `excludedMovieIds` by type, and `roundSetup` passes them to the engine.
 
 Under `reuse == Allowed` both sets stay empty and are passed empty. This is the default mode: a new
 round makes every entity available again.
@@ -448,7 +499,7 @@ against.
 
 ### M13 — The match layer is pure
 
-`applyRoundResult`, `withdraw`, `nextRound`, and `standings` are pure functions: no I/O, no clock, no
+`applyRoundResult`, `withdraw`, `roundSetup`, `standings`, and `rosterAt` are pure functions: no I/O, no clock, no
 randomness, no graph access, no mutation of arguments. Called twice with equal arguments they return
 equal results.
 
@@ -463,9 +514,13 @@ These are caller defects and must raise, not resolve to a `MatchOutcome`:
 - `applyRoundResult` or `withdraw` on a `MatchOver` — no operation applies to a terminal state
 - `roundIndex != match.roundsPlayed` ([M15](#m15--a-round-result-applies-once))
 - `result.loserIndex` out of range for the round's roster
+- `rosterAt` with a round index outside `0 ..= roundsPlayed`
 - `withdraw` naming a player not in `matchOrder`, or one already removed
 - `strikeLimit < 1`, `matchOrder` shorter than two entries, or containing duplicates
-- `nextOpener` not an active player
+- at construction, `nextOpener != matchOrder[0]`
+  ([M7](#m7--the-next-opener-is-the-next-active-player-in-match-order))
+- in any state, `nextOpener` not an active player — reachable only by rehydrating a corrupt record, and
+  a distinct check from the one above
 
 Returning any of these as an outcome hides a bug behind a plausible-looking standings table. The engine
 spec's rationale applies unchanged
@@ -485,7 +540,7 @@ player and raises.
 
 **This is detection, not idempotent replay.** The pure layer refuses the stale call; the session layer
 maps that refusal onto the stored outcome for the round in question, which is where the
-compare-and-swap and any client-supplied move ID already live ([AGENTS.md](../AGENTS.md), *Deployment*).
+compare-and-swap and any client-supplied move ID already live ([ADR 018](DECISIONS.md)).
 
 ### M16 — Withdrawal
 
@@ -493,7 +548,8 @@ compare-and-swap and any client-supplied move ID already live ([AGENTS.md](../AG
 withdraw(match, player) -> MatchOutcome
 ```
 
-The player is removed with cause `Withdrew`. No strike is charged, no round is recorded, and
+The player is removed with cause `Withdrew` and `beforeRound == match.roundsPlayed`. No strike is
+charged, no round is recorded, and
 `roundsPlayed` does not advance. If the withdrawing player is `nextOpener`, the opener advances first
 ([M7](#m7--the-next-opener-is-the-next-active-player-in-match-order)). If fewer than two active players
 remain, the match ends ([M6](#m6--match-end)).
@@ -512,7 +568,14 @@ adds or removes players mid-round... a match layer that drops an eliminated play
 rounds"* ([ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md#data-model)) — so the round cannot continue at
 one fewer player. It also cannot be completed, since finishing it needs turns from someone who has
 left. The session layer discards the round state without producing a `RoundOver`; no strike is charged
-to anyone, and the replacement round is built from `nextRound(match)`.
+to anyone, and the replacement round is built from `roundSetup(match)`.
+
+**Voiding must be atomic with the withdrawal, and that obligation is the session layer's.** A voided
+round does not advance `roundsPlayed`, so a `RoundOver` arriving late from the voided round is
+indistinguishable at this layer from the replacement round's result — same `roundIndex`, and
+[M15](#m15--a-round-result-applies-once) accepts it. A pure function cannot tell them apart. Discarding
+the round state in the same write that records the withdrawal is what makes the late submission fail
+before it reaches `applyRoundResult`.
 
 **A lapse does not void anything, and the asymmetry is forced.** A deadline lapses only on its owner's
 turn, so `forfeit` is always legal at that instant and the round ends properly before the removal is
@@ -530,11 +593,11 @@ Required by the product, enforced elsewhere. A match layer that enforces these i
 | Whether a chain is valid; who lost a round | Round engine |
 | Choosing `matchOrder[0]`, or shuffling the order | Session layer, before the match exists ([M13](#m13--the-match-layer-is-pure)) |
 | Detecting a lapsed deadline, and calling `forfeit(state, DeadlineLapsed)` | Session layer ([ENGINE_CONFORMANCE.md R7](ENGINE_CONFORMANCE.md#r7--forfeit-ends-the-round)) |
-| Discarding the round in flight when a player withdraws | Session layer ([M16](#m16--withdrawal)) |
+| Discarding the round in flight when a player withdraws, in the same write | Session layer ([M16](#m16--withdrawal)) |
 | `turn_duration` and `deadline_at` | Session layer; not in `MatchConfig` |
 | Persisting match state; compare-and-swap on a version | Session layer |
 | Mapping a duplicate submission onto the stored outcome | Session layer ([M15](#m15--a-round-result-applies-once)) |
-| Invitations, joining, matchmaking | Out of scope for the product ([AGENTS.md](../AGENTS.md)) |
+| Invitations, joining, matchmaking | Out of scope for the product ([ADR 022](DECISIONS.md)) |
 | Presenting standings; naming a "winner" from rank 1 | Client |
 
 ---
@@ -554,7 +617,11 @@ HARD_3   = MatchConfig(strikeLimit=3, onLimit=Eliminate, reuse=Forbidden)
 
 A round result naming seat `i` is written `loss(i)`. Unless a case says otherwise the reason is
 `Unconnected` and the chain is irrelevant to the assertion. `lapse(i)` is the same result with
-`reason == DeadlineLapsed`.
+`reason == DeadlineLapsed`. A removal is written `(player, cause, beforeRound)`.
+
+Fixtures state `roundsPlayed` wherever a removal appears, since `beforeRound` has no meaning without
+it. `sum(strikes) == roundsPlayed` in every GIVEN state ([M3](#m3--a-round-loss-costs-exactly-one-strike)) —
+the cheapest check that a fixture is reachable.
 
 **Two properties hold across the suite; preserve both when translating.**
 
@@ -592,7 +659,7 @@ Seat 2 of roster `[P0, P1, P2, P3]` is P2. No other player's total changes.
 
 #### MC-02 — Reaching the limit under EndMatch ends the match
 
-GIVEN `END_3`, `strikes = {P0:0, P1:2, P2:1, P3:0}`, `nextOpener = P0`
+GIVEN `END_3`, `strikes = {P0:0, P1:2, P2:1, P3:0}`, `roundsPlayed = 3`, `nextOpener = P3`
 WHEN a result naming P1 is applied with reason `Unconnected`
 THEN `MatchOver`; `strikes[P1] == 3`; `removed` is empty
 
@@ -601,17 +668,18 @@ not just the outcome.
 
 #### MC-03 — Reaching the limit under Eliminate removes the player and continues
 
-GIVEN `ELIM_3`, `strikes = {P0:0, P1:2, P2:1, P3:0}`, `nextOpener = P0`
+GIVEN `ELIM_3`, `strikes = {P0:0, P1:2, P2:1, P3:0}`, `roundsPlayed = 3`, `nextOpener = P3`
 WHEN a result naming P1 is applied with reason `Unconnected`
-THEN `MatchInProgress`; `removed == [(P1, StrikeLimit)]`; active is `{P0, P2, P3}`;
-`nextRound().playerCount == 3`
+THEN `MatchInProgress`; `removed == [(P1, StrikeLimit, beforeRound 4)]`; active is `{P0, P2, P3}`;
+`roundSetup().playerCount == 3`
 
 #### MC-04 — The last removal ends the match
 
-GIVEN `ELIM_3`, `removed == [(P1, StrikeLimit), (P3, Lapsed)]`, `strikes = {P0:1, P1:3, P2:2, P3:1}`,
-`nextOpener = P0`
+GIVEN `ELIM_3`, `removed == [(P1, StrikeLimit, beforeRound 5), (P3, Lapsed, beforeRound 6)]`,
+`strikes = {P0:1, P1:3, P2:2, P3:1}`, `roundsPlayed = 7`, `nextOpener = P2`
 WHEN a result naming P2 is applied with reason `Unconnected`
-THEN `MatchOver`; P2 appended with cause `StrikeLimit`; P0 is the only active player
+THEN `MatchOver`; P2 appended with cause `StrikeLimit` and `beforeRound 8`; P0 is the only active
+player
 
 The match ends because fewer than two active players remain ([M6](#m6--match-end)) — not because a
 count of removals was reached. Note P3 was removed at one strike, which is reachable only through
@@ -620,11 +688,12 @@ count of removals was reached. Note P3 was removed at one strike, which is reach
 #### MC-05 — The two limit policies coincide in a two-player match
 
 GIVEN two matches over `matchOrder = [P0, P1]`, identical but for `onLimit`, `strikes = {P0:0, P1:2}`,
-limit 3
+limit 3, `roundsPlayed = 2`, `nextOpener = P0`
 WHEN a result naming P1 with reason `Unconnected` is applied to each
 THEN both return `MatchOver` with `strikes[P1] == 3`, and `standings` ranks P0 first in both
 
-The two differ only in `removed`: one entry under `Eliminate`, empty under `EndMatch`. Rank is
+The two differ only in `removed`: `[(P1, StrikeLimit, beforeRound 3)]` under `Eliminate`, empty under
+`EndMatch`. Rank is
 unaffected, which is the point — [M10](#m10--standings) rule 1 is vacuous when one player is active and
 one is removed.
 
@@ -641,7 +710,8 @@ is priced as one.
 
 GIVEN a fresh `ELIM_3` match, all strikes 0, `nextOpener = P0`
 WHEN `applyRoundResult(match, 0, lapse(2))`
-THEN `MatchInProgress`; `strikes[P2] == 1`; `removed == [(P2, Lapsed)]`; `nextRound().playerCount == 3`
+THEN `MatchInProgress`; `strikes[P2] == 1`; `removed == [(P2, Lapsed, beforeRound 1)]`;
+`roundSetup().playerCount == 3`
 
 Both halves matter. The strike is charged because a round was lost
 ([M3](#m3--a-round-loss-costs-exactly-one-strike)), which is what keeps
@@ -650,28 +720,45 @@ strike against a limit of three.
 
 #### MC-24 — A lapse removes under EndMatch too, without ending the match
 
-GIVEN `END_3`, all strikes 0, four active players
-WHEN `lapse(1)` is applied
-THEN `MatchInProgress`; `removed == [(P1, Lapsed)]`; three active players remain
+GIVEN a fresh `END_3` match, all strikes 0, four active players
+WHEN `applyRoundResult(match, 0, lapse(1))`
+THEN `MatchInProgress`; `removed == [(P1, Lapsed, beforeRound 1)]`; three active players remain
 
 `EndMatch` suppresses removal on the strike limit only ([M5](#m5--removal-from-play)). An
 implementation that reads `EndMatch` as "nobody is ever removed" fails here.
 
 #### MC-25 — Lapses can end an EndMatch match without anyone reaching the limit
 
-GIVEN `END_3`, `strikes = {P0:1, P1:1, P2:1, P3:1}`, `removed == [(P1, Lapsed), (P3, Lapsed)]`, two
-active players, `roundsPlayed == 4`
-WHEN `lapse(·)` naming P2 is applied
+GIVEN `END_3`, `strikes = {P0:1, P1:1, P2:1, P3:1}`,
+`removed == [(P1, Lapsed, beforeRound 2), (P3, Lapsed, beforeRound 4)]`, two active players,
+`roundsPlayed == 4`, `nextOpener = P0`, so `roster == [P0, P2]`
+WHEN `applyRoundResult(match, 4, lapse(1))`
 THEN `MatchOver`; P0 is the only active player; no player has reached `strikeLimit`
 
 The universal clause in [M6](#m6--match-end). Without it this state is stuck: the match cannot end,
 and the engine cannot start a round at one player.
 
+#### MC-30 — A lapse that also reaches the strike limit records cause Lapsed
+
+GIVEN `strikes = {P0:0, P1:2, P2:1, P3:0}`, `roundsPlayed = 3`, `nextOpener = P3`, so
+`roster == [P3, P0, P1, P2]`, run under `ELIM_3` and `END_3`
+WHEN `applyRoundResult(match, 3, lapse(2))` — seat 2 is P1, one strike from the limit
+THEN under `ELIM_3`: `MatchInProgress`; `strikes[P1] == 3`;
+`removed == [(P1, Lapsed, beforeRound 4)]` — exactly one entry, cause `Lapsed`, not `StrikeLimit`
+AND under `END_3`: `MatchOver`; `removed == [(P1, Lapsed, beforeRound 4)]`
+
+Both triggers fire at once and one removal is recorded
+([M4](#m4--the-round-end-reason-determines-removal)). The `END_3` half is the one that catches a
+plausible shortcut: [MC-02](#mc-02--reaching-the-limit-under-endmatch-ends-the-match) asserts an empty
+`removed` when the limit is reached under `EndMatch`, which is true only when the reason is not a lapse.
+`EndMatch` suppresses removal *by the strike limit*, never removal by
+[M4](#m4--the-round-end-reason-determines-removal).
+
 ### Group B — Rotation and rosters
 
 #### MC-06 — The opener rotates by one active position per round
 
-GIVEN `ELIM_3`, no removals, `nextOpener = P0`
+GIVEN a fresh `ELIM_3` match, no removals, `nextOpener = P0`
 WHEN four results are applied in sequence
 THEN `nextOpener` is P1, P2, P3, P0 after each
 
@@ -679,8 +766,9 @@ Rotation is independent of who lost: assert this with the same seat losing every
 
 #### MC-07 — Rotation skips a removed player
 
-GIVEN `ELIM_3`, `removed == [(P2, Lapsed)]`, `nextOpener = P1`
-WHEN a result is applied that removes nobody
+GIVEN `ELIM_3`, `removed == [(P2, Lapsed, beforeRound 1)]`, `strikes = {P0:0, P1:0, P2:1, P3:0}`,
+`roundsPlayed = 1`, `nextOpener = P1`, so `roster == [P1, P3, P0]`
+WHEN `applyRoundResult(match, 1, loss(1))` — P3, who is nowhere near the limit
 THEN `nextOpener == P3`
 
 P2 holds their position in `matchOrder` and is skipped, not deleted
@@ -688,28 +776,32 @@ P2 holds their position in `matchOrder` and is skipped, not deleted
 
 #### MC-08 — Rotation is well-defined when the opener is removed by the operation just applied
 
-GIVEN `ELIM_3`, all strikes 0, `nextOpener = P1`, no prior removals
-WHEN `lapse(0)` is applied — seat 0 is P1, the opener
-THEN `MatchInProgress`; `removed == [(P1, Lapsed)]`; `nextOpener == P2`
+GIVEN `ELIM_3`, `strikes = {P0:1, P1:0, P2:0, P3:0}`, `roundsPlayed = 1`, `nextOpener = P1`, no prior
+removals
+WHEN `applyRoundResult(match, 1, lapse(0))` — seat 0 is P1, the opener
+THEN `MatchInProgress`; `removed == [(P1, Lapsed, beforeRound 2)]`; `nextOpener == P2`
 
 The scan starts strictly after P1's position in `matchOrder`, which P1 still occupies. An
 implementation that deletes the player before advancing has no position to scan from.
 
 This is why [M7](#m7--the-next-opener-is-the-next-active-player-in-match-order) fixes the order of
-evaluation. Run the mirror against `withdraw(match, P1)` from the same state: same expectation, and it
-is the asynchronous path where the coupling is easiest to break.
+evaluation. Run the mirror against `withdraw(match, P1)` from the same state — same `nextOpener == P2`,
+and `removed == [(P1, Withdrew, beforeRound 1)]`, since a withdrawal advances no round. It is the
+asynchronous path where the coupling is easiest to break.
 
 #### MC-09 — The roster is match order, filtered and rotated
 
-GIVEN `ELIM_3`, `removed == [(P1, StrikeLimit)]`, `nextOpener = P2`
-THEN `nextRound().roster == [P2, P3, P0]` and `playerCount == 3`
+GIVEN `ELIM_3`, `removed == [(P1, StrikeLimit, beforeRound 3)]`, `strikes = {P0:0, P1:3, P2:1, P3:1}`,
+`roundsPlayed = 5`, `nextOpener = P2`
+THEN `roundSetup().roster == [P2, P3, P0]` and `playerCount == 3`
 
 Opener at index 0; the rest follow `matchOrder` cyclically.
 
 #### MC-10 — A seat index does not survive a roster change
 
-GIVEN `ELIM_3`, `removed == [(P1, StrikeLimit)]`, `nextOpener = P2`, so `roster == [P2, P3, P0]`
-WHEN `loss(1)` is applied
+GIVEN [MC-09](#mc-09--the-roster-is-match-order-filtered-and-rotated)'s state, so
+`roster == [P2, P3, P0]`
+WHEN `applyRoundResult(match, 5, loss(1))`
 THEN `strikes[P3]` increases, and `strikes[P1]` does not
 
 Seat 1 is P3 in this round and was P1 in the opening round. A match layer resolving `loserIndex`
@@ -718,11 +810,28 @@ against `matchOrder` charges P1 — a player who is not even in the round
 implementation that passes everything else and fails this one silently corrupts every match that
 reaches a removal.
 
+#### MC-29 — An earlier round's roster is recoverable from the match record
+
+GIVEN [MC-13](#mc-13--removed-players-rank-in-reverse-removal-order-whatever-the-cause)'s terminal
+state — `removed == [(P1, Lapsed, beforeRound 2), (P3, Withdrew, beforeRound 3),
+(P2, StrikeLimit, beforeRound 5)]`, `roundsPlayed = 5`
+THEN `rosterAt(match, 1) == [P1, P2, P3, P0]`, `rosterAt(match, 2) == [P2, P3, P0]`, and
+`rosterAt(match, 3) == [P0, P2]`
+
+The case [MC-10](#mc-10--a-seat-index-does-not-survive-a-roster-change) pins for the current round,
+applied to a stored one. It is also what `beforeRound` exists for: an otherwise identical history in
+which P3 withdrew one round earlier reaches the same strikes, the same removal order, and the same
+`roundsPlayed`, differing only in `beforeRound 2` — and there `rosterAt(match, 2) == [P2, P0]`. A stored
+`RoundOver` for round 2 with `loserIndex == 1` names P3 under one history and P0 under the other, so
+without the field the record cannot be replayed with attribution at all
+([M9](#m9--a-seat-index-is-round-local)).
+
 ### Group C — Standings
 
 #### MC-11 — Active players outrank removed players regardless of strikes
 
-GIVEN `ELIM_3`, `strikes = {P0:2, P1:1, P2:0, P3:1}`, `removed == [(P1, Lapsed)]`
+GIVEN `ELIM_3`, `strikes = {P0:2, P1:1, P2:0, P3:1}`, `removed == [(P1, Lapsed, beforeRound 2)]`,
+`roundsPlayed = 4`
 THEN `standings` ranks P2 first, then P3, then P0, then P1 — strike totals 0, 1, 2, 1 respectively
 
 P1 has fewer strikes than P0 and still ranks below, because the partition is applied before the sort
@@ -732,17 +841,18 @@ and the partition and the sort agreed by accident.
 
 #### MC-12 — Equal strike totals share a rank
 
-GIVEN `END_3`, `strikes = {P0:1, P1:1, P2:0, P3:2}`, no removals
+GIVEN `END_3`, `strikes = {P0:1, P1:1, P2:0, P3:2}`, no removals, `roundsPlayed = 4`
 THEN ranks are P2 = 1, P0 = 2, P1 = 2, P3 = 4
 
 Standard competition ranking: the tie group of two consumes ranks 2 and 3, and the next distinct rank
-is 4. **[draft default]** — a dense-ranking implementation (1, 2, 2, 3) fails this case and is a
-one-line change if preferred.
+is 4. A dense-ranking implementation (1, 2, 2, 3) fails this case
+([M10](#m10--standings)).
 
 #### MC-13 — Removed players rank in reverse removal order, whatever the cause
 
-GIVEN `ELIM_3` at `MatchOver`, `removed == [(P1, Lapsed), (P3, Withdrew), (P2, StrikeLimit)]`,
-`strikes = {P0:1, P1:1, P2:3, P3:0}`
+GIVEN `ELIM_3` at `MatchOver`, `removed == [(P1, Lapsed, beforeRound 2),
+(P3, Withdrew, beforeRound 3), (P2, StrikeLimit, beforeRound 5)]`,
+`strikes = {P0:1, P1:1, P2:3, P3:0}`, `roundsPlayed = 5`
 THEN ranks are P0 = 1, P2 = 2, P3 = 3, P1 = 4, with no shared ranks
 
 Three different causes and three different strike totals, none of which affects the order
@@ -756,8 +866,20 @@ THEN every rank in `standings` is distinct
 
 A structural property, not a fixture: one active player, and removals are totally ordered
 ([M5](#m5--removal-from-play)). It does **not** hold for a match ended by the strike limit under
-`EndMatch`, where several active players can share a rank — assert that variant separately rather than
-generalizing this one.
+`EndMatch` — that is [MC-31](#mc-31--a-match-ended-on-the-strike-limit-can-have-shared-ranks). Do not
+generalize this case into one that covers both.
+
+#### MC-31 — A match ended on the strike limit can have shared ranks
+
+GIVEN `END_3` at `MatchOver`, reached when P3 took a third strike; `strikes = {P0:0, P1:1, P2:0, P3:3}`,
+no removals, `roundsPlayed = 4`
+THEN ranks are P0 = 1, P2 = 1, P1 = 3, P3 = 4, and every player's status is `Active`
+
+The complement of [MC-14](#mc-14--a-match-ended-by-the-fewer-than-two-active-clause-has-no-ties). Under
+`EndMatch` the match ends with its whole roster still active, including the player who reached the
+limit, so standings is an ordinary strike ranking and ties are ordinary
+([M10](#m10--standings) rules 2 and 3). An implementation that assumes a terminal match has exactly one
+active player fails here.
 
 ### Group D — Exclusions
 
@@ -765,7 +887,7 @@ generalizing this one.
 
 GIVEN `HARD_3`, empty exclusion sets
 WHEN a result is applied whose `chain` is `[Actor(Q1), Movie(Q10), Actor(Q2)]`
-THEN `excludedActorIds == {Q1, Q2}`, `excludedMovieIds == {Q10}`, and `nextRound()` passes both
+THEN `excludedActorIds == {Q1, Q2}`, `excludedMovieIds == {Q10}`, and `roundSetup()` passes both
 
 #### MC-16 — The losing move is not excluded
 
@@ -779,26 +901,27 @@ Q7 was never accepted into the chain ([M11](#m11--cross-round-exclusions-accumul
 
 GIVEN `ELIM_3` (`reuse == Allowed`)
 WHEN any result with a non-empty chain is applied
-THEN both exclusion sets remain empty, and `nextRound()` passes empty sets
+THEN both exclusion sets remain empty, and `roundSetup()` passes empty sets
 
 ### Group E — Withdrawal
 
 #### MC-26 — Withdrawal removes the player and charges no strike
 
-GIVEN `ELIM_3`, `strikes = {P0:1, P1:2, P2:1, P3:1}`, `nextOpener = P0`, `roundsPlayed = 5`
+GIVEN `ELIM_3`, `strikes = {P0:1, P1:2, P2:1, P3:1}`, `nextOpener = P1`, `roundsPlayed = 5`
 WHEN `withdraw(match, P1)`
-THEN `MatchInProgress`; `removed == [(P1, Withdrew)]`; `strikes[P1] == 2` unchanged;
-`roundsPlayed == 5` unchanged; three active players
+THEN `MatchInProgress`; `removed == [(P1, Withdrew, beforeRound 5)]`; `strikes[P1] == 2` unchanged;
+`roundsPlayed == 5` unchanged; three active players; `nextOpener == P2`
 
 No strike, no round. P1 sat one strike from the limit and their total is untouched — withdrawal is a
 removal, not a penalty ([M16](#m16--withdrawal)).
 
 #### MC-27 — Withdrawal can end the match
 
-GIVEN `ELIM_3`, `strikes = {P0:0, P1:1, P2:3, P3:0}`, `removed == [(P1, Lapsed), (P2, StrikeLimit)]`,
-two active players
+GIVEN `ELIM_3`, `strikes = {P0:0, P1:1, P2:3, P3:0}`,
+`removed == [(P1, Lapsed, beforeRound 3), (P2, StrikeLimit, beforeRound 4)]`, two active players,
+`roundsPlayed = 4`, `nextOpener = P0`
 WHEN `withdraw(match, P3)`
-THEN `MatchOver`; P0 is the only active player
+THEN `MatchOver`; P0 is the only active player; P3 appended with `beforeRound 4`
 
 [M6](#m6--match-end)'s universal clause, reached through `withdraw` rather than `applyRoundResult`.
 
@@ -833,7 +956,7 @@ THEN it raises ([M14](#m14--malformed-input-is-an-error-never-a-match-outcome))
 
 #### MC-21 — An out-of-range seat index is an error
 
-GIVEN `ELIM_3`, `removed == [(P1, StrikeLimit)]`, so `playerCount == 3`
+GIVEN [MC-09](#mc-09--the-roster-is-match-order-filtered-and-rotated)'s state, so `playerCount == 3`
 WHEN a result with `loserIndex == 3` is applied
 THEN it raises
 
@@ -844,7 +967,25 @@ Valid against the four-player opening roster, invalid here. A match layer that r
 #### MC-22 — Match construction is validated
 
 Each of these raises at construction: `strikeLimit == 0`; `matchOrder` with one entry; `matchOrder`
-containing a duplicate `PlayerId`; `nextOpener` not present in `matchOrder`.
+containing a duplicate `PlayerId`; `nextOpener != matchOrder[0]`
+([M7](#m7--the-next-opener-is-the-next-active-player-in-match-order)).
+
+Two further checks are not construction checks and need their own assertions, since a match is also
+built by rehydrating a stored record: a `nextOpener` who is not an active player raises, and `rosterAt`
+raises for a round index below zero or above `roundsPlayed`
+([M14](#m14--malformed-input-is-an-error-never-a-match-outcome)).
+
+#### MC-32 — Every match terminates within strikeLimit × N rounds
+
+GIVEN any `MatchConfig` with `strikeLimit` in 1..3 and `matchOrder` of 2..4 players
+WHEN round results are applied with an arbitrary loser seat and reason each round, and arbitrary
+withdrawals are interleaved
+THEN `MatchOver` is reached within `strikeLimit × |matchOrder|` rounds, in every run
+
+A property, not a fixture — generate the sequences ([M12](#m12--every-match-terminates)). It is the
+only rule whose failure mode is a match that never ends, which no single-case assertion catches. Assert
+the bound, not merely that the loop halts: an implementation that fails to remove on the strike limit
+still terminates, just later.
 
 ---
 
@@ -886,5 +1027,5 @@ unspecified and out of scope for this document; it would be a new match, not a m
 |---|---|
 | [ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md) | The layer below. Produces the `RoundOver` this document consumes; its [Engine boundary](ENGINE_CONFORMANCE.md#engine-boundary) table delegates to this document. [M4](#m4--the-round-end-reason-determines-removal) is what gives `RoundOver.reason` its differential — the use the engine spec asserted and did not specify |
 | [DECISIONS.md](DECISIONS.md) | [ADR 021](DECISIONS.md) established the round outcome taxonomy this layer reads; [ADR 012](DECISIONS.md)/[018](DECISIONS.md) the deadline model the session layer owns |
-| [AGENTS.md](../AGENTS.md) | Operating rules. Its match-layer summaries are superseded by this document and need reconciling once it is accepted |
+| [AGENTS.md](../AGENTS.md) | Repository navigation and conventions. It indexes this document and states no match-layer rules of its own |
 | [PLANNING_AGENDA.md](PLANNING_AGENDA.md) | §4.1 is this document's commissioning entry |
