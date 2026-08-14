@@ -18,9 +18,11 @@
 > **Amended 2026-08-13** for [`MATCH_CONFORMANCE.md`](MATCH_CONFORMANCE.md), now authoritative, which
 > consumed §4.1 and one of §5's questions.
 >
-> **The deletion trigger has not fired**, but it is close. Three decisions remain: **stack (§3.1),
-> store (§3.2), hosting (§3.3)**. Nothing else in this file is outstanding. Delete it once those three
-> are made.
+> **Amended 2026-08-14** for [ADR 025](DECISIONS.md), which consumed §3.1 and voided three of §6's
+> five debt rows.
+>
+> **The deletion trigger has not fired.** Two decisions remain: **store (§3.2), hosting (§3.3)**.
+> Nothing else in this file is outstanding. Delete it once those are made.
 
 ---
 
@@ -69,29 +71,29 @@ the single most likely source of a wrong turn in this session.
 
 ## 3. Decisions to make
 
-### 3.1 Server language and framework
+### 3.1 ~~Server language and framework~~ — **DECIDED, [ADR 025](DECISIONS.md)**
 
-**Criteria, post-018 and post-023:** ecosystem and library maturity; how cleanly the language expresses
-the round engine's sealed-union state machine (`Move = Actor | Movie`, exhaustive matching); deployment
-simplicity; and familiarity. ~~Whether types can be shared with the client~~ — **struck by
-[ADR 023](DECISIONS.md)**: the client is decoupled, and a client cannot run the connection check
-regardless, because that needs the graph.
+Resolved. **TypeScript on Node with Fastify, in a new top-level `server/` directory.** The Python ETL
+is unaffected; `:core` and `:backend` are superseded rather than ported, and Kotlin leaves the running
+system.
 
-**Added by [ADR 021](DECISIONS.md):** whether you want type alternation enforced *statically*. The spec
-permits it (MAY, not MUST) and it favours languages with closed sum types. Phrased as optional
-precisely so it does not decide this by the back door — but if you want it, it is a criterion.
+**Decided in two parts on different criteria.** The language was the one-way door and turned on
+ecosystem and deployment; the runtime and framework are two-way doors — a framework swap is a
+routing-layer rewrite in a codebase whose engine and match layer never see an HTTP type — and turned
+on vendor-SDK compatibility and the boundary-validation and rate-limiting stories.
 
-**Removed by [ADR 023](DECISIONS.md):** single-language velocity. Stated explicitly alongside the
-client decision — a mix of languages is acceptable where it suits the project's goals, and
-TypeScript/JavaScript, Kotlin, Java, and Python are all comfortable. "One language end to end" is not
-an argument here in either direction.
+**The criteria this section listed did not separate the candidates.** Enumerating the server's actual
+jobs found no throughput-, latency-, or concurrency-bound path, so ecosystem, expression, and
+deployment carried the whole decision. Two of the listed criteria turned out to be worth less than
+their placement suggested: ADR 021's static type-alternation criterion is mandatory at the HTTP
+boundary in every language, and "Kotlin is already in the tree" amounts to 188 lines that the
+conformance suite specifies as failing.
 
-**What makes this reversible:** [`ENGINE_CONFORMANCE.md`](ENGINE_CONFORMANCE.md) is language- and
-framework-agnostic and generates a conformance suite in any stack. The rules do not live in the
-implementation, so choosing a language is no longer also choosing where the rules live.
-
-**In the tree:** Kotlin/Ktor `:backend` (still a TMDB proxy) and a pure Kotlin `:core`. Both are
-prototypes with no claim on the outcome.
+**Three facts from it bear on §3.2 and §3.3.** Bundled auth + store providers ship first-class
+TypeScript SDKs, so §3.2 is unconstrained by this. ADR 018's
+cold-start measurement transfers without re-measuring — every JavaScript runtime in play starts faster
+than CPython — so §3.3 keeps scale-to-zero for free. And **edge/isolate runtimes are ruled out** for
+§3.3 — the in-memory graph exceeds per-isolate memory limits, language-independently.
 
 ### 3.2 Durable store
 
@@ -111,10 +113,19 @@ a running cost while a store on a fixed instance does not. Structural, not a tun
 022's deferred provider choice rather than two. Weigh the bundling against the per-read point above —
 they can pull in opposite directions.
 
+**Unconstrained by [ADR 025](DECISIONS.md):** the bundled auth + store providers all ship first-class
+TypeScript SDKs, so the stack decision does not narrow this one.
+
 ### 3.3 Hosting
 
-Fully open. Cold start is not an obstacle (§2). Decide on cost, operational simplicity, and
-familiarity.
+Open. Cold start is not an obstacle (§2), and [ADR 025](DECISIONS.md) keeps that true without a
+re-measure — every JavaScript runtime in play starts faster than CPython. Decide on cost, operational
+simplicity, and familiarity.
+
+**Two inputs from [ADR 025](DECISIONS.md).** Edge and isolate runtimes are ruled out — the in-memory
+graph exceeds per-isolate memory limits, language-independently — so the choice is among containers,
+scale-to-zero included. And the graph's resident memory is unmeasured; that number has to exist before
+an instance can be sized.
 
 ### 3.4 ~~Client~~ — **DECIDED, [ADR 023](DECISIONS.md)**
 
@@ -197,17 +208,17 @@ when this agenda was written.
 | Item | Notes |
 |---|---|
 | [Issue #19](https://github.com/zws33/bacons_law/issues/19) — ETL query fidelity | Missing `?actor wdt:P31 wd:Q5`; documentary/TV-film exclusions leak. Needs a **full re-extract**, the expensive step — batch every query change into one rebuild and bump `QUERY_VERSION`. Not urgent: [ADR 019](DECISIONS.md) measured the confound at 0.02% of degree-1 actors. |
-| [Issue #17](https://github.com/zws33/bacons_law/issues/17) — engine test coverage | Six behaviours implemented but untested. Absorbed by the conformance suite; land it during engine work, not before. |
-| `:core` **behavioural** delta — grew with [ADR 021](DECISIONS.md) | Was "retype `Int` → QID strings, fix eight call sites." Now also: the prototype resolves every repeat and wrong-type submission to a **round loss**, which ADR 021 inverts to a rejection. An engine ported from `:core` unchanged fails the whole of the suite's Group C. The conformance spec's coverage map marks these `no` under *Implemented*, not merely untested. |
-| `:core` type reconciliation | Still `Int` / `Set<Int>` from the dropped TMDB source. Only worth doing if Kotlin survives 3.1 — and if it does, fold it into the behavioural rewrite above rather than doing it separately. |
-| `:backend` | Still the TMDB proxy it started as. |
+| ~~[Issue #17](https://github.com/zws33/bacons_law/issues/17) — engine test coverage~~ | **Moot, [ADR 025](DECISIONS.md).** The six untested behaviours were `:core`'s, and `:core` is not ported. The conformance suite covers the replacement engine. Close the issue rather than tracking it. |
+| ~~`:core` **behavioural** delta~~ | **Moot, [ADR 025](DECISIONS.md).** It described the cost of porting `:core` forward — an engine ported from it unchanged fails the whole of the suite's Group C. Nothing is ported, so the delta is never paid. The new engine is written against the spec directly. |
+| ~~`:core` type reconciliation~~ | **Moot, [ADR 025](DECISIONS.md).** Its own condition was "only worth doing if Kotlin survives 3.1." It did not. |
+| `:backend` | Still the TMDB proxy it started as, and now reference-only. Not debt — dead code awaiting a decision to delete it. |
 
 ---
 
 ## 7. Suggested sequencing
 
 Not a decision — a proposal, offered because the dependencies are real. **Four of the original five
-steps are done**; what follows is the remainder, renumbered.
+steps are done**, leaving only the fifth; what follows is the remainder, renumbered.
 
 - ~~Typeahead placement~~ — **done, [ADR 020](DECISIONS.md)**. Note its stated rationale did not
   survive: it was sequenced first on the theory that shipping the index would shrink the server's job,
@@ -224,15 +235,18 @@ steps are done**; what follows is the remainder, renumbered.
   `Removal.beforeRound` and a fixed round-0 opener, without which an earlier round's roster is not
   recoverable and a stored result cannot be replayed with attribution.
 
-1. **Stack (3.1)** — the front of the queue and the least reversible decision left. Now easier than
-   when this agenda was written: the client no longer constrains it at all (§3.4). Two criteria moved —
-   shared types struck, static type-alternation enforcement added — and the match layer adds three more
-   sealed unions to weigh under that criterion (§4.1).
-2. **Store (3.2)** — now partly coupled to ADR 022's deferred auth-provider choice, since some
-   providers bundle the two. Weigh the bundle against the per-read pricing point in §3.2.
-3. **Hosting (3.3)** — genuinely deferrable and unconstrained.
+- ~~Stack~~ — **done, [ADR 025](DECISIONS.md)**, and the criteria that made it look hard did not
+  decide it. It was sequenced first as the least reversible decision left; that held, but the
+  reversibility came from the two conformance specs rather than from the sequencing. A lesson worth
+  keeping: it turned out to be *two* decisions of very different weight, and separating them was what
+  let the reversible half be decided quickly and the irreversible half slowly.
+
+1. **Store (3.2)** — coupled to ADR 022's deferred auth-provider choice, since some providers bundle
+   the two. Weigh the bundle against the per-read pricing point in §3.2. ADR 025 does not narrow it:
+   the bundled providers all ship first-class TypeScript SDKs.
+2. **Hosting (3.3)** — genuinely deferrable, and constrained only by ADR 025's edge/isolate exclusion.
 
 **What is not on the critical path:** issue #19's rebuild, `:app`, and `:backend`.
 
-**Still true:** §1 and §2 are untouched by ADRs 020–023. §3's remaining three decisions are the bulk of
+**Still true:** §1 and §2 are untouched by ADRs 020–025. §3's remaining two decisions are the bulk of
 what the session has not done.

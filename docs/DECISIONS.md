@@ -27,6 +27,12 @@ Lightweight ADR-style record of key technical and product decisions.
 > **the notification channel is reopened** — 022 records the two facts that bound it and leaves the
 > choice undecided. **024 gives the match layer a spec of record**, closing the half of 014 that was
 > left unwritten and extending 017's "the spec outranks the implementation" to it.
+>
+> **025 settles the server stack** — TypeScript on Node with Fastify, superseding 011's Kotlin/Ktor
+> choice and taking Kotlin out of the running system entirely; the Python ETL is unaffected. The
+> language is the load-bearing half; the runtime and framework are recorded there as the reversible
+> half, decided on separate criteria.
+>
 > The archived Python/FastAPI showcase kept its own log; it was deleted along with that effort's plans
 > — see [`HISTORY.md`](HISTORY.md).
 >
@@ -240,11 +246,11 @@ The project also has a long-term goal of remote multiplayer. A backend is inevit
 
 ## 011: Kotlin/Ktor server + Python ETL; single Fly.io instance, not Cloud Run
 
-> **The language choice is reopened, and the hosting decision has lost its premise.** The
-> *offline/online split* (Python ETL, everything else online) **holds**. "Server: Kotlin/Ktor," "reuse
-> the pure `:core` engine as-is," and "the running system stays all-Kotlin" are **provisional**: the
-> whole application build-out, stack included, is to be reevaluated in a planning session. See
-> [`../AGENTS.md`](../AGENTS.md).
+> **The language choice is superseded by [ADR 025](#025-the-server-is-typescript-on-node-with-fastify), and the
+> hosting decision has lost its premise.** The *offline/online split* (Python ETL, everything else
+> online) **holds** and is the durable part of this ADR. "Server: Kotlin/Ktor," "reuse the pure
+> `:core` engine as-is," and "the running system stays all-Kotlin" are **void**: the server is
+> written in TypeScript, `:core` is not ported, and Kotlin leaves the running system.
 >
 > **The hosting rationale below is void.**
 > [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) drops
@@ -1132,3 +1138,101 @@ projection.
 - **The open-ended series is dropped as a mode.** ADR 014 listed it alongside eliminate and end-match;
   `strikeLimit >= 1` is now required, because an unbounded series has no terminal state derivable from
   round results. Revisited only on playtest evidence that players want it.
+
+---
+
+## 025: The server is TypeScript, on Node with Fastify
+
+**Date:** 2026-08-14
+
+**Settles planning agenda §3.1.** **Supersedes the language choice of
+[ADR 011](#011-kotlinktor-server--python-etl-single-flyio-instance-not-cloud-run)** — its
+offline/online split survives unchanged; "the running system stays all-Kotlin" does not.
+
+**Context:** The stack was reopened pending this session.
+[ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) removed the
+concurrency criteria that were silently selecting it, and
+[ADR 023](#023-web-is-the-real-client-native-is-a-showcase-artifact) removed the client criteria —
+shared types struck, single-language velocity struck in both directions. What remained: ecosystem
+maturity, how cleanly the language expresses the two specs' sealed unions, deployment simplicity,
+familiarity, and [ADR 021](#021-a-refused-move-is-rejected-not-lost-the-round-engine-gains-an-outcome-taxonomy)'s
+optional static type-alternation criterion.
+
+Enumerating what the server actually does — load the artifact once, derive search keys once, a
+sub-1-request/sec typeahead, O(1) membership, two pure state machines, and a load → CAS → emit session
+layer — found **no throughput-, latency-, or concurrency-bound path anywhere in it.** Every candidate
+is fast enough by a wide margin, so the decision rests entirely on expression, ecosystem, and
+deployment.
+
+**Decision:**
+
+1. **The server is written in TypeScript**, in a new top-level `server/` directory.
+2. **The ETL stays Python.** ADR 011's offline/online split is unaffected.
+3. **`:core` and `:backend` are superseded, not ported.** Both join `:app` as reference-only.
+4. **Validating untyped input at the HTTP boundary is normative, not stylistic** — a schema
+   declaration yielding both a validator and a static type. TypeScript erases at runtime, and ADR 021
+   already places the real enforcement there; erasure removes the option of skipping it.
+5. **The runtime is Node** and **the framework is Fastify.** These are the reversible half of this
+   ADR and were decided on their own criteria, below.
+
+**What decided it:**
+
+| Finding | Effect |
+|---|---|
+| ADR 021's static alternation check is mandatory at the boundary in every language — it "relocates the check, it does not remove it" | Kotlin's win on the sealed-union criterion is real and small |
+| Bundled auth + store providers ([ADR 022](#022-identity-is-a-third-party-authenticated-account)) ship first-class TS SDKs and inconsistent JVM ones | §3.2 stays unconstrained by this decision |
+| `:core` is 188 lines and is specified to fail the whole of the conformance suite's Group C | There is no incumbent to preserve |
+
+**Alternatives.** **Kotlin/Ktor** — best sealed-union and immutability expression; costs a third
+toolchain in the repo, the weakest bundled-provider SDK coverage, and a JVM cold start that ADR 018's
+measurement does not cover. **Python/FastAPI** — shares the ETL toolchain and Pydantic is strongest at
+the boundary; weakest sum types, and already built and archived once ([`HISTORY.md`](HISTORY.md) §2).
+**Go** — no sum types; not evaluated further.
+
+**Runtime and framework — decided on their own criteria.** The HTTP surface is seven routes (create,
+submit move, poll, inbox, suggest, forfeit, health), which caps what either choice can be worth.
+
+| | Why it won | What it cost |
+|---|---|---|
+| **Node** over Bun and Deno | Total vendor-SDK compatibility, which matters because §3.2 has not picked a provider yet; a mature large-heap story for the resident graph | Bun's and Deno's advantages are DX and boot speed, and ADR 018 already established that boot speed is not a constraint here |
+| **Fastify** over Hono and Express | Schema-first routing *is* decision 4 — a JSON Schema per route is the routing contract, not a bolt-on; `@fastify/rate-limit` is first-party, and ADR 021 made rate limiting a real transport requirement | A plugin and encapsulation surface larger than seven routes need, and it pins the framework to a Node-first ecosystem |
+
+**Hono was the runner-up on a structural argument:** it runs on all three runtimes, so it would have
+kept the runtime reversible. That is worth less once Node is chosen outright. Express was rejected on
+its TypeScript and validation story; Nest as over-engineered at this size; no framework at all as a
+false economy that hand-rolls error handling, CORS, and rate limiting.
+
+**Consequences:**
+
+- **Two guarantees move from the compiler to the test suite.** Exhaustiveness needs the `never` idiom
+  rather than being enforced; immutability is `readonly` by convention rather than by language. The
+  numbered suites grade the engine either way
+  ([ADR 017](#017-the-conformance-spec-is-authoritative-over-the-engine-implementation),
+  [ADR 024](#024-the-match-layer-has-a-spec-of-record)) — this is the cost those specs were written to
+  absorb, and it is the strongest argument the losing option had.
+- **Edge and isolate runtimes are ruled out**, language-independently: the in-memory graph exceeds
+  per-isolate memory limits. §3.3 chooses among containers, scale-to-zero included. Recorded here
+  because TypeScript is what makes this the easy wrong turn.
+- **Scale-to-zero is unaffected and ADR 018's cold-start measurement now transfers** — Node starts
+  faster than CPython and the artifact parse is the dominant term in that figure. Had Kotlin won, it
+  would have needed re-measuring.
+- **[ADR 021](#021-a-refused-move-is-rejected-not-lost-the-round-engine-gains-an-outcome-taxonomy)'s
+  rate-limiting requirement has an owner.** Rejections are unbounded at the engine by design, so the
+  bound is transport-side; it lands in Fastify's plugin layer and was a criterion in choosing it.
+- **A framework swap stays cheap.** The round engine and match layer are pure functions that never see
+  an HTTP type ([ADR 012](#012-async-correspondence-is-a-first-class-mode-durable-store-authoritative)
+  §3, [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture)'s first
+  seam), so replacing Fastify is a routing-layer rewrite against unchanged domain code.
+- **[ADR 020](#020-typeahead-resolves-server-side-the-client-index-is-a-deferred-fast-follow)'s folding
+  rule needs a deliberate choice.** JavaScript has no case-fold primitive, and `toLowerCase` is not
+  case folding — ß is the known divergence. Pick a library or record the divergence; do not let
+  `toLowerCase` in by default.
+- **Fold consistency gets cheaper for the first client.** Server and web client share a runtime, so the
+  fold is one implementation, not two. It becomes cross-runtime only when a native client lands, which
+  is what ADR 020 already said.
+- **Kotlin leaves the running system.** The agenda's `:core` behavioural-delta and type-reconciliation
+  debt is moot rather than done, and [issue #17](https://github.com/zws33/bacons_law/issues/17)'s
+  coverage gap dies with the module it described — close it rather than tracking it.
+- **Memory sizing is unmeasured and belongs to §3.3.** A naive `Map<string, Set<string>>` over 456,129
+  edges plausibly lands in the hundreds of MB; a QID → index representation over typed arrays cuts that
+  several-fold. Neither figure was measured, and neither differentiated the candidates.

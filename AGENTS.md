@@ -14,15 +14,19 @@ held in memory.
 > here, and when a rule changes, change it in the document that owns it — a second copy in this file
 > is how the two drift apart.
 
-> **`etl/` is the only durable source code and the only fixed contract.** Everything else in this
-> repo — `:core`, `:backend`, `:app`, and the application/server design in `docs/DECISIONS.md` — is
-> **provisional**: the application build-out will be reevaluated in a planning session, stack
-> included. Never preserve a signature, module layout, or design decision merely because it is already
-> in the tree.
+> **`etl/` is the only durable source code and the only fixed contract.** No Kotlin in this repo is
+> live code any more: the server is TypeScript on Node ([ADR 025](docs/DECISIONS.md)), and neither
+> `:core` nor `:backend` is ported forward. All three Kotlin modules are **reference only — do not
+> modify unless explicitly asked.** Never preserve a signature, module layout, or design decision
+> merely because it is already in the tree.
 >
-> **Prior efforts are preserved as reference, not maintained** — do not modify unless explicitly
-> asked: the Kotlin/Compose Android client (`:app`) and the Python/FastAPI showcase (branch
-> `fullstack-py-ts-rewrite`, tag `python-fastapi-showcase`). [docs/HISTORY.md](docs/HISTORY.md)
+> **The system to be built is not in the tree yet:** a `server/` directory
+> ([ADR 025](docs/DECISIONS.md)) and a web client directory ([ADR 023](docs/DECISIONS.md)). Neither is
+> started. Storage and hosting are the two decisions still open.
+>
+> **Prior efforts are preserved as reference, not maintained** — the Kotlin/Compose Android client
+> (`:app`) and the Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag
+> `python-fastapi-showcase`). [docs/HISTORY.md](docs/HISTORY.md)
 > records what they were and why they ended; their detailed plans were deleted, so do not go looking.
 >
 > There is currently **no roadmap document and no architecture-orientation skill** — both were retired
@@ -39,23 +43,26 @@ experiment is *adding a directory*, not restructuring the root.
 | Path | What it is | Status |
 |---|---|---|
 | `etl/` | Offline Wikidata graph build (Python, `uv`/`ruff`). Produces the versioned artifact everything else is written against. Own rules in [etl/AGENTS.md](etl/AGENTS.md) | **Durable.** The one fixed contract |
-| `kotlin/core` (`:core`) | The pure round engine — round state machine, no platform or I/O dependencies | Provisional prototype. Spec: [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) |
-| `kotlin/backend` (`:backend`) | Still the thin TMDB proxy it started as. The graph-backed session server has not been built | Provisional; whether it is built here, or in Kotlin, is open |
+| `server/` | The session server — TypeScript on Node, Fastify ([ADR 025](docs/DECISIONS.md)). Holds the round engine, the match layer, and the session layer | **Not started.** Where new server work goes |
+| *(unnamed)* | The web client — the primary client ([ADR 023](docs/DECISIONS.md)), a **separate top-level directory** with its own toolchain | Not started |
+| `kotlin/core` (`:core`) | The pure round engine prototype. Superseded by ADR 025 and not ported; the spec it was graded against, [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md), outlives it | **Reference only — do not modify** |
+| `kotlin/backend` (`:backend`) | Still the thin TMDB proxy it started as. Never became the session server | **Reference only — do not modify** |
 | `kotlin/app` (`:app`) | Compose Android client for the retired pass-the-phone model | **Reference only — do not modify.** Not the starting point for any future client |
-| *(none yet)* | The web client is decided ([ADR 023](docs/DECISIONS.md)) and will be a **new top-level directory**, not part of `kotlin/` | Not started |
 
 Gradle commands run from `kotlin/` — that is where `settings.gradle.kts` and the wrapper live. Module
 notation (`:core`, `:backend`, `:app`) is relative to that project. `:backend` and `:app` both depend
-on `:core`; `:core` depends on neither.
+on `:core`; `:core` depends on neither. **Nothing there is under active development.**
 
 ---
 
 ## Build & test
 
-Gradle runs from `kotlin/`; the ETL runs from `etl/`. **No build tooling runs from the repo root.**
+The ETL runs from `etl/`. **No build tooling runs from the repo root**, and none will — `server/` and
+the web client each get their own.
 
-`./gradlew :core:jvmTest` is the fast feedback loop for game logic. Note the target: `:core` is a KMP
-module (`commonMain` / `jvmTest`), so there is **no `:core:test` task**; `allTests` runs every target.
+Gradle still runs from `kotlin/`, but only to build reference code. `./gradlew :core:jvmTest` was the
+feedback loop for game logic and no longer is; `:core` is a KMP module (`commonMain` / `jvmTest`), so
+there is **no `:core:test` task**.
 
 ---
 
@@ -72,9 +79,12 @@ There is no TMDB key and no API key of any kind — validation data is CC0 Wikid
 ## Conventions
 
 - **Commits:** Conventional commit format — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`.
-- **Kotlin:** follow existing style; prefer pure functions and immutable data in `:core`.
-- **Build versions:** declared in `gradle/libs.versions.toml`. Don't hardcode version strings.
+- **TypeScript (`server/`, web client):** pure functions and immutable data in the engine and match
+  layer. Exhaustiveness over discriminated unions is checked with a `never` default, not assumed.
+  Untyped input is validated at the HTTP boundary — normative, per [ADR 025](docs/DECISIONS.md).
 - **Python (`etl/`):** keep it self-contained and offline.
+- **Kotlin (`kotlin/`):** reference only. Don't add to it. `gradle/libs.versions.toml` still owns its
+  version strings.
 
 ---
 

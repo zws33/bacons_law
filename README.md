@@ -31,8 +31,9 @@ that it should be **precomputed, not looked up per turn**:
 - The **server** loads that graph **read-only, in-process** at boot and validates a move with an O(1)
   set-membership check — no per-turn external API call.
 - A **pure round engine** owns the rules, specified by
-  [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md). A **durable store** holds authoritative
-  game state — it must survive restarts and span days. Which store is an open planning question.
+  [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md). It never reads the graph itself; the
+  session layer passes the cast in as data. A **durable store** holds authoritative game state — it
+  must survive restarts and span days. Which store is an open planning question.
 
 The graph and the validation logic must stay in the same process — that co-location is what makes
 validation cheap.
@@ -50,17 +51,21 @@ number, not a second system.
 **Settled:**
 
 - **Python** — offline ETL building the Wikidata graph artifact. The only fixed contract in the repo.
+- **TypeScript on Node, Fastify** — the server ([ADR 025](docs/DECISIONS.md)). Not written yet; the
+  Kotlin modules in the tree are superseded prototypes, not a starting point.
+- **Web** — the primary client ([ADR 023](docs/DECISIONS.md)), its own top-level directory. Native is a
+  showcase follow-up. Not written yet.
+- **Identity** — a third-party authenticated account, a JWT verified against the provider's JWKS
+  ([ADR 022](docs/DECISIONS.md)). The provider itself is not picked.
 
-**Open — decided in an upcoming planning session, nothing below is chosen:**
+**Open — nothing below is chosen:**
 
-- **Server language and framework.** The tree holds a Kotlin/Ktor server and a pure Kotlin `:core`
-  engine; both are prototypes, not commitments.
-- **Durable store** for authoritative game state. Prior choices were withdrawn to avoid biasing this
-  decision. There is no presence/broadcast layer to choose — see [ADR 018](docs/DECISIONS.md).
-- **Client.** The tree holds an unmaintained Android/Compose app built for a dropped design.
-- **Hosting.** Wide open. An earlier revision of this file required a single long-lived instance;
-  [ADR 018](docs/DECISIONS.md) removed that. The graph is read-only and identical on every instance, so
-  it constrains **cold start**, not instance count — and that is a measurement, not a ruling.
+- **Durable store** for authoritative game state. There is no presence/broadcast layer to choose —
+  see [ADR 018](docs/DECISIONS.md). Possibly one decision with the identity provider, since several
+  vendors bundle the two.
+- **Hosting.** Open on cost and operational simplicity; cold start is measured and is not an obstacle.
+  The graph is read-only and identical on every instance, so it constrains **cold start**, not
+  instance count.
 
 ## Project Structure
 
@@ -68,14 +73,17 @@ The root is stack-agnostic; each implementation lives in its own self-contained 
 
 ```
 bacons-law/
-├── docs/          # Decision log, engine spec, history note
+├── docs/          # Decision log, engine + match specs, history note
 │   └── investigations/   #   Records, never rules — case study + investigation write-ups
-├── kotlin/        # Self-contained Gradle project — the Kotlin implementation
-│   ├── core/      #   Pure Kotlin game engine — state machine, validation, turn management
-│   ├── backend/   #   Ktor server — graph-backed session server (being rebuilt from a proxy)
-│   └── app/       #   Android/Compose client (secondary)
-└── etl/           # Python — offline Wikidata graph build
+├── etl/           # Python — offline Wikidata graph build
+└── kotlin/        # Reference only — superseded prototypes, not under development
+    ├── core/      #   Pure Kotlin round engine
+    ├── backend/   #   Ktor TMDB proxy; never became the session server
+    └── app/       #   Android/Compose client for the dropped pass-the-phone design
 ```
+
+`server/` (TypeScript) and the web client are decided but not started, and will be sibling top-level
+directories with their own toolchains.
 
 ## Status
 
@@ -84,11 +92,14 @@ validates moves against. It is the only fixed contract in the repo. The first fu
 (`v1`, 1925–2026) is built: **47,624 movies, 89,074 actors, 456,129 edges, 21MB**. `data/` is
 gitignored, so the artifact is not in this tree — see [etl/README.md](etl/README.md) to build it.
 
-Everything else is provisional. The engine, server, and client, the persistence and session design
-sketched above, and the choice of language and framework will all be reevaluated in a planning
-session; the Kotlin modules in this tree are where that work currently stands, not a commitment.
-[docs/DECISIONS.md](docs/DECISIONS.md) (ADRs 008–013) records the reasoning that got the project
-here — read it for the *why*, which holds, rather than as a set of commitments.
+**The rules are the second settled part.** [ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) and
+[MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md) specify the round engine and the match layer as
+numbered rules plus a conformance suite, language-agnostic and authoritative over any implementation.
+They are what made the stack a reversible choice.
+
+**The server and the client do not exist yet.** The stack, the client, and identity are decided
+(ADRs 022, 023, 025); the store and hosting are not. Nothing in `kotlin/` is a starting point — it is
+reference for a design that was superseded.
 
 Two prior efforts are preserved as reference, not maintained: the Kotlin/Compose Android client and a
 Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag `python-fastapi-showcase`).
@@ -97,14 +108,15 @@ Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag `python-fastapi-s
 
 No API keys are required — the actor↔movie data comes from CC0 Wikidata, built offline by the ETL.
 
-- Game logic: `./gradlew :core:jvmTest` (from `kotlin/`)
 - ETL: see [etl/README.md](etl/README.md)
+- Reference Kotlin prototypes: `./gradlew :core:jvmTest` (from `kotlin/`). Not under development.
 
 ## Documentation
 
 - [Engine Conformance Spec](docs/ENGINE_CONFORMANCE.md) — **the round engine's spec of record.** Rules
-  R1–R15 plus a numbered conformance suite, language- and framework-agnostic. Authoritative over
-  `kotlin/core/.../GameEngine.kt`, which is prototype code the spec records divergences from
+  R1–R17 plus a numbered conformance suite, language- and framework-agnostic
+- [Match Conformance Spec](docs/MATCH_CONFORMANCE.md) — **the match layer's spec of record.** Rules
+  M1–M16 plus a conformance suite: strikes, removal, standings, opener rotation
 - [Decision Log](docs/DECISIONS.md) — key technical and product decisions with the reasoning behind
   them; read for the *why*, not as a set of commitments. **ADR 018 is the most consequential recent
   one** — it amends 008, 011, and 012 on transport, hosting, and modes
