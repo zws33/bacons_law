@@ -47,7 +47,13 @@ Lightweight ADR-style record of key technical and product decisions.
 > **scheduled sweeper**, because the notification that actually changes an outcome is a warning *before*
 > a deadline lapses, and `MATCH_CONFORMANCE`'s M4 removes a player on their first lapse. That hands
 > hosting a second hard constraint. **022 now has no open questions, and hosting is the last decision
-> in the project.**
+> in the project** — its constraints are collected in
+> [Open: Hosting](#open-hosting--the-last-decision-in-the-project) at the end of this file.
+>
+> **`§3.x` and "agenda §…" inside an ADR point at the deleted planning agenda**, which every decision
+> from 020 onward consumed. They are left as written because they are the record of what each decision
+> was answering; nothing outstanding lives behind them. The one item that was still open when the
+> agenda was deleted — §3.3, hosting — is promoted into this file.
 >
 > The archived Python/FastAPI showcase kept its own log; it was deleted along with that effort's plans
 > — see [`HISTORY.md`](HISTORY.md).
@@ -1534,7 +1540,8 @@ work:
 **Settles the second of [ADR 022](#022-identity-is-a-third-party-authenticated-account)'s "Not decided
 here" questions, completing its amendment of
 [ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) on the
-notification path. Adds a constraint to [agenda §3.3](PLANNING_AGENDA.md).**
+notification path. Adds a constraint to
+[Open: Hosting](#open-hosting--the-last-decision-in-the-project).**
 
 **Date:** 2026-08-17
 
@@ -1597,3 +1604,33 @@ work:
 - **The environment gains a transactional-email credential**, injected like the rest and never
   committed.
 - **ADR 022 has no remaining open questions.**
+
+---
+
+## Open: Hosting — the last decision in the project
+
+**Status: open.** Every other decision in this log is made. This was the planning agenda's §3.3 and is
+promoted here because that document is deleted.
+
+**Decide on cost, operational simplicity, and familiarity.** Cold start is not an obstacle:
+[ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) demoted latency
+and [ADR 025](#025-the-server-is-typescript-on-node-with-fastify) keeps that true without a re-measure.
+
+**Binding constraints:**
+
+| Constraint | Source |
+|---|---|
+| The server must run in the **same region as the Supabase project**. Typeahead is the only human-perceptible latency budget in the system and now takes a database round trip — same-region ~1–3 ms is noise, cross-region 50–150 ms against an estimated 200–400 ms p50. This narrows the candidate set more than any other input | [ADR 026](#026-the-graph-lives-in-the-durable-store-not-in-process-the-store-is-postgres) |
+| The deployment must support a **scheduled trigger**. The sweeper adjudicates lapsed deadlines and sends pre-expiry warnings; the warning is the only mitigation that leaves [M4](MATCH_CONFORMANCE.md#m4--the-round-end-reason-determines-removal) intact. This does **not** rule out scale-to-zero — an external pinger against an authenticated endpoint satisfies it on any host, and keeps the logic in the server rather than in `pg_cron` | [ADR 029](#029-email-is-the-primary-notification-channel-a-scheduled-sweeper-warns-before-deadlines-lapse) |
+| The deployment must expose a **"last sweep completed" signal**, because a dead sweeper fails by absence — matches stop resolving and nothing reports it | [ADR 029](#029-email-is-the-primary-notification-channel-a-scheduled-sweeper-warns-before-deadlines-lapse) |
+
+**Open cost input:** Supabase free-tier projects pause after inactivity, and a quiet week is normal for
+correspondence play. Verify current terms against the paid tier before sizing the bill.
+
+**Two former inputs are gone; do not reopen either.** The edge/isolate exclusion lost its premise — the
+graph is no longer resident — and Fastify is Node-first regardless. Resident graph memory is no longer
+a number to measure before sizing; the instance can be small.
+
+**Both constraints arrived from decisions that were not sequenced against hosting** — the store
+decision produced the first and the notification decision the second. The pattern is worth keeping: a
+decision that looks like a vendor or channel pick has twice turned out to contain a structural one.

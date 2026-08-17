@@ -1013,8 +1013,8 @@ lapses remove rather than accumulate. Left as written; revisit if a playtest pro
 
 **Where a match's terminal state goes.** [M12](#m12--every-match-terminates) makes every match
 terminal, so terminal matches can be archived or compacted out of the hot path. Whether they are is a
-storage-selection input, not a rule here — it is the one requirement this layer places on
-[agenda §3.2](PLANNING_AGENDA.md).
+storage-selection input, not a rule here — it is the one requirement this layer placed on the store
+decision, settled by [ADRs 026 and 027](DECISIONS.md).
 
 **Rematch and series.** Whether finishing a match can seed a new one with the same roster is
 unspecified and out of scope for this document; it would be a new match, not a match-layer state.
@@ -1026,6 +1026,5 @@ unspecified and out of scope for this document; it would be a new match, not a m
 | Document | Relationship |
 |---|---|
 | [ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md) | The layer below. Produces the `RoundOver` this document consumes; its [Engine boundary](ENGINE_CONFORMANCE.md#engine-boundary) table delegates to this document. [M4](#m4--the-round-end-reason-determines-removal) is what gives `RoundOver.reason` its differential — the use the engine spec asserted and did not specify |
-| [DECISIONS.md](DECISIONS.md) | [ADR 021](DECISIONS.md) established the round outcome taxonomy this layer reads; [ADR 012](DECISIONS.md)/[018](DECISIONS.md) the deadline model the session layer owns |
+| [DECISIONS.md](DECISIONS.md) | [ADR 024](DECISIONS.md) commissioned this document; [ADR 021](DECISIONS.md) established the round outcome taxonomy this layer reads; [ADR 012](DECISIONS.md)/[018](DECISIONS.md) the deadline model the session layer owns |
 | [AGENTS.md](../AGENTS.md) | Repository navigation and conventions. It indexes this document and states no match-layer rules of its own |
-| [PLANNING_AGENDA.md](PLANNING_AGENDA.md) | §4.1 is this document's commissioning entry |

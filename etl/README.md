@@ -91,3 +91,11 @@ Deferred deliberately — none is a bug, and none blocks a build.
   command; `build` always re-emits from the full raw cache. That is cheap today (transform and emit
   are pure and fast over cached files), so the update cadence is: re-run `extract` for the new year,
   then `build`. Worth designing properly before the first real refresh.
+- **Surface actor sitelink counts on `Edge`.** They are needed for typeahead result ranking
+  ([ADR 020](../docs/DECISIONS.md)) and are currently dropped at `Edge`. A `transform` + `emit` change
+  against the existing raw partitions — no re-extract, and independent of issue #19.
+
+**Batch every query change into one rebuild.** Issue #19's fixes require a full re-extract, the one
+expensive step in the pipeline. Anything that touches the SPARQL query waits for that rebuild and goes
+in with it, bumping `QUERY_VERSION` once. Not urgent —
+[ADR 019](../docs/DECISIONS.md) measured the confound at 0.02% of degree-1 actors.
