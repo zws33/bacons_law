@@ -1,7 +1,7 @@
 # ETL — agent operating rules (offline Python)
 
 Scope: this directory is the **offline graph build** — a self-contained Python toolchain
-(`uv` + `ruff`, Python 3.14) with no coupling to the Kotlin project. It runs **offline**, produces the
+(`uv` + `ruff`, Python 3.14) with no coupling to any consumer. It runs **offline**, produces the
 versioned graph artifact the server loads into its database, and is **never** in the request path. (The root
 `AGENTS.md` still applies; this file adds the ETL-specific focus so a session here doesn't have to
 reason about the whole backend.)
@@ -59,10 +59,9 @@ re-pull.
 - **Filter = enwiki ∩ ≥`min_sitelinks` ∩ ≥`min_cast` cast.** The enwiki anchor is unconditional in the
   query and `min_sitelinks` is applied at **extract** time (baked into the raw cache); `min_cast` /
   `cast_cap` are **transform**-time dials you retune often.
-- **Artifact keys are Wikidata QIDs (strings).** This is the contract the server validates against.
-  If a consuming engine wants some other ID type, that mapping is a **loader-side** concern — do
-  **not** pre-map QIDs to ints here. (The current Kotlin `:core` declares `Set<Int>`, left over from
-  the dropped TMDB source; that signature is provisional and does not bind this pipeline.)
+- **Artifact keys are Wikidata QIDs (strings).** This is the contract the server validates against
+  ([ADR 016](../docs/DECISIONS.md)). If a consuming engine wants some other ID type, that mapping is a
+  **loader-side** concern — do **not** pre-map QIDs to ints here.
 - **A movie's release year comes from its partition, not a second query.** `FILTER(YEAR(?date) = N)`
   means the partition key *is* a publication year of every film in the file, so `entities` gets its
   year from `CachePayload.year` for free. Don't add `?date` to the SELECT to get it. Movies carry

@@ -56,8 +56,7 @@ number, not a second system.
 **Settled:**
 
 - **Python** — offline ETL building the Wikidata graph artifact. The only fixed contract in the repo.
-- **TypeScript on Node, Fastify** — the server ([ADR 025](docs/DECISIONS.md)). Not written yet; the
-  Kotlin modules in the tree are superseded prototypes, not a starting point.
+- **TypeScript on Node, Fastify** — the server ([ADR 025](docs/DECISIONS.md)). Not written yet.
 - **Web** — the primary client ([ADR 023](docs/DECISIONS.md)), its own top-level directory. Native is a
   showcase follow-up. Not written yet.
 - **Supabase** — Postgres for game state *and* the graph, plus the identity provider
@@ -79,11 +78,7 @@ The root is stack-agnostic; each implementation lives in its own self-contained 
 bacons-law/
 ├── docs/          # Decision log, engine + match specs, history note
 │   └── investigations/   #   Records, never rules — case study + investigation write-ups
-├── etl/           # Python — offline Wikidata graph build
-└── kotlin/        # Reference only — superseded prototypes, not under development
-    ├── core/      #   Pure Kotlin round engine
-    ├── backend/   #   Ktor TMDB proxy; never became the session server
-    └── app/       #   Android/Compose client for the dropped pass-the-phone design
+└── etl/           # Python — offline Wikidata graph build
 ```
 
 `server/` (TypeScript) and the web client are decided but not started, and will be sibling top-level
@@ -102,18 +97,18 @@ numbered rules plus a conformance suite, language-agnostic and authoritative ove
 They are what made the stack a reversible choice.
 
 **The server and the client do not exist yet.** The stack, the client, identity, and storage are
-decided (ADRs 022, 023, 025, 026, 027); hosting is the only one left. Nothing in `kotlin/` is a
-starting point — it is reference for a design that was superseded.
+decided (ADRs 022, 023, 025, 026, 027); hosting is the only one left, and its constraints are collected
+in **Open: Hosting** at the end of the [decision log](docs/DECISIONS.md).
 
-Two prior efforts are preserved as reference, not maintained: the Kotlin/Compose Android client and a
-Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag `python-fastapi-showcase`).
+Two prior efforts are preserved as tags, not as directories: the Kotlin/Compose Android client and its
+Ktor proxy (tag `kotlin-android-mvp`) and a Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`,
+tag `python-fastapi-showcase`). Neither is a starting point — see [History](docs/HISTORY.md).
 
 ## Setup
 
 No API keys are required — the actor↔movie data comes from CC0 Wikidata, built offline by the ETL.
 
-- ETL: see [etl/README.md](etl/README.md)
-- Reference Kotlin prototypes: `./gradlew :core:jvmTest` (from `kotlin/`). Not under development.
+- ETL: see [etl/README.md](etl/README.md). It is the only buildable component in the tree.
 
 ## Documentation
 

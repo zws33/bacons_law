@@ -12,6 +12,14 @@ Kotlin `:core` implementation and its test suite (a prototype, not authority), a
 in [issue #17](https://github.com/zws33/bacons_law/issues/17). Where they disagreed, the reconciliation
 is recorded in [Divergences from source material](#divergences-from-source-material).
 
+> **`:core` is no longer in the tree.** It was superseded by [ADR 025](DECISIONS.md) and the `kotlin/`
+> directory was deleted; the code is at tag `kotlin-android-mvp`. Every reference to `:core`, its test
+> suite, or its type signatures below is **dated record of what this spec was reconciled against** — it
+> is not a description of anything a new implementation must match or avoid. **The rules R1–R17 and the
+> numbered conformance suite are the whole of what binds an implementation**, and they are complete
+> without the prototype columns. Read the `Implemented` column of the coverage map as "the prototype
+> did," never as "the system does."
+
 ---
 
 ## Scope: the round engine, not the match
@@ -1231,9 +1239,9 @@ THEN   succeeds                                 # empty set is legal data
 
 ## Coverage map
 
-Current status of the Kotlin `:core` suite
-(`kotlin/core/src/jvmTest/kotlin/me/zwsmith/core/GameEngineTest.kt`). Behavior columns describe the
-prototype, not the test.
+Status of the Kotlin `:core` suite as of tag `kotlin-android-mvp`, at
+`kotlin/core/src/jvmTest/kotlin/me/zwsmith/core/GameEngineTest.kt`. That path is not in this tree —
+see the note at the top. Behavior columns describe the prototype, not the test.
 
 | TC | Scenario | Rules | Implemented | Tested |
 |---|---|---|---|---|
@@ -1303,7 +1311,7 @@ Six deltas against the prototype: **the rejection taxonomy** (R4, R5, R16 and Gr
 and the one that inverts existing behavior), **round-end reasons** (R7, `RoundOver.reason`, TC-34),
 **the winner/loser contract** (R8, S3, and every `RoundOver` assertion), **cross-round exclusions**
 (R5's second clause, TC-28–30), **Group G** (R13 construction validation is absent), and **S2**
-(`:core` types IDs as `Int`, a TMDB-era leftover — [AGENTS.md](../AGENTS.md)).
+(`:core` types IDs as `Int`, a TMDB-era leftover — [ADR 016](DECISIONS.md)).
 
 ---
 
@@ -1331,8 +1339,8 @@ elsewhere. This document ends at the round result.
 
 **ID type.** `docs/GAME_SPEC_V2.md` (retired in #16) and the current Kotlin suite both use `Int` TMDB
 IDs. This document specifies opaque strings, bound to Wikidata QIDs. The data source changed
-([ADR 010](DECISIONS.md)); the graph artifact emits QID strings, and AGENTS.md makes the data
-authoritative over the stale `:core` signature.
+([ADR 010](DECISIONS.md)); the graph artifact emits QID strings, and
+[ADR 016](DECISIONS.md) makes the data authoritative over the stale `:core` signature.
 
 **TC-11's fixtures.** The retired spec's TC-11 restated itself three times before landing on a usable
 form. This document uses the final `state3` shape, and adds the note that QIDs make the collision

@@ -1,6 +1,6 @@
 # Root is stack-agnostic — keep this generic.
-# Per-project ignores (Gradle, Python, etc.) live in each top-level project dir,
-# e.g. kotlin/.gitignore.
+# Per-project ignores (Python, Node, etc.) live in each top-level project dir,
+# e.g. etl/.gitignore.
 
 # IDE
 .idea/

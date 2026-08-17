@@ -15,8 +15,14 @@ passed it back and forth; a Kotlin/Ktor backend proxied TMDB so the API key neve
 client binary; `:core` held the pure engine and `GameViewModel` held game state.
 
 It reached a playable MVP and was then set aside. Its reasoning survives as **ADRs 001–007**, each
-carrying a supersede marker where it no longer holds. `:app` and `:backend` are still in the tree as
-reference; see their `CLAUDE.md` files.
+carrying a supersede marker where it no longer holds.
+
+**The code is not in the trunk.** [ADR 025](DECISIONS.md) took Kotlin out of the running system, and
+`kotlin/` was deleted once nothing referenced it. It is tagged `kotlin-android-mvp`:
+
+```sh
+git checkout kotlin-android-mvp
+```
 
 ## 2. The Python/FastAPI multi-device showcase (2026-06-17 → 2026-06-29)
 

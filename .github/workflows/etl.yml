@@ -1,8 +1,8 @@
 name: etl
 
 # Scoped to etl/ by path filter: the repo root is stack-agnostic and each component owns
-# its toolchain, so a Kotlin change must not run the Python suite (and vice versa when
-# kotlin/ gets a workflow of its own).
+# its toolchain, so a change elsewhere must not run the Python suite. server/ and the web
+# client each get a workflow of their own on the same terms.
 on:
   push:
     branches: [main]

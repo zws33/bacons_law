@@ -14,24 +14,24 @@ held in Postgres alongside that state.
 > here, and when a rule changes, change it in the document that owns it — a second copy in this file
 > is how the two drift apart.
 
-> **`etl/` is the only durable source code and the only fixed contract.** No Kotlin in this repo is
-> live code any more: the server is TypeScript on Node ([ADR 025](docs/DECISIONS.md)), and neither
-> `:core` nor `:backend` is ported forward. All three Kotlin modules are **reference only — do not
-> modify unless explicitly asked.** Never preserve a signature, module layout, or design decision
-> merely because it is already in the tree.
+> **`etl/` is the only source code in this repo, and the only fixed contract.** The Kotlin tree that
+> held the prototype engine, the Ktor TMDB proxy, and the Android client is **deleted** — superseded by
+> [ADR 025](docs/DECISIONS.md) and never ported. Nothing was carried forward from it. Never preserve a
+> signature, module layout, or design decision on the grounds that a prototype once had it.
 >
 > **The system to be built is not in the tree yet:** a `server/` directory
 > ([ADR 025](docs/DECISIONS.md)) and a web client directory ([ADR 023](docs/DECISIONS.md)). Neither is
 > started. Storage is Supabase Postgres and the graph lives in it, not in the server's memory
-> ([ADRs 026 and 027](docs/DECISIONS.md)); hosting is the one decision still open.
+> ([ADRs 026 and 027](docs/DECISIONS.md)); hosting is the one decision still open, and its constraints
+> are in **Open: Hosting** at the end of [docs/DECISIONS.md](docs/DECISIONS.md).
 >
-> **Prior efforts are preserved as reference, not maintained** — the Kotlin/Compose Android client
-> (`:app`) and the Python/FastAPI showcase (branch `fullstack-py-ts-rewrite`, tag
-> `python-fastapi-showcase`). [docs/HISTORY.md](docs/HISTORY.md)
-> records what they were and why they ended; their detailed plans were deleted, so do not go looking.
+> **Prior efforts survive only as tags, not as directories** — `kotlin-android-mvp` for the
+> Kotlin/Compose client and its Ktor proxy, `python-fastapi-showcase` (branch `fullstack-py-ts-rewrite`)
+> for the Python showcase. [docs/HISTORY.md](docs/HISTORY.md) records what they were and why they
+> ended; their detailed plans were deleted, so do not go looking.
 >
-> There is currently **no roadmap document and no architecture-orientation skill** — both were retired
-> pending regeneration after the planning session. Do not infer phase or status from any file.
+> There is **no roadmap document, no planning agenda, and no architecture-orientation skill.** Do not
+> infer phase or status from any file.
 
 ---
 
@@ -46,24 +46,18 @@ experiment is *adding a directory*, not restructuring the root.
 | `etl/` | Offline Wikidata graph build (Python, `uv`/`ruff`). Produces the versioned artifact everything else is written against. Own rules in [etl/AGENTS.md](etl/AGENTS.md) | **Durable.** The one fixed contract |
 | `server/` | The session server — TypeScript on Node, Fastify ([ADR 025](docs/DECISIONS.md)). Holds the round engine, the match layer, the session layer, and the loader that populates Postgres from the ETL artifact ([ADR 026](docs/DECISIONS.md)) | **Not started.** Where new server work goes |
 | *(unnamed)* | The web client — the primary client ([ADR 023](docs/DECISIONS.md)), a **separate top-level directory** with its own toolchain | Not started |
-| `kotlin/core` (`:core`) | The pure round engine prototype. Superseded by ADR 025 and not ported; the spec it was graded against, [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md), outlives it | **Reference only — do not modify** |
-| `kotlin/backend` (`:backend`) | Still the thin TMDB proxy it started as. Never became the session server | **Reference only — do not modify** |
-| `kotlin/app` (`:app`) | Compose Android client for the retired pass-the-phone model | **Reference only — do not modify.** Not the starting point for any future client |
+| `docs/` | Specs of record, the ADR log, history, and investigations. Indexed under [Where the rules live](#where-the-rules-live) | Authoritative |
 
-Gradle commands run from `kotlin/` — that is where `settings.gradle.kts` and the wrapper live. Module
-notation (`:core`, `:backend`, `:app`) is relative to that project. `:backend` and `:app` both depend
-on `:core`; `:core` depends on neither. **Nothing there is under active development.**
+`kotlin/` was removed at tag `kotlin-android-mvp`. Docs still name `:core`, `:backend`, and `:app` where
+they record what a decision was answering; those are historical references, not paths in this tree.
 
 ---
 
 ## Build & test
 
-The ETL runs from `etl/`. **No build tooling runs from the repo root**, and none will — `server/` and
-the web client each get their own.
-
-Gradle still runs from `kotlin/`, but only to build reference code. `./gradlew :core:jvmTest` was the
-feedback loop for game logic and no longer is; `:core` is a KMP module (`commonMain` / `jvmTest`), so
-there is **no `:core:test` task**.
+`etl/` is the only buildable thing in the tree, and it builds from `etl/` — see
+[etl/AGENTS.md](etl/AGENTS.md). **No build tooling runs from the repo root**, and none will: `server/`
+and the web client each get their own. There is no JVM toolchain in this repo any more.
 
 ---
 
@@ -87,8 +81,6 @@ There is no TMDB key and no API key of any kind — validation data is CC0 Wikid
   layer. Exhaustiveness over discriminated unions is checked with a `never` default, not assumed.
   Untyped input is validated at the HTTP boundary — normative, per [ADR 025](docs/DECISIONS.md).
 - **Python (`etl/`):** keep it self-contained and offline.
-- **Kotlin (`kotlin/`):** reference only. Don't add to it. `gradle/libs.versions.toml` still owns its
-  version strings.
 
 ---
 
@@ -104,7 +96,7 @@ skimmed; each one carries rules that are not obvious and that have already been 
 
 | Document | Owns |
 |----------|------|
-| [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) | **The round-engine spec of record.** Move validation, turn rotation, repeats, the opening move, rejections vs. round losses, termination. Rules R1–R17 + a numbered conformance suite; language-agnostic. Authoritative over `kotlin/core/.../GameEngine.kt` and its tests, which are prototype code it records the divergences from |
+| [docs/ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) | **The round-engine spec of record.** Move validation, turn rotation, repeats, the opening move, rejections vs. round losses, termination. Rules R1–R17 + a numbered conformance suite; language-agnostic. Its Group C grades the deleted `:core` prototype and is dated record — the rules and the suite are what bind a new implementation |
 | [docs/MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md) | **The match-layer spec of record** ([ADR 024](docs/DECISIONS.md)). Strikes, removal from play, match end, standings, opener rotation, cross-round exclusions. Rules M1–M16 + a numbered conformance suite; language-agnostic. Nothing implements it yet |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | **The ADR log — and the project's scope.** Architecture, data source, transport, identity, client, typeahead, and what is deliberately *not* being built. **Read [ADR 026](docs/DECISIONS.md) before anything in 009, 011, or 018 about where the graph lives or what the server holds in memory**, and **[ADR 018](docs/DECISIONS.md) before anything in 008–012 about transport, presence, or modes.** Its closing **Open: Hosting** section is the one decision still open and carries the constraints bearing on it. Check it before adding any game mechanic |
 | [etl/AGENTS.md](etl/AGENTS.md) | ETL operating rules and the load-bearing facts of the graph build — including what the cast cap does to "appeared in" |
