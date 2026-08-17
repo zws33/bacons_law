@@ -73,8 +73,10 @@ There is no TMDB key and no API key of any kind — validation data is CC0 Wikid
 
 - **ETL** runs offline; its Wikidata access needs no secret.
 - **Server** talks to Supabase ([ADR 027](docs/DECISIONS.md)) and needs a Postgres connection string
-  and a service key, plus the provider's JWKS URL for token verification. Inject all three from the
-  environment; never commit them. The service key is server-only — clients never reach the database.
+  and a service key, plus the provider's JWKS URL for token verification. It also needs a credential
+  for a **separate transactional-email provider** ([ADR 029](docs/DECISIONS.md)) — game notifications
+  do not go through Supabase Auth's mailer. Inject all four from the environment; never commit them.
+  The service key is server-only — clients never reach the database.
 
 ---
 

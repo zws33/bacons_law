@@ -22,9 +22,15 @@
 > five debt rows; then for [ADRs 026 and 027](DECISIONS.md), which consumed §3.2 and **struck an item
 > from §1** — the first time a "do not re-litigate" entry has been overturned rather than confirmed.
 >
-> **The deletion trigger has not fired.** One decision remains: **hosting (§3.3)**, and ADR 026 hands
-> it a binding constraint it did not have. Nothing else in this file is outstanding. Delete it once
-> that is made.
+> **Amended 2026-08-17** for [ADRs 028 and 029](DECISIONS.md), which closed
+> [ADR 022](DECISIONS.md)'s two open questions — sign-in is required to play, and email is the primary
+> notification channel. **Neither question was ever tracked in this file**, which is why its deletion
+> trigger read as satisfied while they were still open. 029 hands §3.3 a *second* binding constraint.
+>
+> **The deletion trigger has not fired.** One decision remains: **hosting (§3.3)**, now carrying two
+> binding constraints it did not have when this file was written — same-region from ADR 026, and a
+> scheduled trigger from ADR 029. Nothing else in this file is outstanding. Delete it once that is
+> made.
 
 ---
 
@@ -128,6 +134,15 @@ project.** Typeahead is the only human-perceptible latency budget in the system 
 database round trip — same-region is ~1–3 ms and is noise, cross-region is 50–150 ms against an
 estimated 200–400 ms p50. This narrows the candidate set more than any other input here.
 
+**Also constrained by [ADR 029](DECISIONS.md): the deployment must support a scheduled trigger.** A
+sweeper adjudicates lapsed deadlines and sends pre-expiry warnings; the warning is what mitigates
+[M4](MATCH_CONFORMANCE.md#m4--the-round-end-reason-determines-removal), which removes a player on their
+first missed deadline. This does **not** rule out scale-to-zero — an external pinger against an
+authenticated endpoint satisfies it on any host, and keeps the logic in the server rather than in
+`pg_cron`. It does mean a host with no scheduled-invocation story needs one bolted on. A second
+requirement comes with it: the deployment must expose a "last sweep completed" signal, because a dead
+sweeper fails silently.
+
 **Two inputs this section used to carry are gone.** The edge/isolate exclusion lost its premise — the
 graph is no longer resident — and is deliberately not being reopened, since Fastify is Node-first.
 The graph's resident memory is no longer a number to measure before sizing; the instance can be small.
@@ -144,9 +159,14 @@ process is not worth navigating before there is evidence anyone wants the game.
 
 **The constraint this section raised turned out to run the other way.** It flagged that device-anchored
 push couples the client to notification design. True — but the resolution was to change the identity
-model, not the client: [ADR 022](DECISIONS.md) supersedes ADR 013. **The notification channel itself is
-now reopened rather than settled** — identity is no longer a device, so ADR 018's push-token addressing
-no longer applies, and ADR 022 leaves the replacement undecided.
+model, not the client: [ADR 022](DECISIONS.md) supersedes ADR 013. ~~**The notification channel itself
+is now reopened rather than settled**~~ — identity is no longer a device, so ADR 018's push-token
+addressing no longer applies, and ADR 022 leaves the replacement undecided. **Closed by
+[ADR 029](DECISIONS.md):** email is primary and push is an unbuilt opt-in upgrade, decided on reach —
+web push on iOS needs a home-screen install, so it cannot reach every player on the platform this
+section makes primary. This section's framing was right that the client and the notification design
+are coupled; the coupling just ran through the *platform's push story* rather than through the
+identity model.
 
 **Consequence for §3.1 — this section is no longer an input to the stack.** Client language is
 decoupled, auth is provider-issued JWTs verifiable in any ecosystem, and a client cannot run the
@@ -262,8 +282,15 @@ steps are done**; what follows is the remainder, renumbered.
 
 1. **Hosting (3.3)** — the last item, and no longer unconstrained. ADR 026 requires the server to run
    in the same region as the Supabase project, which is a sharper constraint than the edge/isolate
-   exclusion it replaces. Decide on cost and operational simplicity; verify the free tier's inactivity
-   pause first.
+   exclusion it replaces. [ADR 029](DECISIONS.md) adds a second: the deployment must support a
+   scheduled trigger, and must surface whether the sweep is still running. Decide on cost and
+   operational simplicity; verify the free tier's inactivity pause first.
+
+   **Both constraints arrived from decisions this list did not sequence.** The store decision produced
+   the first and the notification decision produced the second — and the notification decision was
+   never on this agenda at all, having been left inside ADR 022 rather than promoted here. The
+   pattern from the stack and store entries repeats a third time: the decision that looked like a
+   vendor or channel pick contained a structural one.
 
 **What is not on the critical path:** issue #19's rebuild, `:app`, and `:backend`.
 

@@ -40,6 +40,15 @@ Lightweight ADR-style record of key technical and product decisions.
 > identity provider. Read 026 before acting on anything in 009, 011, or 018 about where the graph
 > lives or what the server holds in memory.
 >
+> **028 closes half of 022's deferred pair:** signing in is required to play, and anonymous sessions
+> are not used. It withdraws another MVP-speed concession, following 022's withdrawal of the device
+> token for the same reason. **029 closes the other half** — email is the primary channel, push an
+> unbuilt opt-in upgrade — and goes further than a channel choice: it commits the system to a
+> **scheduled sweeper**, because the notification that actually changes an outcome is a warning *before*
+> a deadline lapses, and `MATCH_CONFORMANCE`'s M4 removes a player on their first lapse. That hands
+> hosting a second hard constraint. **022 now has no open questions, and hosting is the last decision
+> in the project.**
+>
 > The archived Python/FastAPI showcase kept its own log; it was deleted along with that effort's plans
 > — see [`HISTORY.md`](HISTORY.md).
 >
@@ -621,7 +630,11 @@ Two further observations settled it:
 2. **No persistent-socket transport.** Move submission is request/response. The opponent learns of a
    move by **adaptive polling** (~2s while the game view is foregrounded and it is not your turn;
    stopped when backgrounded) plus **push notification** to the device-anchored token
-   ([ADR 013](#013-persistent-player-identity-device-anchored-first)). The player who moved sees the
+   ([ADR 013](#013-persistent-player-identity-device-anchored-first)). *(This clause is void twice
+   over: ADR 022 removed the device token, and
+   [ADR 029](#029-email-is-the-primary-notification-channel-a-scheduled-sweeper-warns-before-deadlines-lapse)
+   makes the channel email, with push an unbuilt opt-in upgrade. The adaptive-polling half stands.)*
+   The player who moved sees the
    result in their own response. This yields a perceived-live experience with no socket, no presence
    service, and no broadcast channel.
 3. **Deadlines are stored as data, not as a mode.** A turn deadline is `turn_duration` plus a
@@ -980,8 +993,11 @@ loop.
 > [ADR 027](#027-supabase-is-the-durable-store-and-the-identity-provider): Supabase, bundled with the
 > store exactly as the first consequence below anticipated.** Everything else here holds — JWKS
 > verification is still the whole server-side surface, and the Player record still keys to the
-> subject claim. **The two questions under "Not decided here" remain open**: which notification
-> channel is primary, and whether signing in is required to play.
+> subject claim. **Both questions under "Not decided here" are now settled.** Signing in *is* required
+> to play — [ADR 028](#028-signing-in-is-required-to-play-anonymous-sessions-are-not-used) — and email
+> is the primary notification channel —
+> [ADR 029](#029-email-is-the-primary-notification-channel-a-scheduled-sweeper-warns-before-deadlines-lapse).
+> This ADR has nothing outstanding.
 
 **Date:** 2026-08-09
 
@@ -1044,19 +1060,29 @@ work:
 
 **Not decided here.** Both follow from this ADR and neither has been chosen:
 
-- **Which notification channel is primary.** Two facts bear on it. An authenticated account carries a
+- ~~**Which notification channel is primary.**~~ **DECIDED,
+  [ADR 029](#029-email-is-the-primary-notification-channel-a-scheduled-sweeper-warns-before-deadlines-lapse):**
+  email primary, push an opt-in upgrade — the first of the three shapes this bullet lists. The two
+  facts below are what decided it, so this bullet bounded the answer correctly. What it did not
+  anticipate: the notification that matters most is a *scheduled* pre-expiry warning rather than an
+  event-driven "your turn," which commits the system to a sweeper. *(Original text follows.)* Two facts
+  bear on it. An authenticated account carries a
   verified email address, so a channel exists that needs no install, service worker, or APNs
   relationship. And web push on iOS requires a home-screen install
   ([ADR 023](#023-web-is-the-real-client-native-is-a-showcase-artifact) makes web the primary client),
   so push does not reach every player on the platform this project is shipping to. What follows from
   that pair — email as the floor with push as an upgrade, push with an email fallback, or something
   else — is open.
-- **Whether signing in is required to play.** ADR 013's design let a player start immediately. Requiring
-  an account at first run is one option; anonymous play with a prompt to claim the games later is
-  another, and ADR 013's own "non-destructive upgrade" requirement already describes the machinery for
-  it. The trade is first-run friction against players silently losing match history, and it has not
-  been weighed. Provider choice interacts with this: magic-link and passkey sign-in cost less at first
-  run than password creation.
+- ~~**Whether signing in is required to play.**~~ **DECIDED,
+  [ADR 028](#028-signing-in-is-required-to-play-anonymous-sessions-are-not-used):** it is required,
+  via magic link or OAuth, placed inside the invite flow. The trade this bullet named was not the one
+  that settled it — the deciding fact is that the game has no first-run solo value, so an anonymous
+  player has nothing to do. *(Original text follows.)* ADR 013's design let a player start
+  immediately. Requiring an account at first run is one option; anonymous play with a prompt to claim
+  the games later is another, and ADR 013's own "non-destructive upgrade" requirement already
+  describes the machinery for it. The trade is first-run friction against players silently losing
+  match history, and it has not been weighed. Provider choice interacts with this: magic-link and
+  passkey sign-in cost less at first run than password creation.
 
 ---
 
@@ -1433,6 +1459,141 @@ Firebase Auth** — bundled and mature, but excluded by ADR 026's flat-pricing r
 - **ADR 022's two open questions are untouched.** Which notification channel is primary, and whether
   signing in is required to play, are both still open. Supabase supports magic-link and passkey
   sign-in, which ADR 022 named as cheaper at first run — that informs the second question without
-  answering it.
+  answering it. *(Both are since settled —
+  [ADR 028](#028-signing-in-is-required-to-play-anonymous-sessions-are-not-used) and
+  [ADR 029](#029-email-is-the-primary-notification-channel-a-scheduled-sweeper-warns-before-deadlines-lapse).
+  This bullet's observation is what 028 decided on: magic link and OAuth are the mitigation that makes
+  required sign-in affordable at first run. 029 then added a second constraint to §3.3 — a scheduled
+  trigger — which this ADR did not anticipate.)*
 - **The environment gains credentials.** A database URL and a service key, injected from the
   environment and never committed. AGENTS.md's Environment section had no entries and now does.
+
+---
+
+## 028: Signing in is required to play; anonymous sessions are not used
+
+**Settles half of [ADR 022](#022-identity-is-a-third-party-authenticated-account)'s "Not decided
+here." The notification-channel question is untouched and remains open.**
+
+**Date:** 2026-08-14
+
+**Context:** ADR 022 established that identity is a third-party authenticated account but left open
+whether an account is required *before* playing. [ADR 013](#013-persistent-player-identity-device-anchored-first)'s
+design let a player start immediately; ADR 022 named anonymous-play-then-claim as the live
+alternative and framed the trade as first-run friction against players silently losing match history.
+
+**Stated reason:** sign-in was omitted in service of shipping an MVP quickly. Further development has
+withdrawn that constraint. This is the same withdrawal ADR 022 already applied to ADR 013's device
+token — that ADR calls it "a constraint from a period of prioritising a quick MVP" — carried to its
+conclusion rather than a new argument.
+
+**Decision:**
+
+1. **An authenticated account is required to create or join a match.** There is no anonymous play.
+2. **Sign-in is magic-link or OAuth** — no password creation at first run.
+3. **Sign-in sits inside the invite flow, not in front of the app:** `invite link → sign in → land in
+   the match`. It is a step in joining a specific game, not a wall in front of an empty one.
+4. **Supabase anonymous sign-in is not used**, despite being available.
+
+**Supporting analysis** — not the reason the decision was made, recorded because it bears on later
+work:
+
+- **The game has no first-run solo value.** Solo chain-building is outside the starting scope
+  ([ADR 001](#001-mvp-is-pass-the-phone-two-player-not-solo-chain-building)) and open matchmaking
+  pools are out of v1 ([ADR 012](#012-async-correspondence-is-a-first-class-mode-durable-store-authoritative) §2,
+  [ADR 015](#015-multiplayer-beyond-two-players-is-a-day-one-requirement), ADR 022). The entry point
+  is challenge-a-friend-by-link. An anonymous player therefore has nothing to do until a second human
+  is attached, and attaching one is exactly what needs a durable address. The friction argument for
+  anonymous-first is borrowed from products with immediate solo value.
+- **An anonymous session reintroduces ADR 022's durability problem under another name.** It is a
+  refresh token in script-writable browser storage — the same storage, the same platform, and the same
+  week-idle pattern ADR 022 cites as its reason for rejecting device-anchored identity. ADR 022's
+  caveat that the specific Safari window is unverified carries over unchanged; the mechanism does not
+  depend on the number.
+- **Anonymous sign-in would not have simplified the schema.** It creates a real `auth.users` row, so
+  [ADR 027](#027-supabase-is-the-durable-store-and-the-identity-provider) item 3's foreign key holds
+  either way — no nullable subject claim, no merge path, in either design. This was a reach-and-UX
+  decision, not a data-model one.
+
+**Consequences:**
+
+- **First-run friction is paid once and is the accepted cost.** Magic-link and OAuth are the
+  mitigation, and ADR 027 already records that the provider supports both.
+- **Four pieces of work are avoided:** an anonymous-user retention policy, cleanup of stale
+  `auth.users` rows under live foreign keys, abuse hardening against unauthenticated account creation,
+  and an identity-linking path to test.
+- **Every player is addressable by verified email.** That is an input to the notification-channel
+  question, not an answer to it.
+- **Reopen if a solo or practice mode enters scope.** That is the point at which an anonymous session
+  has something to do; pre-building for it now is not warranted.
+
+---
+
+## 029: Email is the primary notification channel; a scheduled sweeper warns before deadlines lapse
+
+**Settles the second of [ADR 022](#022-identity-is-a-third-party-authenticated-account)'s "Not decided
+here" questions, completing its amendment of
+[ADR 018](#018-the-game-is-turn-based-real-time-is-a-time-control-not-an-architecture) on the
+notification path. Adds a constraint to [agenda §3.3](PLANNING_AGENDA.md).**
+
+**Date:** 2026-08-17
+
+**Context:** ADR 018 addressed "it's your turn" to a push token on a device. ADR 022 replaced
+device-anchored identity, voiding that address, and recorded the two facts that bound the replacement:
+an authenticated account carries a verified email, and web push on iOS requires a home-screen install —
+so push cannot reach every player on the platform [ADR 023](#023-web-is-the-real-client-native-is-a-showcase-artifact)
+ships to.
+
+**Decision:**
+
+1. **Email is the primary channel.** Every notification the game sends must be deliverable by email
+   alone.
+2. **Web push is an opt-in upgrade and is not built for v1.** It is additive behind ADR 018's seam #2.
+3. **Game email does not go through Supabase Auth's mailer.** That path is auth-transactional and
+   rate-limited. Game notifications use a separate transactional provider with domain authentication.
+4. **A scheduled sweeper adjudicates lapsed deadlines and sends pre-expiry warnings in the same pass.**
+   This selects the "or by a sweeper" branch [`ENGINE_CONFORMANCE.md`](ENGINE_CONFORMANCE.md) leaves
+   open, rather than adjudicating lazily on read.
+5. **The warning fires once per turn**, at a fixed fraction of `turn_duration` remaining, and is
+   **suppressed below a `turn_duration` floor**.
+6. **Delivery is rate-limited per player, not per event.** At most one "your turn" per player per match
+   per window; concurrent matches collapse into one digest.
+
+**Supporting analysis** — not the reason the decision was made, recorded because it bears on later
+work:
+
+- **Reach decides the channel.** Email reaches every authenticated player by construction —
+  [ADR 028](#028-signing-in-is-required-to-play-anonymous-sessions-are-not-used) requires an account
+  and magic-link sign-in makes the address verified. Push's only advantage is latency the game does not
+  need: correspondence turns are hours to days.
+- **The warning exists because of [M4](MATCH_CONFORMANCE.md#m4--the-round-end-reason-determines-removal).**
+  A lapse removes the player *always*, whatever their strike total, and at two players
+  [M6](MATCH_CONFORMANCE.md#m6--match-end) then ends the match. The match spec accepts that cost while
+  noting it "falls on engaged players," and explicitly forbids softening the rule. A warning is the
+  only mitigation that leaves M4 intact.
+- **Without a warning, M4's revisit trigger is unobservable.** It asks for playtest evidence that
+  engaged players are removed by inattention rather than by quitting; with no warning the two cases are
+  indistinguishable, and the evidence cannot be interpreted.
+- **The sweeper earns its place independently of notification.** Lazy-on-read leaves the interval
+  between expiry and recorded state unbounded — in a match where every player has gone quiet, nothing
+  reads and nothing adjudicates. Given the sweeper, the warning is one query and one template.
+- **§5's floor mirrors M4's own reasoning** that harshness scales with the `turn_duration` players
+  chose. At a one-hour turn a warning is noise; at a three-day turn it is the whole value.
+
+**Consequences:**
+
+- **§3.3 gains a second constraint: the deployment must support a scheduled trigger**, alongside
+  ADR 026's same-region requirement. An external pinger against an authenticated server endpoint
+  satisfies it on any host including scale-to-zero, and keeps logic in the server per ADR 027 item 2.
+  `pg_cron` is in-vendor and free, but should only enqueue — never adjudicate.
+- **A dead sweeper fails by absence.** Matches stop resolving and nothing reports it. The deployment
+  needs a "last sweep completed" signal or a dead-man's check.
+- **The submit path must check `deadline_at` before accepting a move**, independently of the sweeper.
+  Otherwise a player whose deadline has passed can still move during the un-adjudicated window. True
+  under either adjudication strategy, and easy to miss when adjudication is described as happening
+  "on read."
+- **ADR 018's seam #2 holds and is now load-bearing.** Move handling emits an event; the mailer and the
+  sweeper consume it. Adding push later touches the delivery layer and nothing in the move path.
+- **The environment gains a transactional-email credential**, injected like the rest and never
+  committed.
+- **ADR 022 has no remaining open questions.**
