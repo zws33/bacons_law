@@ -30,8 +30,10 @@ held in Postgres alongside that state.
 > for the Python showcase. [docs/HISTORY.md](docs/HISTORY.md) records what they were and why they
 > ended; their detailed plans were deleted, so do not go looking.
 >
-> There is **no roadmap document, no planning agenda, and no architecture-orientation skill.** Do not
-> infer phase or status from any file.
+> There is **no planning agenda and no architecture-orientation skill.**
+> [docs/BUILD_ORDER.md](docs/BUILD_ORDER.md) records the intended build sequence and nothing else — it
+> is not a roadmap, it tracks no progress, and it amends no decision. **Do not infer phase or status
+> from any file.**
 
 ---
 
@@ -104,3 +106,4 @@ skimmed; each one carries rules that are not obvious and that have already been 
 | `movie-actor-chain-game` skill | Domain rules and vocabulary. Implementation-agnostic — it deliberately leaves repeats, the opening move, and "appeared in" policy open, and the conformance specs answer them |
 | [docs/investigations/](docs/investigations/) | **Records, never rules.** Write-ups and retrospectives containing falsified hypotheses by design. Non-normative *by location* — never cite one as authority. Binding outcomes were promoted out into an ADR or a spec; cite that instead. Read [its README](docs/investigations/README.md) first |
 | [docs/HISTORY.md](docs/HISTORY.md) | The two prior efforts — what they were, why they ended, where the code lives. Reference only; neither is guidance |
+| [docs/BUILD_ORDER.md](docs/BUILD_ORDER.md) | **Sequencing only, and not authority.** The intended order of the first build, why that order, and the three orderings that cost rework if reversed. It records no status and amends no decision — where it disagrees with an ADR, the ADR wins |
