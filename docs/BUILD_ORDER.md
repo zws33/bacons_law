@@ -11,7 +11,7 @@ are unstarted. Hosting is the only open decision.
 
 | # | Step | Done when |
 |---|---|---|
-| 0 | **ETL `v2`** — surface actor sitelink counts through `Edge` into `entities`; add an actor disambiguator | `transform && emit` produce `v2` and [etl/README.md](../etl/README.md)'s verify script passes |
+| 0 | **ETL `v2`** — surface movie and actor sitelink counts through `Edge` into `entities` | `transform && emit` produce `v2` and [etl/README.md](../etl/README.md)'s verify script passes |
 | 1 | **Store spike, which becomes the loader** ([ADR 026](DECISIONS.md) item 4). Supabase project in a chosen region; load `v2` into its own schema; derive folded word-start keys in TypeScript at load | Storage consumed, typeahead p50 same-region, and word-start row count are measured numbers, not estimates |
 | 2 | **Decide hosting; deploy a walking skeleton** — Fastify, JWKS verification, `suggest`, health; a web page that signs in by magic link and types into a typeahead | A deployed page resolves a name against a deployed server against Supabase |
 | 3 | **Round engine and match layer**, pure TypeScript | The engine suite's Groups A–G and MC-01–32 pass |
@@ -37,10 +37,12 @@ are unstarted. Hosting is the only open decision.
 Each of these costs rework if taken out of order.
 
 1. **Step 0 precedes step 1.** `v1` drops sitelink counts at `Edge` and omits them from `entities`;
-   [ADR 020](DECISIONS.md) makes ranking by them non-optional and asks for an actor disambiguator in the
-   same bump. Building the entities table against `v1` means rebuilding it. The change is `transform` +
-   `emit` against the cached raw partitions — no re-extract. Issue #19's fixes need a full re-extract
-   and are measured at 0.02%; they do **not** go in this bump.
+   [ADR 020](DECISIONS.md) makes ranking by them non-optional. Building the entities table against
+   `v1` means rebuilding it. The change is `transform` + `emit` against the cached raw partitions —
+   no re-extract. Issue #19's fixes need a full re-extract and are measured at 0.02%; they do **not**
+   go in this bump. The actor disambiguator [ADR 020](DECISIONS.md) leaves open is **not** part of it
+   and never was an ETL change: it is derivable at load from sitelinks and the adjacency, which item 4
+   puts server-side.
 2. **Step 4 emits notification events even though nothing consumes them until step 6.**
    [ADR 018](DECISIONS.md)'s seam #2 is named the one item genuinely expensive to retrofit, and
    [ADR 029](DECISIONS.md) made it load-bearing.

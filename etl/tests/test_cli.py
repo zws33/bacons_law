@@ -80,13 +80,20 @@ def run(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
     cli.main()
 
 
-def _edge(movie: str = "Q1", actor: str = "Q10") -> Edge:
+def _edge(
+    movie: str = "Q1",
+    actor: str = "Q10",
+    movie_sitelinks: int = 0,
+    actor_sitelinks: int = 0,
+) -> Edge:
     return Edge(
         movie=movie,
         movie_label=f"Film {movie}",
+        movie_sitelinks=movie_sitelinks,
         movie_year=1994,
         actor=actor,
         actor_label=f"Actor {actor}",
+        actor_sitelinks=actor_sitelinks,
     )
 
 

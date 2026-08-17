@@ -48,15 +48,26 @@ def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _edge(movie: str = "Q1", actor: str = "Q10", year: int = 1994) -> Edge:
+def _edge(
+    movie: str = "Q1",
+    actor: str = "Q10",
+    year: int = 1994,
+    movie_sitelinks: int = 0,
+    actor_sitelinks: int = 0,
+) -> Edge:
     """Positional order is (movie, actor) — every call site below relies on it. Labels are
-    derived so they stay distinguishable per QID without another argument at each site."""
+    derived so they stay distinguishable per QID without another argument at each site.
+    Sitelink counts trail `year` for the same reason: only the tests that assert ranking data
+    reaches `entities` name them, and inserting one earlier would resolve silently against a
+    QID at every other site."""
     return Edge(
         movie=movie,
         movie_label=f"Film {movie}",
+        movie_sitelinks=movie_sitelinks,
         movie_year=year,
         actor=actor,
         actor_label=f"Actor {actor}",
+        actor_sitelinks=actor_sitelinks,
     )
 
 
@@ -145,11 +156,14 @@ def test_build_adjacency_empty_edges():
 
 
 def test_build_entities_labels_and_types_both_sides():
-    """Labels ride on the edge now — they come off the extract query, not a side file."""
-    entities = emit._build_entities([_edge("Q1", "Q10", year=1994)])
+    """Labels and sitelinks ride on the edge now — they come off the extract query, not a
+    side file. The two counts differ so a movie/actor cross-wire can't satisfy both."""
+    entities = emit._build_entities(
+        [_edge("Q1", "Q10", year=1994, movie_sitelinks=40, actor_sitelinks=7)]
+    )
     assert entities == {
-        "Q1": {"label": "Film Q1", "type": "movie", "year": 1994},
-        "Q10": {"label": "Actor Q10", "type": "actor"},
+        "Q1": {"label": "Film Q1", "type": "movie", "year": 1994, "sitelinks": 40},
+        "Q10": {"label": "Actor Q10", "type": "actor", "sitelinks": 7},
     }
 
 
@@ -236,7 +250,7 @@ def test_emit_graph_has_all_three_maps(tree: Path):
     graph = json.loads((out / "graph.json").read_text())
     assert graph["movies_to_actors"] == {"Q1": ["Q10"], "Q2": ["Q10"]}
     assert graph["actors_to_movies"] == {"Q10": ["Q1", "Q2"]}
-    assert graph["entities"]["Q10"] == {"label": "Actor Q10", "type": "actor"}
+    assert graph["entities"]["Q10"] == {"label": "Actor Q10", "type": "actor", "sitelinks": 0}
 
 
 def test_emit_serializes_the_year_as_a_json_number(tree: Path):
@@ -246,7 +260,12 @@ def test_emit_serializes_the_year_as_a_json_number(tree: Path):
     out = emit.emit(BuildConfig(), "v1")
 
     graph = json.loads((out / "graph.json").read_text())
-    assert graph["entities"]["Q1"] == {"label": "Film Q1", "type": "movie", "year": 1999}
+    assert graph["entities"]["Q1"] == {
+        "label": "Film Q1",
+        "type": "movie",
+        "year": 1999,
+        "sitelinks": 0,
+    }
 
 
 def test_emit_manifest_records_config_and_counts(tree: Path):

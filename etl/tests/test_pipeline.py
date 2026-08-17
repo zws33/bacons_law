@@ -193,10 +193,21 @@ def test_pipeline_graph_is_symmetric(tree: Path, wdqs: FakeWDQS):
 
 
 def test_pipeline_entities_carry_labels_from_wikidata(tree: Path, wdqs: FakeWDQS):
-    """Labels survive the full trip: SPARQL response -> raw cache -> edges -> index."""
+    """Labels and sitelinks survive the full trip: SPARQL response -> raw cache -> edges ->
+    index. The counts are the catalog's, so the string-typed binding really is parsed to an
+    int and carried through both stages."""
     graph = json.loads((_build(_cfg()) / "graph.json").read_text())
-    assert graph["entities"]["Q1"] == {"label": "Pulp Fiction", "type": "movie", "year": 1994}
-    assert graph["entities"]["Q30"] == {"label": "Robert De Niro", "type": "actor"}
+    assert graph["entities"]["Q1"] == {
+        "label": "Pulp Fiction",
+        "type": "movie",
+        "year": 1994,
+        "sitelinks": 150,
+    }
+    assert graph["entities"]["Q30"] == {
+        "label": "Robert De Niro",
+        "type": "actor",
+        "sitelinks": 200,
+    }
     assert "Q2" not in graph["entities"]  # dropped film leaves no orphan entity
 
 
@@ -212,7 +223,12 @@ def test_pipeline_cross_partition_film_takes_its_earliest_year(tree: Path, wdqs:
     """Q5 is returned by both the 1994 and the 1995 query. It must appear once, dated to the
     premiere — otherwise the year a player sees depends on partition iteration order."""
     graph = json.loads((_build(_cfg()) / "graph.json").read_text())
-    assert graph["entities"]["Q5"] == {"label": "Festival Darling", "type": "movie", "year": 1994}
+    assert graph["entities"]["Q5"] == {
+        "label": "Festival Darling",
+        "type": "movie",
+        "year": 1994,
+        "sitelinks": 40,
+    }
     assert graph["movies_to_actors"]["Q5"] == ["Q50", "Q51"]
 
 

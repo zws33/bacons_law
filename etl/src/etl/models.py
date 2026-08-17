@@ -23,9 +23,11 @@ class Film:
 class Edge:
     movie: str
     movie_label: str
+    movie_sitelinks: int
     movie_year: int
     actor: str
     actor_label: str
+    actor_sitelinks: int
 
 
 class Entity(TypedDict):
@@ -39,6 +41,7 @@ class Entity(TypedDict):
     label: str
     type: str
     year: NotRequired[int]
+    sitelinks: int
 
 
 QueryDateRange = TypedDict("QueryDateRange", {"from": str | None, "to": str | None})

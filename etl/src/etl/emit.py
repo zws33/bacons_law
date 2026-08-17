@@ -14,8 +14,7 @@ from etl.config import BuildConfig
 from etl.io import read_json_or_none, read_jsonl, write_atomic
 from etl.models import Edge, Entity, Manifest, ManifestConfig, QueryDateRange
 
-# 2: entities carry a release year on movie entries (typeahead disambiguation).
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 type AdjacencyGraph = tuple[dict[str, set[str]], dict[str, set[str]]]
 
@@ -126,8 +125,17 @@ def _build_entities(edges: list[Edge]) -> dict[str, Entity]:
     """
     entities: dict[str, Entity] = {}
     for e in edges:
-        entities[e.movie] = {"label": e.movie_label, "type": "movie", "year": e.movie_year}
-        entities[e.actor] = {"label": e.actor_label, "type": "actor"}
+        entities[e.movie] = {
+            "label": e.movie_label,
+            "type": "movie",
+            "year": e.movie_year,
+            "sitelinks": e.movie_sitelinks,
+        }
+        entities[e.actor] = {
+            "label": e.actor_label,
+            "type": "actor",
+            "sitelinks": e.actor_sitelinks,
+        }
     return entities
 
 

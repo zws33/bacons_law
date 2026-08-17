@@ -124,9 +124,11 @@ def _build_edge_list(
                 Edge(
                     movie=film.qid,
                     movie_label=film.label,
+                    movie_sitelinks=film.sitelinks,
                     movie_year=year,
                     actor=actor.qid,
                     actor_label=actor.label,
+                    actor_sitelinks=actor.sitelinks,
                 )
             )
     edges.sort(key=lambda e: (e.movie, e.actor))
