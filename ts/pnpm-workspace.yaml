@@ -1,0 +1,9 @@
+packages:
+  - "server"
+  - "web"
+  - "packages/*"
+
+# pnpm 10+ reads pnpm-specific settings here, not from .npmrc.
+engineStrict: true
+preferWorkspacePackages: true
+autoInstallPeers: false

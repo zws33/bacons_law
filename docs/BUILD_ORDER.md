@@ -4,8 +4,9 @@
 document amends no decision — [DECISIONS.md](DECISIONS.md) owns those, and where the two disagree the
 ADR wins.
 
-**State at writing (2026-08-17):** `etl/` is the only code in the tree. `server/` and the web client
-are unstarted. Hosting is the only open decision.
+**State at writing (2026-08-19):** `etl/` is the only implemented component. `ts/` is a pnpm workspace
+whose `server` and `web` packages hold a toolchain and a placeholder `src/` and nothing else. Hosting is
+the only open decision.
 
 ## Ordered steps
 

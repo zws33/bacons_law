@@ -1237,7 +1237,8 @@ deployment.
 
 **Decision:**
 
-1. **The server is written in TypeScript**, in a new top-level `server/` directory.
+1. **The server is written in TypeScript**, in its own directory, separate from `etl/`.
+   *(It now lives at `ts/server/` inside the `ts/` pnpm workspace; [AGENTS.md](../AGENTS.md) owns paths.)*
 2. **The ETL stays Python.** ADR 011's offline/online split is unaffected.
 3. **`:core` and `:backend` are superseded, not ported.** Both join `:app` as reference-only.
 4. **Validating untyped input at the HTTP boundary is normative, not stylistic** — a schema

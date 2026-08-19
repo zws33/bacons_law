@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Modifier preset: adds declaration emit only. It sets no target/module/lib,
+  // so it must be layered on top of an environment preset, never extended alone:
+  //   "extends": ["@baconslaw/tsconfig/node", "@baconslaw/tsconfig/lib"]
+  "extends": "./base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "composite": true
+  }
+}

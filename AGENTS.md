@@ -14,14 +14,15 @@ held in Postgres alongside that state.
 > here, and when a rule changes, change it in the document that owns it — a second copy in this file
 > is how the two drift apart.
 
-> **`etl/` is the only source code in this repo, and the only fixed contract.** The Kotlin tree that
+> **`etl/` is the only implemented component, and the only fixed contract.** The Kotlin tree that
 > held the prototype engine, the Ktor TMDB proxy, and the Android client is **deleted** — superseded by
 > [ADR 025](docs/DECISIONS.md) and never ported. Nothing was carried forward from it. Never preserve a
 > signature, module layout, or design decision on the grounds that a prototype once had it.
 >
-> **The system to be built is not in the tree yet:** a `server/` directory
-> ([ADR 025](docs/DECISIONS.md)) and a web client directory ([ADR 023](docs/DECISIONS.md)). Neither is
-> started. Storage is Supabase Postgres and the graph lives in it, not in the server's memory
+> **The system to be built is scaffolded, not implemented.** `ts/` is a pnpm workspace holding
+> `ts/server/` ([ADR 025](docs/DECISIONS.md)) and `ts/web/` ([ADR 023](docs/DECISIONS.md)). Both have a
+> toolchain, a tsconfig, and a placeholder `src/index.ts` — and no behavior whatsoever. **A tsconfig is
+> not a phase signal.** Storage is Supabase Postgres and the graph lives in it, not in the server's memory
 > ([ADRs 026 and 027](docs/DECISIONS.md)); hosting is the one decision still open, and its constraints
 > are in **Open: Hosting** at the end of [docs/DECISIONS.md](docs/DECISIONS.md).
 >
@@ -39,15 +40,17 @@ held in Postgres alongside that state.
 
 ## Repository layout
 
-The repo root is intentionally **stack-agnostic** — shared docs and meta only. Each component is a
-**self-contained project in its own top-level directory** with its own toolchain. Adding a polyglot
-experiment is *adding a directory*, not restructuring the root.
+The repo root is intentionally **stack-agnostic** — shared docs and meta only. Each **language stack**
+is a self-contained top-level directory owning its own toolchain; components sharing a stack share that
+directory's workspace. Adding a polyglot experiment is *adding a directory*, not restructuring the root.
 
 | Path | What it is | Status |
 |---|---|---|
 | `etl/` | Offline Wikidata graph build (Python, `uv`/`ruff`). Produces the versioned artifact everything else is written against. Own rules in [etl/AGENTS.md](etl/AGENTS.md) | **Durable.** The one fixed contract |
-| `server/` | The session server — TypeScript on Node, Fastify ([ADR 025](docs/DECISIONS.md)). Holds the round engine, the match layer, the session layer, and the loader that populates Postgres from the ETL artifact ([ADR 026](docs/DECISIONS.md)) | **Not started.** Where new server work goes |
-| *(unnamed)* | The web client — the primary client ([ADR 023](docs/DECISIONS.md)), a **separate top-level directory** with its own toolchain | Not started |
+| `ts/` | The TypeScript stack — a pnpm workspace. **Every TS package lives under it**; nothing TypeScript goes at the repo root | Scaffolded |
+| `ts/server/` | The session server — TypeScript on Node, Fastify ([ADR 025](docs/DECISIONS.md)). Holds the round engine, the match layer, the session layer, and the loader that populates Postgres from the ETL artifact ([ADR 026](docs/DECISIONS.md)) | Placeholder `src/` only. Where new server work goes |
+| `ts/web/` | The web client — the primary client ([ADR 023](docs/DECISIONS.md)) | Placeholder `src/` only. No bundler chosen |
+| `ts/packages/*` | Shared workspace packages. `tsconfig` holds the compiler presets every package extends; `scripts` is a library package | Scaffolded |
 | `docs/` | Specs of record, the ADR log, history, and investigations. Indexed under [Where the rules live](#where-the-rules-live) | Authoritative |
 
 `kotlin/` was removed at tag `kotlin-android-mvp`. Docs still name `:core`, `:backend`, and `:app` where
@@ -57,9 +60,21 @@ they record what a decision was answering; those are historical references, not 
 
 ## Build & test
 
-`etl/` is the only buildable thing in the tree, and it builds from `etl/` — see
-[etl/AGENTS.md](etl/AGENTS.md). **No build tooling runs from the repo root**, and none will: `server/`
-and the web client each get their own. There is no JVM toolchain in this repo any more.
+**No build tooling runs from the repo root**, and none will. Each stack builds from its own directory.
+
+- `etl/` builds from `etl/` (Python, `uv`/`ruff`) — see [etl/AGENTS.md](etl/AGENTS.md).
+- `ts/` builds from `ts/`: `pnpm install`, then `pnpm run typecheck | build | test | lint | clean`
+  fan out to every workspace package. There is no JVM toolchain in this repo any more.
+
+Five `ts/` facts that are not discoverable by reading a single file:
+
+| Fact | Lives in |
+|---|---|
+| Node 24, pnpm 11, TypeScript 7 (the native compiler, not 5.x) | `ts/package.json` |
+| **pnpm settings go in `pnpm-workspace.yaml`, never `.npmrc`** — pnpm 10+ silently ignores `.npmrc` for its own settings, so a setting put there reads as applied and is not | `ts/pnpm-workspace.yaml` |
+| Every package extends a shared preset instead of declaring compiler options: `@baconslaw/tsconfig/{base,node,browser,lib}` | `ts/packages/tsconfig/` |
+| `lib` is a **modifier** preset — it sets no `target`/`module`/`lib` and must be layered, never extended alone: `"extends": ["@baconslaw/tsconfig/node", "@baconslaw/tsconfig/lib"]` | `ts/packages/tsconfig/lib.json` |
+| Root scripts use `pnpm -r run <script>`, not `pnpm -r <script>` — `clean` collides with a pnpm built-in | `ts/package.json` |
 
 ---
 
@@ -79,7 +94,7 @@ There is no TMDB key and no API key of any kind — validation data is CC0 Wikid
 ## Conventions
 
 - **Commits:** Conventional commit format — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`.
-- **TypeScript (`server/`, web client):** pure functions and immutable data in the engine and match
+- **TypeScript (`ts/`):** pure functions and immutable data in the engine and match
   layer. Exhaustiveness over discriminated unions is checked with a `never` default, not assumed.
   Untyped input is validated at the HTTP boundary — normative, per [ADR 025](docs/DECISIONS.md).
 - **Python (`etl/`):** keep it self-contained and offline.
