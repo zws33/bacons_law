@@ -20,9 +20,11 @@ class Edge(TypedDict):
 
 ETL_ROOT = Path(__file__).resolve().parents[2]
 INPUT = ETL_ROOT / "data" / "interim" / "edges.jsonl"
-ACTORS_CSV = Path("data/actors.csv")
-MOVIES_CSV = Path("data/movies.csv")
-EDGES_CSV = Path("data/edges.csv")
+DATA_DIR = ETL_ROOT / "data"
+ACTORS_CSV = DATA_DIR / "actors.csv"
+MOVIES_CSV = DATA_DIR / "movies.csv"
+EDGES_CSV = DATA_DIR / "edges.csv"
+
 a_columns = ["actor_id", "actor_label", "actor_sitelinks"]
 m_columns = ["movie_id", "movie_label", "movie_sitelinks", "movie_year"]
 e_columns = ["movie_id", "actor_id"]
