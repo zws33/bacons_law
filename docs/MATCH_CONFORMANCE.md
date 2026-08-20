@@ -78,7 +78,7 @@ sequential properties a table cannot express.
 
 ## Data model
 
-```
+```text
 PlayerId = opaque, equatable, stable for the life of the match
 
 MatchConfig:
@@ -149,7 +149,7 @@ applied or the call is malformed ([M14](#m14--malformed-input-is-an-error-never-
 
 From [`ENGINE_CONFORMANCE.md`](ENGINE_CONFORMANCE.md#data-model), unchanged:
 
-```
+```text
 RoundOver:
     loserIndex:   Int                  # a SeatIndex into that round's roster
     chain:        List<Move>           # accepted moves; EXCLUDES the losing move
@@ -170,7 +170,7 @@ The round index needed for duplicate detection is held by the match layer and pa
 
 ## Operations
 
-```
+```text
 applyRoundResult(match: MatchInProgress, roundIndex: Int, result: RoundOver) -> MatchOutcome
 withdraw(match: MatchInProgress, player: PlayerId)                           -> MatchOutcome
 
@@ -250,7 +250,7 @@ withdrawal, and nothing enforces it. A fixed order has no such invariant.
 `applyRoundResult` charges one strike to the round's loser and to no one else. Every round charges
 exactly one strike, with no exceptions and regardless of the round-end reason.
 
-```
+```text
 loser = roundSetup(match).roster[result.loserIndex]     # match as given, before any update
 strikes[loser] += 1
 ```
@@ -327,7 +327,7 @@ makes [M10](#m10--standings) well-defined.
 
 ### M6 — Match end
 
-```
+```text
 Either policy:  the match ends when fewer than two active players remain
 EndMatch only:  the match ends when any player's strike total reaches strikeLimit
 ```
@@ -349,7 +349,7 @@ agrees ([MC-05](#mc-05--the-two-limit-policies-coincide-in-a-two-player-match)).
 
 ### M7 — The next opener is the next active player in match order
 
-```
+```text
 nextOpener' = the first active player strictly after nextOpener in matchOrder, cyclically
 ```
 
@@ -375,7 +375,7 @@ removal, then advance the opener. Advancing first can select a player removed mi
 
 ### M8 — The round roster is derived, never stored
 
-```
+```text
 roster = matchOrder filtered to active players, rotated so nextOpener is at index 0
 ```
 
@@ -403,7 +403,7 @@ failure mode the `PlayerId` / `SeatIndex` distinction exists to prevent, and
 **Interpreting a stored round result requires that round's roster**, and that roster is derivable from
 stored match state:
 
-```
+```text
 activeAt(k)  = matchOrder filtered to players with no removal, or removal.beforeRound > k
 openerAt(0)  = matchOrder[0]
 openerAt(k)  = first player of activeAt(k) strictly after openerAt(k-1) in matchOrder, cyclically
@@ -426,7 +426,7 @@ round's `loserIndex` cannot be resolved from the match record at all.
 
 ### M10 — Standings
 
-```
+```text
 1. Active players rank above all removed players.
 2. Active players are ordered by strike total, ascending.
 3. Equal strike totals share a rank.
@@ -472,7 +472,7 @@ without producing a `RoundOver`, so its entities are never accumulated and are a
 replacement round. This follows from exclusions being seeded by `applyRoundResult` alone.
 
 The sets grow monotonically across rounds, so match state under hard mode grows with entities played.
-Note also that [ADR 019](DECISIONS.md) measured exhausted-frontier risk as rare under **empty**
+Note also that measured exhausted-frontier risk as rare under **empty**
 exclusion sets; that measurement does not transfer to a mode that thins the frontier every round. It is
 unmeasured, not known to be a problem.
 
@@ -540,11 +540,11 @@ player and raises.
 
 **This is detection, not idempotent replay.** The pure layer refuses the stale call; the session layer
 maps that refusal onto the stored outcome for the round in question, which is where the
-compare-and-swap and any client-supplied move ID already live ([ADR 018](DECISIONS.md)).
+compare-and-swap and any client-supplied move ID already live.
 
 ### M16 — Withdrawal
 
-```
+```text
 withdraw(match, player) -> MatchOutcome
 ```
 
@@ -597,7 +597,6 @@ Required by the product, enforced elsewhere. A match layer that enforces these i
 | `turn_duration` and `deadline_at` | Session layer; not in `MatchConfig` |
 | Persisting match state; compare-and-swap on a version | Session layer |
 | Mapping a duplicate submission onto the stored outcome | Session layer ([M15](#m15--a-round-result-applies-once)) |
-| Invitations, joining, matchmaking | Out of scope for the product ([ADR 022](DECISIONS.md)) |
 | Presenting standings; naming a "winner" from rank 1 | Client |
 
 ---
@@ -606,7 +605,7 @@ Required by the product, enforced elsewhere. A match layer that enforces these i
 
 Fixtures. Four players, distinct and stable:
 
-```
+```text
 P0, P1, P2, P3      # PlayerIds
 matchOrder = [P0, P1, P2, P3]
 
@@ -1000,11 +999,7 @@ needs no structural room reserved here. **Do not pre-emptively soften the rule i
 costs less than a withdrawal reopens the incentive gap [M16](#m16--withdrawal) exists to close.
 
 **Whether hard mode needs a frontier guard.**
-[M11](#m11--cross-round-exclusions-accumulate-under-hard-mode) accumulates exclusions monotonically,
-thinning the graph frontier every round. [ADR 019](DECISIONS.md) measured exhausted-frontier risk as
-rare under empty exclusion sets; that result does not transfer. Unmeasured, and not blocking — hard mode
-is not the default.
-
+[M11](#m11--cross-round-exclusions-accumulate-under-hard-mode) accumulates exclusions monotonically thinning the graph frontier every round.
 **Whether `EndMatch` should end the match at all when a leader is absent.** Under `EndMatch`, reaching
 the strike limit ends the match for everyone. A player who is losing can therefore truncate the series
 by losing `strikeLimit` rounds on purpose. They cannot improve their own standing by doing it — they
@@ -1014,17 +1009,7 @@ lapses remove rather than accumulate. Left as written; revisit if a playtest pro
 **Where a match's terminal state goes.** [M12](#m12--every-match-terminates) makes every match
 terminal, so terminal matches can be archived or compacted out of the hot path. Whether they are is a
 storage-selection input, not a rule here — it is the one requirement this layer placed on the store
-decision, settled by [ADRs 026 and 027](DECISIONS.md).
+decision, settled by.
 
 **Rematch and series.** Whether finishing a match can seed a new one with the same roster is
 unspecified and out of scope for this document; it would be a new match, not a match-layer state.
-
----
-
-## Related documents
-
-| Document | Relationship |
-|---|---|
-| [ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md) | The layer below. Produces the `RoundOver` this document consumes; its [Engine boundary](ENGINE_CONFORMANCE.md#engine-boundary) table delegates to this document. [M4](#m4--the-round-end-reason-determines-removal) is what gives `RoundOver.reason` its differential — the use the engine spec asserted and did not specify |
-| [DECISIONS.md](DECISIONS.md) | [ADR 024](DECISIONS.md) commissioned this document; [ADR 021](DECISIONS.md) established the round outcome taxonomy this layer reads; [ADR 012](DECISIONS.md)/[018](DECISIONS.md) the deadline model the session layer owns |
-| [AGENTS.md](../AGENTS.md) | Repository navigation and conventions. It indexes this document and states no match-layer rules of its own |

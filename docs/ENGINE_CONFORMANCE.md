@@ -7,19 +7,6 @@ rules plus a numbered conformance suite. It exists so that engine behavior survi
 language, framework, or module layout — the application stack is provisional
 ([AGENTS.md](../AGENTS.md)), the rules below are not.
 
-It is derived by reconciling three sources: the `movie-actor-chain-game` skill (domain rules), the
-Kotlin `:core` implementation and its test suite (a prototype, not authority), and the test scenarios
-in [issue #17](https://github.com/zws33/bacons_law/issues/17). Where they disagreed, the reconciliation
-is recorded in [Divergences from source material](#divergences-from-source-material).
-
-> **`:core` is no longer in the tree.** It was superseded by [ADR 025](DECISIONS.md) and the `kotlin/`
-> directory was deleted; the code is at tag `kotlin-android-mvp`. Every reference to `:core`, its test
-> suite, or its type signatures below is **dated record of what this spec was reconciled against** — it
-> is not a description of anything a new implementation must match or avoid. **The rules R1–R17 and the
-> numbered conformance suite are the whole of what binds an implementation**, and they are complete
-> without the prototype columns. Read the `Implemented` column of the coverage map as "the prototype
-> did," never as "the system does."
-
 ---
 
 ## Scope: the round engine, not the match
@@ -135,7 +122,7 @@ not a legal move, however true it is off-graph. The engine tests `castIds` and n
 cap, so a real but obscure cast member is absent from the graph and is therefore not a valid move.
 This is a property of the data the engine is handed, not a rule the engine applies — it is stated here
 because it is the one place a reader is likely to mistake a correct rejection for a bug. The cap is a
-dial (`cast_cap`, `min_cast` — [etl/AGENTS.md](../etl/AGENTS.md)), and expect the argument to recur in
+dial (`cast_cap`, `min_cast` — etl/AGENTS.md), and expect the argument to recur in
 playtests.
 
 ---
@@ -328,7 +315,7 @@ relocates the check, it does not remove it. The same MAY/MUST split as
 A move is **available** iff no move **of the same type** with the same `id` already appears anywhere in
 the chain, and its `id` does not appear in the exclusion set for its type:
 
-```
+```text
 isAvailable(move, state) =
     match move:
         Actor -> move.id ∉ state.excludedActorIds
@@ -390,7 +377,7 @@ it no clock. It records what the session layer tells it.
 
 ### R8 — Loser determination
 
-```
+```text
 loserIndex = currentPlayerIndex
 ```
 
@@ -410,7 +397,7 @@ result is precisely why it does not belong in the round result.
 
 After an accepted move:
 
-```
+```text
 nextPlayerIndex = (currentPlayerIndex + 1) % playerCount
 ```
 
@@ -541,37 +528,15 @@ Required by the game, enforced elsewhere. An engine that enforces these is over-
 | **Bounding the turn, so the round terminates** | **Session layer, via the deadline. The engine bounds the chain but not the retry loop — [R17](#r17--every-round-terminates)** |
 | **Deciding whether a forfeit is `GaveUp` or `DeadlineLapsed`** | **Session layer; it passes the reason to `forfeit`. The engine has no clock ([R10](#r10--the-engine-is-pure))** |
 | **Rate-limiting rejected submissions** | **Session layer / transport. Rejections are unbounded at the engine by design ([R16](#r16--a-rejected-submission-leaves-the-round-unchanged))** |
-| Mapping a deadline expiry or an abandonment onto a round result | Session layer; it calls `forfeit` ([ADR 012](DECISIONS.md), as amended by [ADR 018](DECISIONS.md) — one deadline model, no running clock) |
+| Mapping a deadline expiry or an abandonment onto a round result | Session layer; it calls `forfeit` |
 | Detecting that the player on turn has no legal move at all | Session layer; it holds the graph. The engine cannot see it when the chain head is an Actor — see [Open questions](#open-questions) |
 | Persistence, transport, presence | Session layer |
-
-**"Appeared in" is defined by the graph, not by the engine.** `castIds` reflects what the ETL
-artifact carries — truthy `wdt:P161`, capped at `cast_cap`. A real but absent cast member is not a
-legal move. That is a data dial, not an engine rule.
-
-**The caller's two filters are what make rejections rare, and they do not disclose an answer.** The
-required type and the played set are both information the player already holds — the rules dictate the
-type, and the chain is on their screen. Filtering the typeahead by them is a UX affordance, not a hint.
-Filtering by the previous entity's *neighbours* would hand over the answer and is forbidden
-([ADR 020](DECISIONS.md), [AGENTS.md](../AGENTS.md)). The line: **filter on what the player already
-knows; never filter on what only the graph knows.** The engine is indifferent either way — it re-checks
-both — but a caller that skips the filters turns [R4](#r4--same-type-consecutive-moves-are-rejected)
-and [R5](#r5--availability-repeats-and-exclusions) from backstops into a routine failure path.
-
-**Move attribution is derivable, not stored.** `RoundOver.chain` records moves, not who played them.
-A caller that needs per-move attribution computes it from the round's opening player index and
-[R9](#r9--player-rotation): move `i` was played by `(openingPlayerIndex + i) % playerCount`. The match
-layer knows the opening index because it started the round — and in practice it is always zero, since
-the match layer builds every roster opener-first
-([MATCH_CONFORMANCE.md M8](MATCH_CONFORMANCE.md#m8--the-round-roster-is-derived-never-stored)), leaving
-`roster[i % playerCount]`.
 
 ---
 
 ## Conformance suite
 
-**Fixture identifiers are synthetic.** The QIDs below are QID-*shaped* placeholders, not real
-Wikidata identifiers, and the display names are for readability only ([R12](#r12--identity-is-the-id-alone)).
+**Fixture identifiers are synthetic.** The QIDs below are QID-*shaped* placeholders, not real Wikidata identifiers, and the display names are for readability only ([R12](#r12--identity-is-the-id-alone)).
 Do not resolve them against the graph artifact; do not treat any of this as data.
 
 ```
@@ -631,7 +596,7 @@ type cannot express the WHEN clause. Record such a case as satisfied statically,
 
 #### TC-01 — Valid movie after actor
 
-```
+```text
 GIVEN  state = InProgress(moves=[TOM_HANKS], currentPlayerIndex=1, playerCount=2)
 WHEN   result = playMove(state, CAST_AWAY)          # "Q1" ∈ {"Q1","Q2"}
 THEN   result is InProgress
@@ -641,7 +606,7 @@ THEN   result is InProgress
 
 #### TC-02 — Valid actor after movie
 
-```
+```text
 GIVEN  state = InProgress(moves=[TOM_HANKS, CAST_AWAY], currentPlayerIndex=0, playerCount=2)
 WHEN   result = playMove(state, HELEN_HUNT)         # "Q2" ∈ {"Q1","Q2"}
 THEN   result is InProgress
@@ -1234,245 +1199,3 @@ THEN   raises a validation error                # blank member of castIds
 WHEN   Movie(id="Q40", displayText="No Cast On Record", castIds={})
 THEN   succeeds                                 # empty set is legal data
 ```
-
----
-
-## Coverage map
-
-Status of the Kotlin `:core` suite as of tag `kotlin-android-mvp`, at
-`kotlin/core/src/jvmTest/kotlin/me/zwsmith/core/GameEngineTest.kt`. That path is not in this tree —
-see the note at the top. Behavior columns describe the prototype, not the test.
-
-| TC | Scenario | Rules | Implemented | Tested |
-|---|---|---|---|---|
-| 01 | Valid movie after actor | R2, R9 | yes | yes |
-| 02 | Valid actor after movie | R3, R9 | yes | yes |
-| 03 | Movie excludes previous actor | R3, R6 | yes | yes ² ⁴ |
-| 04 | Actor absent from cast | R2, R6 | yes | yes ² ⁴ |
-| 05 | Repeat actor | R5, R16 | **no** ⁵ | partial ¹ |
-| 06 | Repeat movie | R5, R16 | **no** ⁵ | no |
-| 07 | Giving up | R7, R8 | partial ⁴ | yes ² |
-| 08 | Opening move accepted | R1 | yes | no |
-| 09 | Actor after actor | R4, R16 | **no** ⁵ | no |
-| 10 | Movie after movie | R4, R16 | **no** ⁵ | no |
-| 11 | Cross-type ID collision | R5 | yes | no |
-| 12 | Rotation wraps, N > 2 | R8, R9 | partial ² | no |
-| 13 | Opening move may be a movie | R1 | yes | no |
-| 14 | Connection vs. last move only | R11 | yes | no |
-| 15 | Identity is the ID | R12, R16 | **no** ⁵ | no |
-| 16 | Availability scans whole chain | R5, R16 | **no** ⁵ | no |
-| 17 | Empty cast connects to nothing | R2, R3 | yes | no |
-| 18 | Input not mutated | R10 | yes | no |
-| 19 | Determinism | R10 | yes | no |
-| 20 | Rejection precedence: type first | R4, R5 | **no** ⁵ | no |
-| 21 | Reject `playerCount < 2` | R13, R15 | **no** | no |
-| 22 | Reject out-of-range index | R13, R15 | **no** | no |
-| 23 | Reject blank entity ID | R13, R15 | **no** | no |
-| 24 | Terminal state inapplicable | R14, R15 | yes (static) | n/a |
-| 25 | Full round from an empty chain | R1, R2, R3, R9 | yes | no |
-| 26 | Rotation cycle at N = 4 | R9 | yes | no |
-| 27 | Loser is the player on turn | R8 | **no** ² | no |
-| 28 | Excluded entity is unavailable | R5, R16 | **no** ³ | no |
-| 29 | Exclusions are per-type | R5 | **no** ³ | no |
-| 30 | Exclusions apply to the opener | R1, R5, R16 | **no** ³ | no |
-| 31 | Exclusions default to empty | R5 | n/a ³ | no |
-| 32 | Rejection leaves round unchanged | R16 | **no** ⁵ | no |
-| 33 | Rejection precedes a round loss | R5, R6, R16 | **no** ⁵ | no |
-| 34 | Forfeit reason reaches the result | R7 | **no** ⁴ | no |
-| S1 | No I/O dependency | R10 | yes | structural |
-| S2 | IDs opaque end to end | — | **no** — `:core` declares `Int` | structural |
-| S3 | Result names no winner | R8 | **no** ² | structural |
-
-¹ `GameEngineTest.kt:72` submits a repeat actor directly after another actor, so the move fails
-[R4](#r4--same-type-consecutive-moves-are-rejected) whether or not any availability check exists.
-It asserts the right outcome for the wrong reason. Under this document the fixture is worse than
-imprecise: type precedes availability ([Move outcomes](#move-outcomes)), so it would yield
-`Rejected(WrongType)` and never reach [R5](#r5--availability-repeats-and-exclusions) at all —
-the shape [TC-20](#tc-20--rejection-precedence-type-before-availability) now exists to pin.
-[TC-05](#tc-05--repeat-actor) replaces it with a fixture that isolates R5.
-
-² The prototype reports `winnerIndex = (currentPlayerIndex - 1 + playerCount) % playerCount` instead
-of a loser. At `playerCount == 2` that value coincides with "the player who did not fail," so the
-two-player cases pass under either contract; above two players it is wrong, and the contract itself is
-wrong at every N ([S3](#s3--the-round-result-names-no-winner-structural-not-a-test-case)).
-
-³ The prototype has no exclusion sets; its repeat check scans the chain only. Its behavior is
-equivalent to the default mode, so TC-31 is satisfied by construction while TC-28/29/30 are
-unimplementable against it.
-
-⁴ The prototype's `RoundOver` equivalent carries no `reason`, and its forfeit takes no argument. Every
-case asserting a `RoundEndReason` is a delta, including ones the prototype otherwise passes.
-
-⁵ **The rejection taxonomy is entirely absent from the prototype**, which resolves a repeat or a
-wrong-type submission to a round loss. These cases do not merely lack tests — the prototype implements
-the opposite outcome, and an engine ported from it unchanged fails them.
-
-Six deltas against the prototype: **the rejection taxonomy** (R4, R5, R16 and Group C — the largest,
-and the one that inverts existing behavior), **round-end reasons** (R7, `RoundOver.reason`, TC-34),
-**the winner/loser contract** (R8, S3, and every `RoundOver` assertion), **cross-round exclusions**
-(R5's second clause, TC-28–30), **Group G** (R13 construction validation is absent), and **S2**
-(`:core` types IDs as `Int`, a TMDB-era leftover — [ADR 016](DECISIONS.md)).
-
----
-
-## Divergences from source material
-
-Recorded so the reconciliation is auditable rather than silent.
-
-**Winner replaced by loser.** The prototype's `GameOver.winnerIndex` names a winner by stepping back
-one position from the failing player. This document specifies `RoundOver.loserIndex` — the failing
-player — and no winner at all. The prototype's rule is the two-player convention generalized by
-modular arithmetic: at N = 3 it awards the round to the previous player and silently ignores the
-third. The round layer has an unambiguous loser and no natural winner, so it reports the former. Any
-winner convention is a match-layer overlay ([Scope](#scope-the-round-engine-not-the-match)).
-
-**Cross-round exclusions are new.** Neither the prototype nor the retired spec has any notion of
-entities banned from outside the current chain. The sets were added so that a "no repeats for the
-whole match" mode has a seam to attach to without the match layer duplicating the engine's failure
-path. The default — empty sets, reuse allowed across rounds — is the decided behavior, not a
-placeholder.
-
-**Round vs. match layering.** The `movie-actor-chain-game` skill describes a match layer above round
-resolution, and sketches penalty-point elimination as one example overlay. That layer is real in this
-product — strike-based scoring across repeated rounds, with configurable modes — but it is specified
-elsewhere. This document ends at the round result.
-
-**ID type.** `docs/GAME_SPEC_V2.md` (retired in #16) and the current Kotlin suite both use `Int` TMDB
-IDs. This document specifies opaque strings, bound to Wikidata QIDs. The data source changed
-([ADR 010](DECISIONS.md)); the graph artifact emits QID strings, and
-[ADR 016](DECISIONS.md) makes the data authoritative over the stale `:core` signature.
-
-**TC-11's fixtures.** The retired spec's TC-11 restated itself three times before landing on a usable
-form. This document uses the final `state3` shape, and adds the note that QIDs make the collision
-impossible in real data — which is why the case survives as a semantics test rather than being cut.
-
-**Repeat-case fixtures are not the Kotlin suite's.** The existing repeat test submits the repeated
-actor immediately after another actor, so [R4](#r4--same-type-consecutive-moves-are-rejected) fires
-before [R5](#r5--availability-repeats-and-exclusions) is ever consulted — an engine with the
-availability check deleted still passes. [TC-05](#tc-05--repeat-actor), [TC-06](#tc-06--repeat-movie),
-and [TC-15](#tc-15--identity-is-the-id-display-metadata-is-ignored) use fixtures where the move is a
-legal continuation in every other respect, so only R5 can refuse it.
-
-**Defensive validation.** [R13](#r13--invalid-state-and-move-construction-is-rejected)/[R15](#r15--malformed-input-is-an-error-never-a-round-outcome)
-are new requirements, not a record of existing behavior — see Group G.
-
-**Rejections are new, and they invert prior behavior.** Every source — the skill, the prototype, and
-the retired spec — treats a repeat and a wrong-type submission as ways to lose a round. This document
-makes both `Rejected`: the round continues and the player retries. The reasoning is in
-[R16](#r16--a-rejected-submission-leaves-the-round-unchanged), and it is the same reasoning
-[R15](#r15--malformed-input-is-an-error-never-a-round-outcome) already applied to malformed input — a
-player should not lose because their client sent something a correct client cannot send. Both
-conditions are prevented client-side and re-checked server-side before the engine sees them; the engine
-is the last line, not the first. This is the largest behavioral delta in the document.
-
-**R5's clauses were separated after being briefly unified.** An earlier framing treated in-round
-repeats and cross-round exclusions as one policy, on the grounds that both are "entities unavailable to
-this round" and both look like match-layer configuration. That is wrong: in-round repeat prohibition is
-the sole guarantee that a round terminates ([R17](#r17--every-round-terminates)), so it cannot be
-configurable, while cross-round exclusions carry no such load and remain optional. They share an
-implementation and a `RejectionReason`, not a justification. Recorded because the unified framing is
-the more natural-looking one and will be re-proposed.
-
-**Round termination was never stated.** No source document asserts that a round ends. The property was
-implicit in repeat detection and became load-bearing only once rejections made it possible to submit
-indefinitely without advancing the chain. [R17](#r17--every-round-terminates) states it, and splits it
-between the engine and the session layer.
-
----
-
-## Open questions
-
-Unresolved. Each needs a decision before the area it touches is built. None of them block the round
-engine — they are match-layer and contract questions the round engine's output feeds.
-
-> **Failure reason codes are no longer open.** They were this section's highest-priority question and
-> are settled by [ADR 021](DECISIONS.md), which introduced the outcome taxonomy above. The question
-> dissolved more than it was answered: two of the causes it sought to distinguish — repeat and wrong
-> type — turned out not to be round outcomes at all ([R16](#r16--a-rejected-submission-leaves-the-round-unchanged)),
-> and `Unconnected` is the only one `playMove` can now produce. What survived was the give-up/lapse
-> pair, resolved by [R7](#r7--forfeit-ends-the-round)'s `ForfeitReason` parameter.
-
-> **The opening player index is no longer open.** It is answered by
-> [`MATCH_CONFORMANCE.md`](MATCH_CONFORMANCE.md), and mostly dissolved: the match layer builds every
-> roster opener-first ([M8](MATCH_CONFORMANCE.md#m8--the-round-roster-is-derived-never-stored)), so the
-> opening index is always zero and there is nothing to record. What a persisted result actually needs
-> is *that round's roster*, which
-> [M9](MATCH_CONFORMANCE.md#m9--a-seat-index-is-round-local) derives from stored match state — via
-> `Removal.beforeRound` and a round-0 opener fixed at `matchOrder[0]`, both of which exist for this
-> purpose. `rosterAt(match, k)` is the projection that exposes it.
-
-> **Deadline expiry ownership is no longer open either.** [ADR 018](DECISIONS.md) reduced it to a
-> reason-code question by dropping the running chess clock, and [ADR 021](DECISIONS.md) then answered
-> that: a turn carries a `deadline_at` timestamp, the session layer adjudicates expiry (lazily on next
-> read, or by a sweeper) and resolves it to `forfeit(state, DeadlineLapsed)`. The engine stays timeless
-> ([R10](#r10--the-engine-is-pure)) and records the reason it is given
-> ([R7](#r7--forfeit-ends-the-round)).
->
-> One consequence survives as an obligation rather than a question: the deadline is now the **only**
-> bound on the rejection retry loop ([R17](#r17--every-round-terminates)), so it must not be reset by a
-> rejected submission. Note also that the adjudicator is not a player, which is one of the three
-> writers the session layer's optimistic concurrency exists to serialize (`AGENTS.md`,
-> [ADR 018](DECISIONS.md) §4).
-
-**An exhausted frontier is indistinguishable from a player's failure.** Nothing in this spec expresses
-"the player on turn had *no* legal move." [R6](#r6--an-unconnected-move-ends-the-round) and
-[R8](#r8--loser-determination) both assume the player on turn is at fault; a player who arrives at an
-entity whose every graph neighbour is already in the chain (or excluded) is named the loser exactly as
-if they had guessed wrong.
-
-**This is not by itself a defect.** Steering the chain toward an entity the next player cannot continue
-from is a legitimate winning move — knowing that an actor has exactly one credit is precisely the
-knowledge this game tests, and driving play into obscure territory is strategy, not abuse. Obscurity is
-the skill gradient; the design should not try to flatten it.
-
-The open question is narrower: **whether a round-ending move is cheap or earned.** A kill reachable
-only by first steering into a little-known film is earned. A kill available to anyone who names a
-household-name film and then recalls one bit-part name from it is cheap, and cheap kills compress the
-game. A further distinction matters for whether this is a data problem at all: an actor with exactly
-one credit *in reality* is legitimate content, whereas an actor with one credit only because
-[the cast cap](../etl/AGENTS.md) truncated the others is a build artifact — and the two are
-indistinguishable from the artifact alone.
-
-The engine cannot fully detect this, and the asymmetry is in the [data model](#data-model): `Movie`
-carries `castIds`, so an exhausted frontier *is* computable when the chain head is a movie; `Actor`
-carries no filmography, so the engine is structurally blind to it when the head is an actor. Closing
-that by adding a `filmIds` set to `Actor` would widen the validation contract and the per-move payload.
-
-The cheaper placement is the session layer, which holds the graph and can compute the legal-move set in
-either direction in O(degree) — and can do so *before* the round ends rather than after. What is
-genuinely undecided is the policy (does an exhausted frontier end the round without a strike? is the
-*previous* move rejected as a dead end?) and whether `RoundOver` needs to express the distinction at
-all, which folds back into reason codes.
-
-**Now measured, and the answer lowers the priority.** [ADR 019](DECISIONS.md) reports that while
-45.9% of actor nodes in `graph/v1` are degree-1, they have a median of 4 sitelinks — a move nobody
-can name is not an available move. Requiring the round-ending actor to be even modestly
-recognizable puts the rate at 11% of the 100 most famous films, and 2% for a well-known actor.
-**The current behaviour — the player on turn is the loser — is therefore defensible**, and this
-question is open rather than blocking. Note also that a dead-end move is a *legitimate winning
-move* under this project's framing, so ending the round without a strike is not obviously the
-right policy: if knowing an actor has one credit is the knowledge the game tests, the loser
-arguably should take the strike. Two things remain unmeasured: whether players find these moves at
-all, and how the rate rises mid-chain as degree-2+ actors exhaust their alternatives.
-
-**Chain length limits.** [R17](#r17--every-round-terminates) bounds the chain at roughly
-`2 × min(|actors|, |movies|) + 1` — about 95,000 moves against `graph/v1`. That is a termination proof,
-not a usable limit, and it leaves this question exactly where it was. With correspondence the only mode
-([ADR 018](DECISIONS.md)), a round spanning weeks is the normal case rather than an edge case, so a
-practically unbounded `moves` list is a persistence and payload concern before it is an engine one.
-
----
-
-## Related documents
-
-| Document | Relationship |
-|---|---|
-| [AGENTS.md](../AGENTS.md) | Architecture boundaries; which of these rules are binding vs. provisional |
-| [docs/DECISIONS.md](DECISIONS.md) | ADRs 008–021. Two touch this spec directly: [ADR 018](DECISIONS.md) drops the running chess clock, leaving a single deadline model; **[ADR 021](DECISIONS.md) is the source of the outcome taxonomy** — rejections, round-end reasons, and R16/R17 |
-| `movie-actor-chain-game` skill | Domain rules and vocabulary; implementation-agnostic, leaves repeats/opener/"appeared in" open — answered here and in AGENTS.md |
-| [etl/AGENTS.md](../etl/AGENTS.md) | How `castIds` is produced; `cast_cap` and `min_cast` define what "appeared in" means in practice |
-| [issue #17](https://github.com/zws33/bacons_law/issues/17) | The coverage gap this document supersedes |
-
-**Not yet written:** the match-layer spec — strike accounting, mode configuration, elimination and
-match-end conditions, standings. This document's [Scope](#scope-the-round-engine-not-the-match)
-section defines the seam it must attach to.
