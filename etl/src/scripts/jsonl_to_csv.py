@@ -3,7 +3,9 @@ import argparse
 import csv
 import itertools
 import json
+import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import TypedDict
 
@@ -25,9 +27,19 @@ ACTORS_CSV = DATA_DIR / "actors.csv"
 MOVIES_CSV = DATA_DIR / "movies.csv"
 EDGES_CSV = DATA_DIR / "edges.csv"
 
-a_columns = ["actor_id", "actor_label", "actor_sitelinks"]
-m_columns = ["movie_id", "movie_label", "movie_sitelinks", "movie_year"]
+a_columns = ["actor_id", "actor_label", "actor_sitelinks", "actor_search_key"]
+m_columns = ["movie_id", "movie_label", "movie_sitelinks", "movie_year", "movie_search_key"]
 e_columns = ["movie_id", "actor_id"]
+
+WHITE_SPACE_RE = re.compile(r"\s+")
+
+
+def make_search_key(label: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", label)
+    without_marks = "".join(c for c in decomposed if not unicodedata.category(c).startswith("M"))
+    folded = without_marks.casefold()
+    separated = "".join(c if c.isalnum() else " " for c in folded)
+    return WHITE_SPACE_RE.sub(" ", separated).strip()
 
 
 def main() -> None:
@@ -67,6 +79,7 @@ def main() -> None:
                         "actor_id": e["actor"],
                         "actor_label": e["actor_label"],
                         "actor_sitelinks": e["actor_sitelinks"],
+                        "actor_search_key": make_search_key(e["actor_label"]),
                     }
                 )
                 seen_actors.add(e["actor"])
@@ -77,6 +90,7 @@ def main() -> None:
                         "movie_label": e["movie_label"],
                         "movie_sitelinks": e["movie_sitelinks"],
                         "movie_year": e["movie_year"],
+                        "movie_search_key": make_search_key(e["movie_label"]),
                     }
                 )
                 seen_movies.add(e["movie"])
