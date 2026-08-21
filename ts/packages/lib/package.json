@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@baconslaw/lib",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --build",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@baconslaw/tsconfig": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.0",
+    "vitest": "^4.1.11"
+  }
+}
