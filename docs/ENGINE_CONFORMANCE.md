@@ -355,8 +355,7 @@ to the previous move ([R2](#r2--actor-after-movie)/[R3](#r3--movie-after-actor))
 
 **This is the only way `playMove` ends a round.** Wrong type and unavailability are rejections
 ([R16](#r16--a-rejected-submission-leaves-the-round-unchanged)); malformed input is an error
-([R15](#r15--malformed-input-is-an-error-never-a-round-outcome)). A player loses a round by naming
-something plausible that turns out not to connect — which is the failure the game is about.
+([R15](#r15--malformed-input-is-an-error-never-a-round-outcome)).
 
 Note the asymmetry, which follows from [R1](#r1--the-opening-move-is-not-connection-checked): the
 connection check requires a predecessor and so is skipped on an empty chain, while the availability

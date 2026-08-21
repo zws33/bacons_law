@@ -235,16 +235,6 @@ players keep their positions; they are skipped, not deleted
 Who occupies `matchOrder[0]` is a session-layer decision — creation order, invitation order, or a
 shuffle. The match layer receives the order and does not choose it.
 
-**A shrinking ordered list of active players produces the same opener sequence** and is not wrong. It
-costs three things. Removed players stay in the match record for standings regardless, so nothing is
-saved — a shrinking list plus a removal log holds what one fixed list plus a strike table already
-holds. Reconstructing an earlier round's roster needs the order players occupied *then*, so a shrinking
-list has to rebuild the fixed order from the removal log before it can answer the question a fixed
-order answers directly ([M9](#m9--a-seat-index-is-round-local)). And it is correct only when removal and
-the opener advance happen as one operation: if the player being removed is `nextOpener`, the advance
-must be computed before the removal. That coupling holds at every removal site, including asynchronous
-withdrawal, and nothing enforces it. A fixed order has no such invariant.
-
 ### M3 — A round loss costs exactly one strike
 
 `applyRoundResult` charges one strike to the round's loser and to no one else. Every round charges
@@ -280,12 +270,6 @@ and whichever `LimitPolicy` is in force.
 ([M5](#m5--removal-from-play)) and cause never affects rank ([M10](#m10--standings) rule 5), so nothing
 downstream turns on it — it is pinned only because two implementations can otherwise disagree
 ([MC-30](#mc-30--a-lapse-that-also-reaches-the-strike-limit-records-cause-lapsed)).
-
-**The line is between playing and not playing.** `GaveUp` is a move: the player is present, cannot find
-a connection, and ends the round deliberately at the cost of one strike. `DeadlineLapsed` is the
-absence of a move. The engine spec draws the same distinction when it justifies carrying `reason` at
-all — a player who lets a three-day deadline lapse "has not made the same choice" as one who taps give
-up ([ENGINE_CONFORMANCE.md](ENGINE_CONFORMANCE.md#data-model)).
 
 **Why removal and not a strike.** A player who has stopped responding cannot be removed by strikes
 alone without grinding through `strikeLimit` rounds, each of which runs until it reaches them — up to
@@ -653,8 +637,6 @@ One strike is charged in every row ([M3](#m3--a-round-loss-costs-exactly-one-str
 GIVEN a fresh match, `ELIM_3`, all strikes 0, `nextOpener = P0`, `roundsPlayed = 0`
 WHEN `applyRoundResult(match, 0, loss(2))`
 THEN `MatchInProgress`; `strikes = {P0:0, P1:0, P2:1, P3:0}`; `removed` empty; `roundsPlayed = 1`
-
-Seat 2 of roster `[P0, P1, P2, P3]` is P2. No other player's total changes.
 
 #### MC-02 — Reaching the limit under EndMatch ends the match
 
