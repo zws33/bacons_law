@@ -9,3 +9,7 @@ held in Postgres alongside that state.
 ## Conventions
 
 - **Commits:** Conventional commit format — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`.
+- **Edits require an explicit request.** Do not modify, create, or delete files unless the user
+  specifically asks for a change. Default to investigation, analysis, and proposing diffs in the
+  chat. When you believe an edit is warranted, describe it and wait for the go-ahead rather than
+  applying it.
