@@ -34,7 +34,7 @@ async function main() {
   const inputPath = args.inputPath;
   const outputDir = args.outputDir;
 
-  if (Number.isNaN(limit)) {
+  if (limit && Number.isNaN(limit)) {
     throw new Error("--limit must be a number");
   }
 
@@ -120,7 +120,7 @@ async function main() {
         actor_id: edge.actor,
         actor_label: edge.actor_label,
         actor_sitelinks: edge.actor_sitelinks,
-        actor_search_key: makeSearchKey(edge.actor_label),
+        actor_search_key: searchKeyFor(edge.actor_label, edge, lineNumber),
       };
       await safeWrite(actorsTransform, actorRow);
       actorsSeen.add(edge.actor);
@@ -132,7 +132,7 @@ async function main() {
         movie_label: edge.movie_label,
         movie_sitelinks: edge.movie_sitelinks,
         movie_year: edge.movie_year,
-        movie_search_key: makeSearchKey(edge.movie_label),
+        movie_search_key: searchKeyFor(edge.movie_label, edge, lineNumber),
       };
       await safeWrite(moviesTransform, movieRow);
       moviesSeen.add(edge.movie);
@@ -157,6 +157,17 @@ async function main() {
     actors: actorsSeen.size,
     edges: edgesCount,
   });
+}
+
+function searchKeyFor(label: string, edge: Edge, lineNumber: number): string {
+  try {
+    return makeSearchKey(label);
+  } catch (err) {
+    throw new Error(
+      `Failed to transform edge ${JSON.stringify(edge)}, line number: ${lineNumber}`,
+      { cause: err },
+    );
+  }
 }
 
 async function safeWrite<Row extends object>(stream: Writable, data: Row) {
