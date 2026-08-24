@@ -8,13 +8,21 @@
     ".": "./dist/index.js"
   },
   "scripts": {
+    "dev": "tsc --build --watch",
     "build": "tsc --build",
     "typecheck": "tsc --build",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest --passWithNoTests"
   },
   "devDependencies": {
     "@baconslaw/tsconfig": "workspace:*",
     "@types/node": "^24.0.0",
-    "typescript": "^7.0.0"
+    "typescript": "^7.0.0",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "csv-stringify": "^6.8.3",
+    "@baconslaw/lib": "workspace:*"
   }
 }

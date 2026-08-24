@@ -8,10 +8,12 @@
     ".": "./dist/index.js"
   },
   "scripts": {
+    "dev": "tsc --build --watch",
     "build": "tsc --build",
     "typecheck": "tsc --build",
     "clean": "rm -rf dist *.tsbuildinfo",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@baconslaw/tsconfig": "workspace:*",

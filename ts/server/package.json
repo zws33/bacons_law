@@ -5,8 +5,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "dev": "node --watch src/index.ts",
+    "build": "tsc --build",
+    "typecheck": "tsc --build",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "devDependencies": {
