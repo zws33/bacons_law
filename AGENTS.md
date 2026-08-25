@@ -1,39 +1,53 @@
 # Agents Guide — Bacon's Law
 
-A trivia game based on "Six Degrees of Kevin Bacon." Two or more players on separate devices take
-turns naming movies and actors to build a chain of connections, each answer connecting factually to
-the one before it. Play is **correspondence** — async, move-when-you-can, with a per-turn deadline. A
-server owns authoritative game state and validates every move against a precomputed actor↔movie graph
-held in Postgres alongside that state.
+Correspondence trivia game (Six Degrees of Kevin Bacon). [README](README.md) has the concept and the
+current tech decisions; this file is the working guide for changing the repo.
+
+## Layout
+
+Polyglot monorepo, two independent toolchains. Commands run from each subtree's root — there is **no
+package manifest or code at the repo root**.
+
+| Path | Stack | Toolchain |
+|---|---|---|
+| `etl/` | Python 3.14 — offline Wikidata graph build | `uv` |
+| `ts/` | pnpm workspace: `server`, `web`, `packages/*` (`lib`, `scripts`, `tsconfig`) | `pnpm`, Node 24 |
+| `docs/` | Conformance specs (see below) | — |
+
+## Checks
+
+Confirm these pass before calling a change done. Run `ts/` checks from `ts/`, `etl/` checks from `etl/`.
+
+- **ts/** — `pnpm lint` (Biome), `pnpm typecheck`, `pnpm test` (Vitest). `pnpm lint:fix` autofixes.
+- **etl/** — `uv run ruff check`, `uv run basedpyright`, `uv run pytest`.
+
+## Authoritative specs
+
+- [ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) — round engine, rules R1–R17 + conformance suite.
+- [MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md) — match layer, rules M1–M16 + conformance suite.
+
+These are language-agnostic and win over any implementation. When code and a spec disagree, the code is
+the bug — fix the code, or flag the spec conflict; never silently diverge.
 
 ## Conventions
 
-- **Commits:** Conventional commit format — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`.
-- **Edits require an explicit request.** Do not modify, create, or delete files unless the user
-  specifically asks for a change. Default to investigation, analysis, and proposing diffs in the
-  chat. When you believe an edit is warranted, describe it and wait for the go-ahead rather than
-  applying it.
+- **Commits:** Conventional format — `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`.
+- **Edits require an explicit request.** Default to investigation and proposing diffs in chat. When an
+  edit seems warranted, describe it and wait for the go-ahead.
 
 ## Test-Driven Development
 
-When asked to make code changes, follow TDD unless the user explicitly says to skip tests.
+For prompted code changes, follow TDD unless the user says to skip it.
 
-1. **Write a failing test first.** One behavior per test, expressed as the desired end state — not
-   the implementation you have in mind.
-2. **Run it; confirm it fails red.** The failure must be an assertion failure, not an import,
-   syntax, or setup error. A test that errors instead of failing isn't a valid red.
-3. **Write the minimum code to pass.** No behavior the test doesn't demand; no speculative
-   generality.
-4. **Run the test and the surrounding suite; confirm green.** A new test passing while an existing
-   one breaks is not done.
-5. **Refactor with the suite green,** then re-run.
+1. Write one failing test expressing the desired behavior; run it and confirm it fails on an assertion,
+   not an import/setup error.
+2. Write the minimum code to pass; run the test and the surrounding suite; confirm green.
+3. Refactor with the suite green, then re-run.
 
 Guardrails:
 
-- **Never weaken, skip, or delete a test to force a pass.** Fix the code. If the test itself looks
-  wrong, stop and say so — don't silently change it.
-- **Don't write implementation before the red run.** Writing the test and the code together, then
-  running once, defeats the purpose — the red step is what proves the test can fail.
-- **Show the red and green runs** in your response. Don't report a step you didn't execute.
-- **If the behavior is too unclear to write a test for, ask first** — that ambiguity is a design
-  question, not a coding one.
+- Never weaken, skip, or delete a test to force a pass — fix the code. If the test itself looks wrong,
+  stop and say so.
+- Don't write implementation before the red run; the red step is what proves the test can fail.
+- Show the red and green runs. Don't report a step you didn't execute.
+- If the behavior is too unclear to test, ask first — that's a design question, not a coding one.

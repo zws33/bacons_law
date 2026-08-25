@@ -34,7 +34,7 @@ async function main() {
   const inputPath = args.inputPath;
   const outputDir = args.outputDir;
 
-  if (limit && Number.isNaN(limit)) {
+  if (limit !== undefined && Number.isNaN(limit)) {
     throw new Error("--limit must be a number");
   }
 

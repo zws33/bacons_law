@@ -1,11 +1,11 @@
 export function makeSearchKey(label: string): string {
-  // Normalize accents + case once; both paths build on this.
+  // Normalize accents + case
   const normalized = label
     .normalize("NFKD")
     .replace(/\p{Mark}/gu, "")
     .toLowerCase();
 
-  // drop punctuation/symbols so typeahead matching is forgiving
+  // drop punctuation/symbols
   const alnum = normalized
     .replace(/[^\p{Letter}\p{Number}]/gu, " ")
     .replace(/\s+/g, " ")
