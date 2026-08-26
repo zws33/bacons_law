@@ -142,7 +142,7 @@ always is one ([M5](#m5--removal-from-play)).
 **`matchOrder` retains removed players.** See [M2](#m2--the-match-order-is-fixed) for why, and what it
 costs to do otherwise.
 
-**There is no `MatchOutcome` variant for a rejected or ignored round result.** A round result is either
+**There is no `MatchOutcome` variant for a discarded or ignored round result.** A round result is either
 applied or the call is malformed ([M14](#m14--malformed-input-is-an-error-never-a-match-outcome)).
 
 ### What this layer receives
@@ -154,7 +154,7 @@ RoundOver:
     loserIndex:   Int                  # a SeatIndex into that round's roster
     chain:        List<Move>           # accepted moves; EXCLUDES the losing move
     losingMove:   Move?
-    reason:       RoundEndReason       # Unconnected | GaveUp | DeadlineLapsed
+    reason:       RoundEndReason       # Unconnected | Repeat | GaveUp | DeadlineLapsed
 ```
 
 **Nothing in this document requires a change to the engine spec or to `RoundOver`.** `reason` is the
@@ -260,6 +260,7 @@ because it lost a round, not because it removes the player. The invariant that f
 |---|---|---|
 | `Unconnected` | 1 | Only if the total reaches `strikeLimit` under `Eliminate` |
 | `GaveUp` | 1 | Only if the total reaches `strikeLimit` under `Eliminate` |
+| `Repeat` | 1 | Only if the total reaches `strikeLimit` under `Eliminate` |
 | `DeadlineLapsed` | 1 | **Always**, cause `Lapsed` |
 
 A player who lets a deadline lapse is removed from the match immediately, whatever their strike total
@@ -519,7 +520,7 @@ Without it, applying the same `RoundOver` twice double-charges a strike, and a p
 detect the duplicate on its own — `RoundOver` carries no identity, and two rounds can legitimately
 produce identical results.
 
-`withdraw` needs no equivalent. It is idempotent by rejection: a second call names an already-removed
+`withdraw` needs no equivalent. It is idempotent by refusal: a second call names an already-removed
 player and raises.
 
 **This is detection, not idempotent replay.** The pure layer refuses the stale call; the session layer
@@ -628,6 +629,7 @@ One strike is charged in every row ([M3](#m3--a-round-loss-costs-exactly-one-str
 | MC-03 | `Eliminate` | `Unconnected` | 2 (limit 3) | 4 | `MatchInProgress`; removed, cause `StrikeLimit`; 3 active |
 | MC-04 | `Eliminate` | `Unconnected` | 2 (limit 3) | 2 | `MatchOver`; loser removed; one active remains |
 | MC-20 | either | `GaveUp` | 0 | 4 | Identical to MC-01 |
+| MC-33 | either | `Repeat` | 0 | 4 | `MatchInProgress`; strikes 1; no removal |
 | MC-23 | either | `DeadlineLapsed` | 0 | 4 | `MatchInProgress`; strikes 1; **removed**, cause `Lapsed`; 3 active |
 
 ### Group A — Strikes, removal, and match end
@@ -686,6 +688,15 @@ THEN both return equal `MatchInProgress` values
 
 Pins the top two rows of [M4](#m4--the-round-end-reason-determines-removal): a give-up is a move, and
 is priced as one.
+
+#### MC-33 — A repeat loss costs a strike and nothing more
+
+GIVEN a fresh `ELIM_3` match
+WHEN `loss(2)` and the same result with reason `Repeat` are each applied to it
+THEN both return equal `MatchInProgress` values
+
+Pins the third row of [M4](#m4--the-round-end-reason-determines-removal): an in-round repeat or a
+match-excluded entity is priced the same as `Unconnected` and `GaveUp`.
 
 #### MC-23 — A lapsed deadline removes the player
 
