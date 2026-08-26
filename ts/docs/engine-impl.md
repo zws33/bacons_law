@@ -52,7 +52,7 @@
 | File                          | Contents                                                                                                                                                                 |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `src/errors.ts`               | `ValidationError`, `IllegalStateError`                                                                                                                                   |
-| `src/types.ts`                | `EntityId`, `Actor`, `Movie`, `Move`, brands; `InProgress` variants + union, `RoundOver`, `Rejected`, `RoundState`, `MoveOutcome`; reason unions                         |
+| `src/types.ts`                | `EntityId`, `Actor`, `Movie`, `Move`, brands; `InProgress` , `RoundOver`, `RoundState`;                                                                                  |
 | `src/entities.ts`             | `actor()`, `movie()` smart constructors (R12, R13)                                                                                                                       |
 | `src/state.ts`                | `inProgress()` (R13), internal `roundOver()` builder, `expecting` derivation                                                                                             |
 | `src/playMove.ts`             | overloads + impl: R1–R6, R9, R11, R16, evaluation order                                                                                                                  |
@@ -74,8 +74,7 @@ commas, 2-space, 80 col); strict TS with `verbatimModuleSyntax` (use `import typ
 
 ## TDD ordering (red → green, per group)
 
-1. **Fixtures** — translate the fixture block once into `conformance.fixtures.ts` (prerequisite, not a
-   test).
+1. **Fixtures** — translate the fixture block once into `conformance.fixtures.ts` (prerequisite, not a test).
 2. **Group G construction** (`entities.test.ts`, `state.test.ts`): TC-23, TC-21, TC-22, TC-31 →
    drives smart constructors + `ValidationError`. First, since everything depends on them.
 3. **Group A** (`playMove.test.ts`): TC-08, TC-13, TC-01, TC-02, TC-25 → core `playMove` accept path,
@@ -109,20 +108,13 @@ asserts unchanged state (TC-32 pins this in full).
 
 ## Validation
 
-- `pnpm --filter @baconslaw/engine test` → `vitest run --typecheck`: all runtime TCs green **and**
-  `.test-d.ts` type assertions pass (TC-09/10/20/24 compile-error expectations hold).
+- `pnpm --filter @baconslaw/engine test` → `vitest run --typecheck`: all runtime TCs green **and** `.test-d.ts` type assertions pass (TC-09/10/20/24 compile-error expectations hold).
 - `pnpm --filter @baconslaw/engine typecheck` → `tsc --build`: package builds clean under strict TS.
 - `pnpm lint` (Biome) clean at repo root.
 - Spot-check traceability: every `TC-nn` id appears in exactly one test name.
 
 ## Risks
 
-- **Vitest `--typecheck` under TS 7 (native compiler).** If type-testing tooling is unstable on TS7,
-  fall back to a `tsconfig.test.json` that includes `*.test-d.ts` + a `test:types` script running
-  `tsc --noEmit` for the static assertions. The static conformance cases must be machine-checked, not
-  merely commented.
-- **Overload ergonomics for `TC-25`/`TC-26` (feed-result-back).** The `InProgress` branch of
-  `MoveOutcome` returns the union; the loop narrows on `kind === "in_progress"` before replay. Confirm
-  the narrowed type still selects a `playMove` overload without a cast.
-- **`expecting` discriminant is redundant with `moves`.** Keep it strictly derived in `inProgress()`;
-  never let a caller set it independently, or the typestate can lie about the chain.
+- **Vitest `--typecheck` under TS 7 (native compiler).** If type-testing tooling is unstable on TS7, fall back to a `tsconfig.test.json` that includes `*.test-d.ts` + a `test:types` script running `tsc --noEmit` for the static assertions. The static conformance cases must be machine-checked, not merely commented.
+- **Overload ergonomics for `TC-25`/`TC-26` (feed-result-back).** The `InProgress` branch of `MoveOutcome` returns the union; the loop narrows on `kind === "in_progress"` before replay. Confirm the narrowed type still selects a `playMove` overload without a cast.
+- **`expecting` discriminant is redundant with `moves`.** Keep it strictly derived in `inProgress()`; never let a caller set it independently, or the typestate can lie about the chain.
