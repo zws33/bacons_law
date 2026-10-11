@@ -73,7 +73,8 @@ one test. Translate the fixtures once into a shared fixture module, then transla
 
 ## Vocabulary
 
-The document uses the `movie-actor-chain-game` skill's terms. The Kotlin prototype's names are mappedhere only so the old code is readable; prefer the **Spec term** column in new code.
+This document's terms are normative. The table maps them onto the `movie-actor-chain-game`
+skill's vocabulary for readers arriving from it; prefer the **Spec term** column in new code.
 
 | Spec term     | `movie-actor-chain-game` skill |
 | ------------- | ------------------------------ |
@@ -89,13 +90,14 @@ The document uses the `movie-actor-chain-game` skill's terms. The Kotlin prototy
 **One round is one chain.** A match is a series of rounds; that layer exists but is specified
 elsewhere.
 
-| Term            | Meaning                                                                                                                                                                          |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Unconnected** | A submission of the correct type, available, that has no edge to the previous move. Ends the round with `reason == Unconnected` ([R6](#r6--an-unconnected-move-ends-the-round))  |
+| Term            | Meaning                                                                                                                                                                             |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Unconnected** | A submission of the correct type, available, that has no edge to the previous move. Ends the round with `reason == Unconnected` ([R6](#r6--an-unconnected-move-ends-the-round))     |
 | **Available**   | Not already played in this round and not in the match layer's exclusion set for its type. An unavailable submission ends the round ([R5](#r5--availability-repeats-and-exclusions)) |
 
 **Graph membership defines validity, not real-world truth.** An edge the artifact does not carry is not a legal move, however true it is off-graph. The engine tests `castIds` and nothing else ([R12](#r12--identity-is-the-id-alone)), and `castIds` comes from a graph built offline with a cast
-cap, so a real but obscure cast member is absent from the graph and is therefore not a valid move. This is a property of the data the engine is handed, not a rule the engine applies — it is stated here because it is the one place a reader is likely to mistake a legitimate lost round for a bug. The cap is a dial (`cast_cap`, `min_cast` — etl/AGENTS.md), and expect the argument to recur in playtests.
+cap, so a real but obscure cast member is absent from the graph and is therefore not a valid move. This is a property of the data the engine is handed, not a rule the engine applies — it is stated here because it is the one place a reader is likely to mistake a legitimate lost round for a bug. The cap is a dial (`cast_cap`, `min_cast` — [etl/README.md](../etl/README.md#corpus-dials)), and
+expect the argument to recur in playtests.
 
 ---
 
@@ -176,11 +178,11 @@ caller persists and in whether the player on turn keeps the turn. The error row 
 completeness — it is raised, never returned
 ([R15](#r15--malformed-input-is-an-error-never-a-round-outcome)).
 
-| Outcome        | Cause                                                                                                                                                           | Turn advances | Caller persists    | Round ends                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- | ------------------ | --------------------------------------------------------------------------------------- |
+| Outcome        | Cause                                                                                                                                                                           | Turn advances | Caller persists    | Round ends                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | ------------------ | --------------------------------------------------------------------------------------- |
 | **Error**      | [R13](#r13--invalid-state-and-move-construction-is-rejected)/[R14](#r14--operations-are-inapplicable-to-terminal-states) violations — blank ID, terminal state, wrong-type move | —             | nothing            | no — programming error ([R15](#r15--malformed-input-is-an-error-never-a-round-outcome)) |
-| **InProgress** | Accepted                                                                                                                                                          | yes           | the new state      | no                                                                                      |
-| **RoundOver**  | Unavailable ([R5](#r5--availability-repeats-and-exclusions)), unconnected ([R6](#r6--an-unconnected-move-ends-the-round)), or `forfeit` ([R7](#r7--forfeit-ends-the-round)) | —             | the terminal state | yes                                                                                     |
+| **InProgress** | Accepted                                                                                                                                                                        | yes           | the new state      | no                                                                                      |
+| **RoundOver**  | Unavailable ([R5](#r5--availability-repeats-and-exclusions)), unconnected ([R6](#r6--an-unconnected-move-ends-the-round)), or `forfeit` ([R7](#r7--forfeit-ends-the-round))     | —             | the terminal state | yes                                                                                     |
 
 **Evaluation order is normative: type, then availability, then connection**, and it fixes the
 round-end reason. A wrong-type move is validated out above the engine — statically, or at the
@@ -421,24 +423,24 @@ ended by the session layer resolving the deadline to `forfeit(state, DeadlineLap
 
 Required by the game, enforced elsewhere. An engine that enforces these is over-scoped.
 
-| Constraint                                                                                             | Enforced by                                                                                                                                                                                  |
-| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| What a round loss costs — strikes, elimination, match end                                              | Match layer                                                                                                                                                                                  |
-| Strike limits, standings, ranking across an ongoing series                                             | Match layer                                                                                                                                                                                  |
-| Game-mode configuration, fixed before the round starts                                                 | Match layer                                                                                                                                                                                  |
-| Naming a winner, if the mode defines one                                                               | Match layer ([R8](#r8--loser-determination))                                                                                                                                                 |
-| Who opens the next round, and with which roster                                                        | Match layer; it passes the next round a `playerCount`                                                                                                                                        |
-| Whether entities reuse across rounds — and seeding `excludedActorIds` / `excludedMovieIds` accordingly | Match layer; the engine applies the sets it is given ([R5](#r5--availability-repeats-and-exclusions))                                                                                        |
-| Requiring the opening move to be an Actor, if a mode wants it                                          | Caller (session / UI layer)                                                                                                                                                                  |
+| Constraint                                                                                             | Enforced by                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| What a round loss costs — strikes, elimination, match end                                              | Match layer                                                                                                                                                                                                                                                                               |
+| Strike limits, standings, ranking across an ongoing series                                             | Match layer                                                                                                                                                                                                                                                                               |
+| Game-mode configuration, fixed before the round starts                                                 | Match layer                                                                                                                                                                                                                                                                               |
+| Naming a winner, if the mode defines one                                                               | Match layer ([R8](#r8--loser-determination))                                                                                                                                                                                                                                              |
+| Who opens the next round, and with which roster                                                        | Match layer; it passes the next round a `playerCount`                                                                                                                                                                                                                                     |
+| Whether entities reuse across rounds — and seeding `excludedActorIds` / `excludedMovieIds` accordingly | Match layer; the engine applies the sets it is given ([R5](#r5--availability-repeats-and-exclusions))                                                                                                                                                                                     |
+| Requiring the opening move to be an Actor, if a mode wants it                                          | Caller (session / UI layer)                                                                                                                                                                                                                                                               |
 | The player is offered the correct entity type each turn                                                | Caller filters its typeahead to the required type; type is validated statically or at the input boundary ([R4](#r4--consecutive-moves-must-alternate-type)), and a wrong type reaching `playMove` is a programming error ([R15](#r15--malformed-input-is-an-error-never-a-round-outcome)) |
-| The player is not offered an entity already played, or excluded                                        | Caller filters its typeahead against the chain and the exclusion sets; [R5](#r5--availability-repeats-and-exclusions) is the backstop — an unavailable entity reaching `playMove` ends the round ([R16](#r16--an-unavailable-move-ends-the-round))                                          |
-| `castIds` is accurate and complete                                                                     | Caller populates from the graph before constructing the move                                                                                                                                 |
-| Name resolution, typos, disambiguation                                                                 | Caller, before a `Move` exists                                                                                                                                                               |
-| **Bounding a turn on which no move arrives, so the round terminates**                                  | **Session layer, via the deadline. The engine bounds the chain; a silent turn is ended by the deadline — [R17](#r17--every-round-terminates)**                                               |
-| **Deciding whether a forfeit is `GaveUp` or `DeadlineLapsed`**                                         | **Session layer; it passes the reason to `forfeit`. The engine has no clock ([R10](#r10--the-engine-is-pure))**                                                                              |
-| Mapping a deadline expiry or an abandonment onto a round result                                        | Session layer; it calls `forfeit`                                                                                                                                                            |
-| Detecting that the player on turn has no legal move at all                                             | Session layer; it holds the graph. The engine cannot see it when the chain head is an Actor — see [Open questions](#open-questions)                                                          |
-| Persistence, transport, presence                                                                       | Session layer                                                                                                                                                                                |
+| The player is not offered an entity already played, or excluded                                        | Caller filters its typeahead against the chain and the exclusion sets; [R5](#r5--availability-repeats-and-exclusions) is the backstop — an unavailable entity reaching `playMove` ends the round ([R16](#r16--an-unavailable-move-ends-the-round))                                        |
+| `castIds` is accurate and complete                                                                     | Caller populates from the graph before constructing the move                                                                                                                                                                                                                              |
+| Name resolution, typos, disambiguation                                                                 | Caller, before a `Move` exists                                                                                                                                                                                                                                                            |
+| **Bounding a turn on which no move arrives, so the round terminates**                                  | **Session layer, via the deadline. The engine bounds the chain; a silent turn is ended by the deadline — [R17](#r17--every-round-terminates)**                                                                                                                                            |
+| **Deciding whether a forfeit is `GaveUp` or `DeadlineLapsed`**                                         | **Session layer; it passes the reason to `forfeit`. The engine has no clock ([R10](#r10--the-engine-is-pure))**                                                                                                                                                                           |
+| Mapping a deadline expiry or an abandonment onto a round result                                        | Session layer; it calls `forfeit`                                                                                                                                                                                                                                                         |
+| Detecting that the player on turn has no legal move at all                                             | Session layer; it holds the graph. The engine cannot see it when the chain head is an Actor — see [Open questions](#open-questions)                                                                                                                                                       |
+| Persistence, transport, presence                                                                       | Session layer                                                                                                                                                                                                                                                                             |
 
 ---
 
@@ -1060,9 +1062,9 @@ winner field would bake one mode's convention into the layer every mode shares, 
 
 ### Group G — Input validation
 
-Every case in this group is a **conformance delta**: the Kotlin `:core` prototype does not implement
-[R13](#r13--invalid-state-and-move-construction-is-rejected). These are required behavior to build,
-not existing behavior to protect.
+[R13](#r13--invalid-state-and-move-construction-is-rejected) is required behavior to build. No
+implementation in this repo satisfies it yet, so these cases protect nothing that exists — write them
+first.
 
 #### TC-21 — Reject `playerCount < 2`
 
