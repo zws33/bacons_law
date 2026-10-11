@@ -21,5 +21,19 @@ set-membership check the server validates moves against) plus `entities` (QID �
 sitelinks}`, with `year` on movies). Labels and years are what a typeahead renders; `sitelinks` is
 what it ranks on
 
+## Corpus dials
+
+Defaults in [`src/etl/config.py`](src/etl/config.py), each overridable on the `build` command. They
+decide what the graph contains, so they decide what counts as a legal move for the round engine.
+
+| Dial | Default | CLI | Effect |
+|---|---|---|---|
+| `min_sitelinks` | 5 | `--min-sitelinks` | Drops obscure entities below this Wikidata sitelink count |
+| `min_cast` | 3 | `--min-cast` | Drops a film whose cast is smaller than this |
+| `cast_cap` | 15 | `--cap` | Keeps only the top-N billed actors per film |
+
+`cast_cap` is why a real but low-billed cast member is not a valid move — the edge is absent from the
+artifact. Expect the argument to recur in playtests.
+
 `data/` is gitignored and a full pull is ~100 sequential queries against a best-effort third-party
 endpoint — **back up `data/raw/` once you have it.**
