@@ -1,49 +1,67 @@
+import { ValidationError } from "./errors.js";
+
 export type EntityId = string;
 
 export type Actor = {
+  readonly kind: "actor";
   readonly id: EntityId;
   readonly displayText: string;
   readonly imagePath: string | null;
 };
 
 export type Movie = {
+  readonly kind: "movie";
   readonly id: EntityId;
   readonly displayText: string;
-  readonly castIds: ReadonlySet<EntityId>;
+  readonly castIds: ReadonlySet<EntityId>; // the validation contract (R12)
   readonly imagePath: string | null;
   readonly releaseYear: string | null;
 };
-type ActorInput = Pick<Actor, "id" | "displayText"> & {
+
+export type Move = Actor | Movie;
+
+type ActorInput = {
+  id: EntityId;
+  displayText: string;
   imagePath?: string | null;
 };
 
-type MovieInput = Pick<Movie, "id" | "displayText"> & {
+type MovieInput = {
+  id: EntityId;
+  displayText: string;
   castIds: Iterable<EntityId>;
   imagePath?: string | null;
   releaseYear?: string | null;
 };
 
+const requireId = (id: EntityId, label: string): EntityId => {
+  if (id.trim() === "") {
+    throw new ValidationError(
+      `${label} must be a non-blank id, got ${JSON.stringify(id)}`,
+    );
+  }
+  return id;
+};
+
 export const createActor = (input: ActorInput): Actor => {
   return {
-    ...input,
+    kind: "actor",
+    id: requireId(input.id, "Actor.id"),
+    displayText: input.displayText,
     imagePath: input.imagePath ?? null,
   };
 };
 
 export const createMovie = (input: MovieInput): Movie => {
   return {
-    ...input,
-    castIds: input.castIds ? new Set(input.castIds) : new Set(),
+    kind: "movie",
+    id: requireId(input.id, "Movie.id"),
+    displayText: input.displayText,
+    // An empty castIds is legal data (R13); a blank *member* is not.
+    castIds: new Set(
+      [...input.castIds].map((id) => requireId(id, "Movie.castIds member")),
+    ),
     imagePath: input.imagePath ?? null,
     releaseYear: input.releaseYear ?? null,
   };
 };
-
-const RoundEndReason = {
-  Unconnected: "unconnected",
-  Repeat: "repeat",
-  GaveUp: "gaveUp",
-  DeadlineLapsed: "deadlineLapsed",
-};
-
-type RoundEndReason = (typeof RoundEndReason)[keyof typeof RoundEndReason];
