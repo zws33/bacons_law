@@ -73,7 +73,8 @@ one test. Translate the fixtures once into a shared fixture module, then transla
 
 ## Vocabulary
 
-The document uses the `movie-actor-chain-game` skill's terms. The Kotlin prototype's names are mappedhere only so the old code is readable; prefer the **Spec term** column in new code.
+This document's terms are normative. The table maps them onto the `movie-actor-chain-game`
+skill's vocabulary for readers arriving from it; prefer the **Spec term** column in new code.
 
 | Spec term     | `movie-actor-chain-game` skill |
 | ------------- | ------------------------------ |
@@ -95,7 +96,8 @@ elsewhere.
 | **Available**   | Not already played in this round and not in the match layer's exclusion set for its type. An unavailable submission ends the round ([R5](#r5--availability-repeats-and-exclusions)) |
 
 **Graph membership defines validity, not real-world truth.** An edge the artifact does not carry is not a legal move, however true it is off-graph. The engine tests `castIds` and nothing else ([R12](#r12--identity-is-the-id-alone)), and `castIds` comes from a graph built offline with a cast
-cap, so a real but obscure cast member is absent from the graph and is therefore not a valid move. This is a property of the data the engine is handed, not a rule the engine applies — it is stated here because it is the one place a reader is likely to mistake a legitimate lost round for a bug. The cap is a dial (`cast_cap`, `min_cast` — etl/AGENTS.md), and expect the argument to recur in playtests.
+cap, so a real but obscure cast member is absent from the graph and is therefore not a valid move. This is a property of the data the engine is handed, not a rule the engine applies — it is stated here because it is the one place a reader is likely to mistake a legitimate lost round for a bug. The cap is a dial (`cast_cap`, `min_cast` — [etl/README.md](../etl/README.md#corpus-dials)), and
+expect the argument to recur in playtests.
 
 ---
 
@@ -1060,9 +1062,9 @@ winner field would bake one mode's convention into the layer every mode shares, 
 
 ### Group G — Input validation
 
-Every case in this group is a **conformance delta**: the Kotlin `:core` prototype does not implement
-[R13](#r13--invalid-state-and-move-construction-is-rejected). These are required behavior to build,
-not existing behavior to protect.
+[R13](#r13--invalid-state-and-move-construction-is-rejected) is required behavior to build. No
+implementation in this repo satisfies it yet, so these cases protect nothing that exists — write them
+first.
 
 #### TC-21 — Reject `playerCount < 2`
 
