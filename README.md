@@ -36,13 +36,16 @@ Validation is the design crux, and the key insight is that it should be **precom
 - **TypeScript on Node, Fastify** — the server. Not written yet.
 - **Web** — the primary client, its own top-level directory. Native is a
   showcase follow-up. Not written yet.
-- **Supabase** — Postgres for game state *and* the graph, plus the identity provider. The server holds the service key and stays authoritative; clients never touch the database. Identity is a JWT verified against the provider's JWKS.
+- **Postgres** — game state *and* the graph, self-hosted from [docker-compose.yml](docker-compose.yml)
+  in development and deploy; [ts/schema.sql](ts/schema.sql) is the schema. The server stays
+  authoritative; clients never touch the database.
+- **DigitalOcean** — hosting. The server must run in the same region as the database: typeahead is the
+  only latency-sensitive path and it takes a round trip.
 
 **Open — nothing below is chosen:**
 
-- **Hosting.** Open on cost and operational simplicity; cold start is measured and is not an obstacle.
-  One constraint: the server must run in the same region as the database, because typeahead is the
-  only latency-sensitive path and it now takes a round trip.
+- **Identity.** No provider chosen. The shape is settled either way: a JWT the server verifies against
+  the issuer's JWKS, with the server authoritative over game state.
 
 [ENGINE_CONFORMANCE.md](docs/ENGINE_CONFORMANCE.md) and [MATCH_CONFORMANCE.md](docs/MATCH_CONFORMANCE.md) specify the round engine and the match layer as numbered rules plus a conformance suite, language-agnostic and authoritative over any implementation.
 
